@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { DEFAULT_READ_BYTES, readLog } from "./logs.mjs";
+import { detectClientSurface, notificationPresentation } from "./client-surface.mjs";
 import {
   renderCommand,
   terminateTrackedProcess,
@@ -134,6 +135,8 @@ function publicJob(job) {
     signal: job.signal ?? null,
     errorMessage: job.errorMessage ?? null,
     ownerThreadId: job.ownerThreadId ?? null,
+    ownerSurface: job.ownerSurface ?? "unknown",
+    ownerSurfaceDetectedBy: job.ownerSurfaceDetectedBy ?? null,
     resultViewedAt: job.resultViewedAt ?? null,
     notification: job.notification ?? null,
     logs: job.logs,
@@ -227,8 +230,9 @@ async function handleStart(args, env = process.env) {
   fs.writeFileSync(logs.stderr, "", { mode: 0o600, flag: "wx" });
   const displayCommand = renderCommand(parsed.argv, parsed.shell);
   const ownerThreadId = env.CODEX_THREAD_ID || null;
+  const ownerClient = detectClientSurface(env);
   const notificationRequested = parsed.notify && env.CODEX_PROCESS_JOBS_DISABLE_NOTIFY !== "1";
-  const notification = !notificationRequested
+  const notificationBase = !notificationRequested
     ? { requested: false, status: "disabled", mode: "app-server-turn" }
     : ownerThreadId
       ? { requested: true, status: "pending", mode: "app-server-turn", attempts: 0 }
@@ -239,6 +243,10 @@ async function handleStart(args, env = process.env) {
           attempts: 0,
           errorMessage: "No owning persistent Codex thread id was captured.",
         };
+  const notification = {
+    ...notificationBase,
+    presentation: notificationPresentation(ownerClient.surface, notificationBase.status),
+  };
   const job = createJob(
     {
       id,
@@ -252,6 +260,8 @@ async function handleStart(args, env = process.env) {
       cwd: parsed.cwd,
       platform: process.platform,
       ownerThreadId,
+      ownerSurface: ownerClient.surface,
+      ownerSurfaceDetectedBy: ownerClient.detectedBy,
       notification,
       resultViewedAt: null,
       stdin: "ignored",
@@ -297,8 +307,10 @@ async function handleStart(args, env = process.env) {
     `stdout: ${job.logs.stdout}`,
     `stderr: ${job.logs.stderr}`,
     "The process is detached and receives no interactive stdin.",
-    job.notification.status === "pending"
-      ? "The owning Codex task will receive a conversational completion notification."
+    job.notification.status === "pending" && job.ownerSurface === "vscode"
+      ? "Completion will be recorded in the owning Codex task. The open VS Code panel may need a reload or the task may need to be reopened to show it; status/result work at any time."
+      : job.notification.status === "pending"
+        ? "The owning Codex task will receive a conversational completion notification."
       : job.notification.status === "disabled"
         ? "Completion notification is disabled for this job."
         : "No persistent owning Codex task was detected; use status/result to check completion.",

@@ -127,12 +127,23 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.equal(JSON.parse(fs.readFileSync(path.join(destination, ".codex-plugin", "plugin.json"), "utf8")).name, "codex-process-jobs");
   assert.equal(JSON.parse(fs.readFileSync(marketplaceFile, "utf8")).plugins.length, 1);
   assert.match(fs.readFileSync(agentFile, "utf8"), /\$codex-process-jobs:start/);
+  assert.match(fs.readFileSync(agentFile, "utf8"), /durable-refresh-required/);
   assert.match(applied.stdout, /Completion hook: trusted 1 plugin hook/);
 
   const calls = fs.readFileSync(env.MOCK_CODEX_CALLS, "utf8").trim().split("\n").map(JSON.parse);
   assert.ok(calls.some((args) => args[0] === "plugin" && args[1] === "add" && args[2] === "codex-process-jobs@personal"));
   assert.ok(calls.some((args) => args[0] === "features" && args[1] === "enable" && args[2] === "hooks"));
   assert.equal(calls.filter((args) => args[0] === "app-server").length, 2);
+});
+
+test("default preview tells an installing agent to ask about the optional global policy", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const preview = runInstaller([], env);
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(preview.stdout, /global agent policy: not selected/i);
+  assert.match(preview.stdout, /ask the user whether they want the optional global AGENTS\.md policy/i);
+  assert.equal(fs.existsSync(path.join(home, ".codex", "AGENTS.md")), false);
 });
 
 test("apply refuses to replace the plugin while a tracked job is active", (t) => {

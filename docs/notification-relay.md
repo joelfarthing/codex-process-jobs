@@ -16,7 +16,7 @@ This relay uses an ordinary Codex turn and therefore consumes normal Codex usage
 
 ## VS Code presentation note
 
-The completion turn is persisted in the owning task independently of the client that launched it. In the tested Codex VS Code extension build, an already-open Codex webview cached the transcript and did not live-render a completion turn appended by a separate app-server process. Reloading the VS Code window and reopening the task displayed both the launch turn and the conversational completion turn. Until the extension observes externally appended turns live, the next-prompt hook and status/result commands cover an open stale webview.
+The completion turn is persisted in the owning task independently of the client that launched it. In the tested Codex VS Code extension build, an already-open Codex webview cached the transcript and did not live-render a completion turn appended by a separate app-server process. Reloading the VS Code window and reopening the task displayed both the launch turn and the conversational completion turn. Until the extension observes externally appended turns live, start records `notification.presentation` as `durable-refresh-required` and the agent discloses the limitation; the next-prompt hook and status/result commands cover an open stale webview.
 
 ## Delivery states
 

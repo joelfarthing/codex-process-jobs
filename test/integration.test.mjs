@@ -140,6 +140,40 @@ test("launches a detached command, returns immediately, and stores its result", 
   assert.match(result.stderr, /warning/);
 });
 
+test("marks VS Code jobs as durable completions that may require panel refresh", (t) => {
+  const context = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "codex_vscode",
+  });
+  createMockCodex(t, context);
+  const started = runCli([
+    "start",
+    "--name",
+    "VS Code surface wording",
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], context.env);
+  assert.match(started.stdout, /open VS Code panel may need a reload/i);
+  assert.match(started.stdout, /status\/result work at any time/i);
+  const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
+  assert.ok(id);
+  context.startedIds.push(id);
+  const job = JSON.parse(runCli(["status", id, "--json"], context.env).stdout).job;
+  assert.equal(job.ownerSurface, "vscode");
+  assert.equal(job.ownerSurfaceDetectedBy, "codex-originator");
+  assert.equal(job.notification.presentation, "durable-refresh-required");
+  assert.equal(waitJson(id, context.env).job.status, "completed");
+  const jobFile = path.join(context.env.CODEX_HOME, "process-jobs", "jobs", `${id}.json`);
+  assert.equal(waitUntil(() => {
+    try {
+      return JSON.parse(fs.readFileSync(jobFile, "utf8")).notification?.status === "delivered";
+    } catch {
+      return false;
+    }
+  }, 5000), true);
+});
+
 test("detached worker relays completion to the owning Codex thread", (t) => {
   const context = makeEnv(t);
   const promptFile = createMockCodex(t, context);

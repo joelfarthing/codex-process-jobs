@@ -24,6 +24,8 @@ No runtime npm packages are required.
 
 Clone or copy the repository to any local directory. The installer is deliberately two-phase: its default mode only shows the source, destination, marketplace, optional agent policy, Codex CLI, and active-job check.
 
+When Codex performs the installation, it must show and describe this preview, then explicitly ask whether the user wants the optional managed policy in global `~/.codex/AGENTS.md`. A request to install the plugin does not imply consent to change global agent instructions.
+
 ```bash
 node scripts/install.mjs
 ```
@@ -110,7 +112,7 @@ Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, co
 
 Specific-job status checks are deliberately lightweight. They read the job record, stat the two bounded logs, and inspect at most 8 KiB per stream for four recent lines. This supports quick follow-up questions such as “how's the build going?” without attaching to or disturbing the running process.
 
-When the owning persistent task is available, start reports notification as `pending` and the agent can say naturally: “I've started that build in the background. The process will notify me here when it finishes.” See [Conversational completion relay](docs/notification-relay.md).
+When the owning persistent task is available, start reports notification as `pending`. In Codex App or CLI, the agent can say naturally: “I've started that build in the background. The process will notify me here when it finishes.” In VS Code, it instead explains that completion will be recorded but the open panel may need reload/reopen, and that status is available any time. See [Conversational completion relay](docs/notification-relay.md).
 
 ## Safety model
 

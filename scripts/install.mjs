@@ -250,14 +250,20 @@ function planLines(plan, options) {
     `  personal marketplace: ${plan.marketplaceFile}`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
     "  completion hook: enable hooks, install plugin hook, and trust its current hash",
-    `  global agent policy: ${options.withAgentPolicy ? `update ${plan.agentFile}` : "unchanged"}`,
+    `  global agent policy: ${options.withAgentPolicy ? `selected; update ${plan.agentFile}` : "not selected; ask the user whether to include the optional managed policy before apply"}`,
     `  active tracked jobs: ${plan.activeJobs.length}`,
   ];
   for (const job of plan.activeJobs) {
     lines.push(`    - ${job.id} [${job.status}]${job.name ? ` ${job.name}` : ""}`);
   }
   if (!options.apply) {
-    lines.push("", "No changes made. Re-run with --apply after reviewing this plan.");
+    lines.push(
+      "",
+      options.withAgentPolicy
+        ? "Optional global agent policy selected for the apply step."
+        : "Installing agent: ask the user whether they want the optional global AGENTS.md policy before applying.",
+      "No changes made. Re-run with --apply after reviewing this plan."
+    );
   }
   return lines;
 }

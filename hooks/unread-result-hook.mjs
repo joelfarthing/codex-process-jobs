@@ -22,21 +22,53 @@ function isExplicitJobRequest(prompt) {
     || text.includes("hows the build");
 }
 
-function isUnreadForSession(job, sessionId) {
-  if (!TERMINAL_STATUSES.has(job.status)) return false;
-  if (!sessionId || job.ownerThreadId !== sessionId) return false;
-  if (job.resultViewedAt || job.notification?.hookNotifiedAt) return false;
-  return !["delivered", "suppressed", "disabled", "fallback_notified"].includes(job.notification?.status);
+function isSyntheticNotificationPrompt(prompt) {
+  const text = String(prompt ?? "").trim();
+  return text.startsWith("<process_job_notification>")
+    && text.endsWith("</process_job_notification>");
+}
+
+function isVsCodeRefreshSurface(job) {
+  const presentation = job.notification?.presentation;
+  return presentation === "durable-refresh-required"
+    || (presentation == null && job.ownerSurface === "vscode");
+}
+
+function fallbackKind(job, sessionId) {
+  if (!TERMINAL_STATUSES.has(job.status)) return null;
+  if (!sessionId || job.ownerThreadId !== sessionId) return null;
+  if (job.resultViewedAt) return null;
+  if (
+    job.notification?.status === "delivered"
+    && isVsCodeRefreshSurface(job)
+    && !job.notification?.surfaceFallbackNotifiedAt
+  ) {
+    return "vscode-surface";
+  }
+  if (job.notification?.hookNotifiedAt) return null;
+  if (["delivered", "suppressed", "disabled", "fallback_notified"].includes(job.notification?.status)) return null;
+  return "delivery-fallback";
 }
 
 function buildContext(jobs) {
+  const refreshFallbacks = jobs.filter((job) => job.fallbackKind === "vscode-surface");
   const lines = jobs.map((job) =>
     `- ${job.id}: ${job.status}${Number.isInteger(job.exitCode) ? ` (exit ${job.exitCode})` : ""}`
   );
-  return [
-    jobs.length === 1
+  let summary;
+  if (refreshFallbacks.length === jobs.length) {
+    summary = jobs.length === 1
+      ? "A tracked background process job owned by this Codex task finished. Its completion turn was recorded, but this VS Code panel may not have refreshed."
+      : `${jobs.length} tracked background process jobs owned by this Codex task finished. Their completion turns were recorded, but this VS Code panel may not have refreshed.`;
+  } else if (refreshFallbacks.length === 0) {
+    summary = jobs.length === 1
       ? "A tracked background process job owned by this Codex task finished without a delivered completion turn."
-      : `${jobs.length} tracked background process jobs owned by this Codex task finished without delivered completion turns.`,
+      : `${jobs.length} tracked background process jobs owned by this Codex task finished without delivered completion turns.`;
+  } else {
+    summary = `${jobs.length} tracked background process jobs owned by this Codex task finished. Some completion turns may not be visible in this client.`;
+  }
+  return [
+    summary,
     "",
     ...lines,
     "",
@@ -47,24 +79,39 @@ function buildContext(jobs) {
 async function main() {
   const input = readInput();
   const sessionId = String(input.session_id ?? process.env.CODEX_THREAD_ID ?? "").trim();
-  if (!sessionId || isExplicitJobRequest(input.prompt)) return;
-  const jobs = listJobs()
-    .filter((job) => isUnreadForSession(job, sessionId))
+  if (
+    !sessionId
+    || process.env.CODEX_PROCESS_JOBS_NOTIFICATION_RELAY === "1"
+    || isSyntheticNotificationPrompt(input.prompt)
+    || isExplicitJobRequest(input.prompt)
+  ) return;
+  const candidates = listJobs()
+    .filter((job) => fallbackKind(job, sessionId))
     .slice(0, MAX_JOBS);
-  if (jobs.length === 0) return;
+  if (candidates.length === 0) return;
 
   const timestamp = nowIso();
-  for (const job of jobs) {
-    await updateJob(job.id, (current) => ({
-      ...current,
-      notification: {
-        ...(current.notification ?? {}),
-        status: "fallback_notified",
-        hookNotifiedAt: timestamp,
-      },
-    }));
+  const claimed = [];
+  for (const candidate of candidates) {
+    let claimedKind = null;
+    const updated = await updateJob(candidate.id, (current) => {
+      claimedKind = fallbackKind(current, sessionId);
+      if (!claimedKind) return current;
+      const notification = { ...(current.notification ?? {}) };
+      if (claimedKind === "vscode-surface") {
+        notification.surfaceFallbackNotifiedAt = timestamp;
+      } else {
+        notification.status = "fallback_notified";
+        notification.hookNotifiedAt = timestamp;
+        if (isVsCodeRefreshSurface(current)) {
+          notification.surfaceFallbackNotifiedAt = timestamp;
+        }
+      }
+      return { ...current, notification };
+    });
+    if (claimedKind) claimed.push({ ...updated, fallbackKind: claimedKind });
   }
-  process.stdout.write(`${buildContext(jobs)}\n`);
+  if (claimed.length > 0) process.stdout.write(`${buildContext(claimed)}\n`);
 }
 
 main().catch((error) => {

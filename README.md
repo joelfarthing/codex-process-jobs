@@ -8,7 +8,7 @@ The runtime tracks process identity, status, bounded stdout/stderr, exit status,
 
 The process broker and personal-plugin installation flow are functional and tested on macOS. Fresh Codex App, Codex CLI, and Codex VS Code extension tasks have discovered the installed skills and completed detached launches. In all three surfaces, an external process resumed its owning thread through app-server and produced a separate conversational completion turn without polling or a subagent.
 
-Codex App and CLI expose the appended completion turn directly. In the tested VS Code extension build, the already-open Codex webview did not live-render a turn appended by a separate app-server process; reloading the VS Code window and reopening the task displayed the complete two-turn transcript. The job state, completion turn, next-prompt hook, and explicit status/result retrieval remain durable while the webview is stale. Treat live VS Code presentation as an upstream synchronization limitation until a Codex extension build proves otherwise.
+Codex App and CLI expose the appended completion turn directly. In the tested VS Code extension build, the already-open Codex webview did not live-render a turn appended by a separate app-server process; reloading the VS Code window and reopening the task displayed the complete two-turn transcript. The job state and completion turn remain durable while the webview is stale, and a one-shot next-prompt hook informs the assigning agent on the next ordinary non-status turn. Explicit status/result requests retrieve the durable state directly. Treat immediate live VS Code presentation as an upstream synchronization limitation until a Codex extension build proves otherwise.
 
 The repository includes a repeatable surface test for every client. The app-server relay is best-effort because app-server is currently experimental. A one-shot next-prompt hook plus explicit status/result retrieval are the durable fallbacks.
 
@@ -112,7 +112,7 @@ Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, co
 
 Specific-job status checks are deliberately lightweight. They read the job record, stat the two bounded logs, and inspect at most 8 KiB per stream for four recent lines. This supports quick follow-up questions such as “how's the build going?” without attaching to or disturbing the running process.
 
-When the owning persistent task is available, start reports notification as `pending`. In Codex App or CLI, the agent can say naturally: “I've started that build in the background. The process will notify me here when it finishes.” In VS Code, it instead explains that completion will be recorded but the open panel may need reload/reopen, and that status is available any time. See [Conversational completion relay](docs/notification-relay.md).
+When the owning persistent task is available, start reports notification as `pending`. In Codex App or CLI, the agent can say naturally: “I've started that build in the background. The process will notify me here when it finishes.” In VS Code, it explains that completion will be recorded, the open panel may not visibly wake immediately, the assigning agent will learn the outcome on the next exchange, and status is available any time. See [Conversational completion relay](docs/notification-relay.md).
 
 ## Safety model
 

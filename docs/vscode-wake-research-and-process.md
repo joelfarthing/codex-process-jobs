@@ -49,6 +49,14 @@ The investigation used multiple independent paths:
 
 The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
 
+## Installed VS Code verification
+
+After installing the surface-aware build, a fresh task in the real Codex VS Code extension was given a harmless five-second direct-argv job. The extension discovered `$codex-process-jobs:start` without a filesystem path, launched the job, recorded `ownerSurface: "vscode"` and `notification.presentation: "durable-refresh-required"`, and responded with the required warning that the open panel might not visibly wake.
+
+The job completed with exit code zero, all expected output was preserved, and the separate app-server relay recorded its completion turn as delivered. The already-open VS Code panel showed no change after ten seconds. Navigating Back and reopening the task within the same extension webview also remained stale. After running **Developer: Reload Window** and reopening the task, the transcript contained both the synthetic completion event and Codex's conversational completion sentence.
+
+This confirms the current boundary precisely: durable delivery succeeds, task navigation alone does not invalidate the open extension cache, and a full VS Code window reload rehydrates the externally appended turn.
+
 ## Surface detection
 
 The Codex VS Code extension launches its child process with:

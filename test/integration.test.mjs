@@ -40,7 +40,12 @@ function makeEnv(t, overrides = {}) {
         runCli(["cancel", id, "--force", "--json"], env);
       } catch {}
     }
-    fs.rmSync(codexHome, { recursive: true, force: true });
+    fs.rmSync(codexHome, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 50,
+    });
   });
   return { env, startedIds };
 }
@@ -208,6 +213,14 @@ test("marks mobile-to-remote Cartesian jobs for durable next-turn refresh", (t) 
   assert.equal(job.ownerSurfaceDetectedBy, "rollout-session-meta");
   assert.equal(job.notification.presentation, "durable-refresh-required");
   assert.equal(waitJson(id, context.env).job.status, "completed");
+  const jobFile = path.join(context.env.CODEX_HOME, "process-jobs", "jobs", `${id}.json`);
+  assert.equal(waitUntil(() => {
+    try {
+      return JSON.parse(fs.readFileSync(jobFile, "utf8")).notification?.status === "delivered";
+    } catch {
+      return false;
+    }
+  }, 5000), true);
 });
 
 test("detached worker relays completion to the owning Codex thread", (t) => {

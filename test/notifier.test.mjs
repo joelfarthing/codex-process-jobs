@@ -264,6 +264,62 @@ test("notifier failure cannot overwrite fallback claimed during an attempt", asy
   assert.equal(stored.notification.errorMessage, null);
 });
 
+test("notifier success finalizer cannot overwrite fallback claimed during an attempt", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-success-race-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-delayed-success");
+  const acceptedFile = path.join(root, "turn-accepted");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "const fs = require('node:fs');",
+    "const readline = require('node:readline');",
+    "const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });",
+    "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+    "lines.on('line', (line) => {",
+    "  const message = JSON.parse(line);",
+    "  if (message.id === 1) send({ id: 1, result: {} });",
+    "  else if (message.id === 2) send({ id: 2, result: { thread: { id: message.params.threadId, status: { type: 'idle' } } } });",
+    "  else if (message.id === 3) {",
+    "    fs.writeFileSync(process.env.MOCK_ACCEPTED_FILE, 'accepted');",
+    "    send({ id: 3, result: { turn: { id: 'turn-delayed-success', status: 'inProgress' } } });",
+    "    setTimeout(() => send({ method: 'turn/completed', params: { threadId: message.params.threadId, turn: { id: 'turn-delayed-success', status: 'completed' } } }), 150);",
+    "  }",
+    "});",
+  ].join("\n") + "\n", { mode: 0o755 });
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    MOCK_ACCEPTED_FILE: acceptedFile,
+  };
+  const logs = resolveJobLogs("job-notify-success-race", env);
+  createJob(terminalJob({ id: "job-notify-success-race", logs }), env);
+
+  const notifying = runNotifier("job-notify-success-race", env);
+  await waitForNotificationStatus("job-notify-success-race", "delivering", env);
+  const deadline = Date.now() + 2000;
+  while (!fs.existsSync(acceptedFile) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(fs.existsSync(acceptedFile), true);
+  await updateJob("job-notify-success-race", (current) => ({
+    ...current,
+    notification: {
+      ...(current.notification ?? {}),
+      status: "fallback_notified",
+      hookNotifiedAt: "2026-07-10T12:05:00.000Z",
+    },
+  }), env);
+
+  const stored = await notifying;
+  assert.equal(stored.notification.status, "fallback_notified");
+  assert.equal(stored.notification.hookNotifiedAt, "2026-07-10T12:05:00.000Z");
+  assert.equal(stored.notification.deliveredAt, undefined);
+  assert.equal(stored.notification.turnId, undefined);
+});
+
 test("session lifecycle guard waits for a settled task_complete event", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-lifecycle-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

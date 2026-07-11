@@ -267,7 +267,7 @@ test("ordinary prompt recovers a stale delivering attempt whose notifier disappe
     exitCode: 3,
     notification: {
       status: "delivering",
-      relayPid: 99999999,
+      relayPid: process.pid,
       lastAttemptAt: "2026-07-10T12:00:00.000Z",
     },
   });

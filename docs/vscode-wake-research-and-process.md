@@ -1,6 +1,6 @@
 # Completion Wake: VS Code and Cartesian Surface Research
 
-- Status: transport-independent next-turn awareness implemented for every owning surface; true live refresh remains an upstream integration gap
+- Status: transport-independent next-turn recap implemented for every owning surface; true live refresh remains an upstream integration gap
 - Research date: 2026-07-10
 
 ## Goal
@@ -16,12 +16,12 @@ The detached process and durable completion turn work. The remaining limitation 
 - Codex App and Codex CLI can sometimes display the synthetic completion turn live, but that presentation is not guaranteed.
 - A separate `codex app-server` process can append the same completion turn to a task opened in the Codex VS Code extension.
 - The VS Code extension's already-open panel does not receive that other app-server process's event stream. The turn is durable and becomes visible after a full window reload and task reopen.
-- The bundled prompt hook now supplies sanitized completion state to the assigning agent on its next ordinary non-status turn, even when the separate completion turn was successfully delivered but the open VS Code webview stayed stale. Explicit status/result requests retrieve that state directly instead.
+- The bundled prompt hook now supplies sanitized completion state and requires a short recap on the assigning agent's next ordinary non-status turn, even when the separate completion turn was successfully delivered. Explicit status/result requests retrieve that state directly instead.
 - The same stale-context behavior was observed when ChatGPT mobile drove Codex on a remote Linux host: the durable transcript contained the completion, but the agent handling the next request did not.
-- The same stale-context behavior was then reproduced entirely in local Codex App. Its synthetic completion turn finished 16 seconds before the next unrelated App turn began, yet the assigning agent did not receive it in context.
+- Local Codex App exposed both failure variants. In one test, a synthetic completion turn finished 16 seconds before the next unrelated turn yet was absent from assigning-agent context. In a later test, the hidden completion was present in model context but absent from the rendered and exported conversation, proving that context presence is not evidence of user-visible presentation.
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
-The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, one awareness check on the assigning agent's next ordinary turn, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits.
+The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, one mandatory recap instruction on the assigning agent's next ordinary turn, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits. Because the plugin cannot prove whether a synthetic turn rendered, a live completion may be recapped once.
 
 ## Why the open VS Code panel stays stale
 
@@ -51,6 +51,7 @@ The investigation used multiple independent paths:
 9. Tested the stable client-origin marker used by the Codex VS Code extension and added automated surface-detection coverage.
 10. Repeated the workflow from ChatGPT mobile against a remote Linux execution host and compared durable transcript order with the assigning agent's later context.
 11. Repeated a 75-second heartbeat entirely in local Codex App and verified that the durable completion finished before, but was absent from, the next assigning-agent context.
+12. Repeated the App heartbeat after adding universal next-turn awareness and found the complementary case: the hidden synthetic assistant completion was loaded into model context, the App did not render or export it, and context-based duplicate suppression incorrectly omitted the recap from the next visible response.
 
 The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
 
@@ -62,7 +63,9 @@ The job completed with exit code zero, all expected output was preserved, and th
 
 This confirms the current boundary precisely: durable delivery succeeds, task navigation alone does not invalidate the open extension cache, and a full VS Code window reload rehydrates the externally appended turn.
 
-### Next-turn context verification
+### Historical next-turn context verification
+
+The following VS Code test records the pre-recap contract and its historical field names. It is evidence for the transport boundary, not the current duplicate policy.
 
 A second real-extension test launched a five-second job whose randomized exit code was not knowable from the launch turn. The job exited `7`, and the notifier recorded `status: delivered` plus `presentation: durable-refresh-required`. Without reloading or reopening the task, the user then asked the same assigning agent to report the exit code from the most recent `<process_job_notification>` in its context and prohibited tool use or inference. The agent answered `NONE`.
 
@@ -70,9 +73,9 @@ Inspection found that the synthetic completion turn itself had triggered the `Us
 
 The corrected design separates the two facts. Synthetic notification prompts never consume fallback state. A terminal VS Code job with `presentation: durable-refresh-required` and `status: delivered` remains eligible until a real prompt receives its sanitized id, status, and exit code. That prompt writes `surfaceFallbackNotifiedAt` while preserving `status: delivered`, making agent awareness one-shot and auditable without claiming that the webview visibly woke.
 
-After installing the corrected hook, a fresh real-extension task launched `job-mrfj6cze-68619cd8`, which exited `7`. Its durable completion turn reached `status: delivered` while the open panel remained unchanged. On an unrelated “what is 2 + 2?” follow-up with tool use prohibited, the assigning agent first reported the job and exit code, then answered `4`. A second unrelated “what is 3 + 3?” turn answered only `6`. The stored job retained `status: delivered` and gained one `surfaceFallbackNotifiedAt` timestamp. This verifies automatic next-turn awareness and exactly-once presentation in the tested VS Code extension build.
+After installing that historical hook, a fresh real-extension task launched `job-mrfj6cze-68619cd8`, which exited `7`. Its durable completion turn reached `status: delivered` while the open panel remained unchanged. On an unrelated “what is 2 + 2?” follow-up with tool use prohibited, the assigning agent first reported the job and exit code, then answered `4`. A second unrelated “what is 3 + 3?” turn answered only `6`. The stored job retained `status: delivered` and gained one `surfaceFallbackNotifiedAt` timestamp. This verified the older next-turn behavior in that VS Code build; later App evidence disproved its assumption that an assistant message present in context was necessarily rendered.
 
-That paragraph preserves the historical field name. The current transport-independent implementation writes `awarenessCheckedAt` and continues to honor existing `surfaceFallbackNotifiedAt` markers so an upgrade cannot repeat an earlier announcement.
+That paragraph preserves the historical field name. A later transport-independent implementation wrote `awarenessCheckedAt`. The current implementation writes `ordinaryPromptRecapInjectedAt`, which records only that the hook injected a recap instruction; it continues to honor both older markers so an upgrade cannot resurface historical jobs.
 
 ### Continued-turn race hardening
 
@@ -87,6 +90,14 @@ A later VS Code-only test exposed a separate installation boundary. The extensio
 The evidence points to stale plugin or hook state in the already-running VS Code app-server after a hot reinstall. Reading the result later set `resultViewedAt` and correctly suppressed future fallback, but that happened after the missed prompt and was not the cause.
 
 The supported update procedure now requires a client restart before testing. In VS Code, run **Developer: Reload Window** after every install or update. Quit and restart Codex App or CLI. Then review the hook in `/hooks` and start a fresh task; opening a new task in a pre-install client is not a sufficient refresh boundary.
+
+### Rendered visibility is not model-context visibility
+
+A later local Codex App test completed a 75-second heartbeat with exit code zero. The separate app-server relay durably recorded the synthetic user event, Codex's one-sentence assistant completion, and a successful terminal turn. The open App conversation and its exported transcript did not show that completion sentence.
+
+Twenty seconds later, an unrelated ordinary prompt triggered the transport-independent hook. The assigning model's context contained the hidden synthetic completion, so the previous hook instruction—"do not repeat when a prior assistant completion is present"—caused Codex to answer only the unrelated question. A later user question confirmed that the agent had received the completion before that response.
+
+This establishes a stricter boundary than stale context alone: a message can exist in durable rollout state and model context while remaining absent from the rendered conversation. The plugin has no trustworthy client-rendered visibility signal. The current hook therefore requires one short recap on the next ordinary prompt even when the synthetic assistant message is already in context. A possible one-time duplicate is an explicit reliability tradeoff. The state field `ordinaryPromptRecapInjectedAt` records hook injection only; it does not claim model compliance or rendered presentation.
 
 ## Surface detection
 
@@ -116,11 +127,11 @@ It does not persist the inherited environment or raw rollout metadata. `CODEX_PR
 
 | Surface | Completion behavior | Launch wording |
 |---|---|---|
-| Codex App | Completion turn is recorded; live presentation is best-effort; the assigning agent receives one next-turn awareness check | Completion will be recorded; a live notification may appear, and either way the agent will learn the outcome by the next exchange. |
-| Codex CLI | Completion turn is recorded; live presentation is best-effort; the assigning agent receives one next-turn awareness check | Same transport-honest wording as App. |
-| Codex VS Code | Completion turn is recorded; the assigning agent receives one next-turn awareness check; the open panel may require reload to display the separate completion turn | Same transport-honest wording, with status available any time. |
-| Mobile/remote | Completion turn is recorded; the assigning agent receives one next-turn awareness check | Same transport-honest wording, with status available any time. |
-| Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; the same next-turn awareness check applies | Same transport-honest wording, with status available any time. |
+| Codex App | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap | Completion will be recorded; a live notification may appear, and the next ordinary exchange will recap the outcome. |
+| Codex CLI | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap | Same transport-honest wording as App. |
+| Codex VS Code | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap; the open panel may require reload to display the separate completion turn | Same transport-honest wording, with status available any time. |
+| Mobile/remote | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap | Same transport-honest wording, with status available any time. |
+| Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; live presentation is best-effort; the same next-turn recap applies | Same transport-honest wording, with status available any time. |
 | No owning thread | No conversational relay | Use status/result to check completion. |
 
 The distinction is deliberately between a backend wake, visible transcript presentation, and the context loaded into the next assigning agent. These have now diverged in VS Code, mobile-driven remote tasks, and local Codex App.
@@ -137,7 +148,7 @@ The transferable lesson is straightforward: durable state and a live subscriptio
 
 ### 1. Transport-independent durable completion
 
-This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, performs one next-turn awareness check on every owning surface, and tells the user exactly what to expect.
+This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, injects one mandatory next-turn recap on every owning surface, and tells the user exactly what to expect. It intentionally accepts a possible one-time duplicate because durable/model context does not prove rendered visibility.
 
 ### 2. Companion VS Code extension
 
@@ -180,4 +191,4 @@ Before claiming true VS Code live wake, an implementation must pass all of these
 6. macOS and Linux/WSL behavior is covered.
 7. The mechanism uses a documented API, or is clearly labeled as an opt-in, version-pinned experiment with an automatic safe fallback.
 
-Until then, `durable-refresh-required` plus one-shot next-prompt agent awareness is the supported contract for every owning Codex surface.
+Until then, `durable-refresh-required` plus one-shot next-prompt recap injection is the supported contract for every owning Codex surface.

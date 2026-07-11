@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 
 import { TERMINAL_STATUSES, listJobs, nowIso, updateJob } from "../scripts/state.mjs";
 
@@ -60,6 +61,7 @@ function fallbackKind(job, sessionId) {
   if (job.resultViewedAt) return null;
   if (
     job.notification?.status === "delivered"
+    && !job.notification?.ordinaryPromptRecapInjectedAt
     && !job.notification?.awarenessCheckedAt
     && !job.notification?.surfaceFallbackNotifiedAt
   ) {
@@ -93,8 +95,38 @@ function buildContext(jobs) {
     "",
     ...lines,
     "",
-    "A prior assistant completion announcement for any listed job may already be visible in your conversation context. For each listed job, do not repeat it when a prior assistant completion for that same job ID is present. Before handling the new request, briefly notify the user only about listed jobs whose announcement is missing. Do not quote or interpret process output unless the user asks; use `$codex-process-jobs:result <job-id>` when inspection is appropriate. This context contains only sanitized plugin state, not process output, and each listed awareness check should be handled once.",
+    "Before handling the new request, briefly recap every listed job to the user. Do this even if a prior assistant completion for the same job ID appears in conversation context: it may come from a synthetic completion turn that was durably recorded but never rendered by the assigning client. A possible one-time duplicate is intentional and safer than a silent completion. Do not quote or interpret process output unless the user asks; use `$codex-process-jobs:result <job-id>` when inspection is appropriate. This context contains only sanitized plugin state, not process output, and this ordinary-prompt recap instruction is injected once per listed job.",
   ].join("\n");
+}
+
+export async function claimCandidates(
+  candidates,
+  sessionId,
+  timestamp,
+  { update = updateJob, onError = () => {} } = {},
+) {
+  const claimed = [];
+  for (const candidate of candidates) {
+    let claimedKind = null;
+    try {
+      const updated = await update(candidate.id, (current) => {
+        claimedKind = fallbackKind(current, sessionId);
+        if (!claimedKind) return current;
+        const notification = { ...(current.notification ?? {}) };
+        if (claimedKind === "delivered-awareness") {
+          notification.ordinaryPromptRecapInjectedAt = timestamp;
+        } else {
+          notification.status = "fallback_notified";
+          notification.hookNotifiedAt = timestamp;
+        }
+        return { ...current, notification };
+      });
+      if (claimedKind) claimed.push({ ...updated, fallbackKind: claimedKind });
+    } catch (error) {
+      onError(candidate, error);
+    }
+  }
+  return claimed;
 }
 
 async function main() {
@@ -112,27 +144,18 @@ async function main() {
   if (candidates.length === 0) return;
 
   const timestamp = nowIso();
-  const claimed = [];
-  for (const candidate of candidates) {
-    let claimedKind = null;
-    const updated = await updateJob(candidate.id, (current) => {
-      claimedKind = fallbackKind(current, sessionId);
-      if (!claimedKind) return current;
-      const notification = { ...(current.notification ?? {}) };
-      if (claimedKind === "delivered-awareness") {
-        notification.awarenessCheckedAt = timestamp;
-      } else {
-        notification.status = "fallback_notified";
-        notification.hookNotifiedAt = timestamp;
-      }
-      return { ...current, notification };
-    });
-    if (claimedKind) claimed.push({ ...updated, fallbackKind: claimedKind });
-  }
+  const claimed = await claimCandidates(candidates, sessionId, timestamp, {
+    onError(candidate, error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`Could not claim recap for ${candidate.id}: ${message}\n`);
+    },
+  });
   if (claimed.length > 0) process.stdout.write(`${buildContext(claimed)}\n`);
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

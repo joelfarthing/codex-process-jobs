@@ -8,11 +8,11 @@ The runtime tracks process identity, status, bounded stdout/stderr, exit status,
 
 The process broker and personal-plugin installation flow are functional and tested on macOS. Fresh Codex App, Codex CLI, and Codex VS Code extension tasks have discovered the installed skills and completed detached launches. In all three surfaces, an external process resumed its owning thread through app-server and durably produced a separate conversational completion turn without polling or a subagent.
 
-Live presentation is best-effort on every client. Codex App, an already-open VS Code webview, and a mobile ChatGPT client driving a remote execution host have all retained stale assigning-agent context after a separate app-server process durably appended a completion turn. The job state and completion turn remain durable, and a one-shot next-prompt hook performs the same awareness check on App, CLI, VS Code, remote, and unknown surfaces. Explicit status/result requests retrieve durable state directly.
+Live presentation is best-effort on every client. Codex App, an already-open VS Code webview, and a mobile ChatGPT client driving a remote execution host have all failed to render a completion turn that a separate app-server process durably appended. The job state and completion turn remain durable, and a one-shot next-prompt hook injects the same mandatory completion recap on App, CLI, VS Code, remote, and unknown surfaces. Explicit status/result requests retrieve durable state directly.
 
 The repository includes a repeatable surface test for every client. The app-server relay is best-effort because app-server is currently experimental. A one-shot next-prompt hook plus explicit status/result retrieval are the durable fallbacks.
 
-Conversation can continue normally while a job runs. While direct delivery is pending, the notifier and next-prompt hook atomically claim one delivery path. After successful delivery, the next ordinary prompt performs one awareness check: if the prior assistant completion is already in context, Codex does not repeat it; otherwise Codex informs the user before continuing. Stale notifier attempts remain recoverable.
+Conversation can continue normally while a job runs. While direct delivery is pending, the notifier and next-prompt hook atomically claim one delivery path. After successful delivery, the next ordinary prompt requires a short recap before Codex handles the new request, even if the synthetic completion already appears in model context. Model context cannot prove that the assigning client rendered the message, so one possible duplicate is preferred over a silent completion. Stale notifier attempts remain recoverable.
 
 The client and execution host are independent Cartesian axes. See [Cartesian client and execution surfaces](docs/cartesian-surfaces.md), [Conversational completion relay](docs/notification-relay.md), and [VS Code completion wake research](docs/vscode-wake-research-and-process.md).
 
@@ -118,7 +118,7 @@ Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, co
 
 Specific-job status checks are deliberately lightweight. They read the job record, stat the two bounded logs, and inspect at most 8 KiB per stream for four recent lines. This supports quick follow-up questions such as “how's the build going?” without attaching to or disturbing the running process.
 
-When the owning persistent task is available, start reports notification as `pending`. The agent says naturally: “I've started that build in the background. Completion will be recorded; a live notification may appear, and either way I'll learn the outcome by our next exchange. We can check status any time.” This wording is intentionally independent of the detected client because the relay and assigning client use separate transports. See [Conversational completion relay](docs/notification-relay.md).
+When the owning persistent task is available, start reports notification as `pending`. The agent says naturally: “I've started that build in the background. Completion will be recorded; a live notification may appear, and the next ordinary exchange will recap the outcome. We can check status any time.” This wording is intentionally independent of the detected client because the relay and assigning client use separate transports. See [Conversational completion relay](docs/notification-relay.md).
 
 ## Safety model
 

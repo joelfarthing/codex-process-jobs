@@ -6,6 +6,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { claimCandidates } from "../hooks/unread-result-hook.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HOOK = path.join(ROOT, "hooks", "unread-result-hook.mjs");
 
@@ -207,7 +209,7 @@ test("synthetic completion envelope cannot consume fallback without the relay en
   });
 });
 
-test("delivered refresh-required completion is surfaced on the next real prompt once", (t) => {
+test("delivered refresh-required completion receives one ordinary-prompt recap instruction", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-004",
@@ -233,7 +235,7 @@ test("delivered refresh-required completion is surfaced on the next real prompt 
   assert.match(first.stdout, /completion turn was recorded, but the assigning client may not have refreshed the agent's context/);
   const stored = readJob(env, "job-hook-004");
   assert.equal(stored.notification.status, "delivered");
-  assert.match(stored.notification.awarenessCheckedAt, /T/);
+  assert.match(stored.notification.ordinaryPromptRecapInjectedAt, /T/);
 
   const second = runHook(env, {
     hook_event_name: "UserPromptSubmit",
@@ -245,7 +247,7 @@ test("delivered refresh-required completion is surfaced on the next real prompt 
   assert.equal(readJob(env, "job-hook-004").notification.status, "delivered");
 });
 
-test("delivered Cartesian remote completion receives the same one-shot context fallback", (t) => {
+test("delivered Cartesian remote completion receives the same one-shot recap instruction", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-remote",
@@ -270,7 +272,7 @@ test("delivered Cartesian remote completion receives the same one-shot context f
   assert.match(first.stdout, /assigning client may not have refreshed/);
   const stored = readJob(env, "job-hook-remote");
   assert.equal(stored.notification.status, "delivered");
-  assert.match(stored.notification.awarenessCheckedAt, /T/);
+  assert.match(stored.notification.ordinaryPromptRecapInjectedAt, /T/);
 
   const second = runHook(env, {
     hook_event_name: "UserPromptSubmit",
@@ -281,7 +283,7 @@ test("delivered Cartesian remote completion receives the same one-shot context f
   assert.equal(second.stdout, "");
 });
 
-test("delivered App completion receives a one-shot awareness check even for legacy conversational state", (t) => {
+test("delivered App completion requires a recap even when a synthetic announcement may be in context", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-005",
@@ -301,9 +303,12 @@ test("delivered App completion receives a one-shot awareness check even for lega
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /job-hook-005: completed \(exit 0\)/);
-  assert.match(result.stdout, /prior assistant completion announcement.*already be visible/i);
-  assert.match(result.stdout, /for each listed job, do not repeat it/i);
-  assert.match(readJob(env, "job-hook-005").notification.awarenessCheckedAt, /T/);
+  assert.match(result.stdout, /briefly recap every listed job/i);
+  assert.match(result.stdout, /even if a prior assistant completion.*appears in conversation context/i);
+  assert.match(result.stdout, /never rendered by the assigning client/i);
+  assert.match(result.stdout, /one-time duplicate is intentional/i);
+  assert.doesNotMatch(result.stdout, /do not repeat/i);
+  assert.match(readJob(env, "job-hook-005").notification.ordinaryPromptRecapInjectedAt, /T/);
 
   const second = runHook(env, {
     hook_event_name: "UserPromptSubmit",
@@ -314,7 +319,7 @@ test("delivered App completion receives a one-shot awareness check even for lega
   assert.equal(second.stdout, "");
 });
 
-test("delivered CLI completion receives the same transport-independent awareness check", (t) => {
+test("delivered CLI completion receives the same transport-independent recap instruction", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-cli",
@@ -334,7 +339,7 @@ test("delivered CLI completion receives the same transport-independent awareness
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /job-hook-cli/);
-  assert.match(readJob(env, "job-hook-cli").notification.awarenessCheckedAt, /T/);
+  assert.match(readJob(env, "job-hook-cli").notification.ordinaryPromptRecapInjectedAt, /T/);
 });
 
 test("ordinary prompt does not race a notifier-owned delivering attempt", (t) => {
@@ -453,7 +458,7 @@ test("concurrent next-prompt hooks claim one completion exactly once", async (t)
   assert.match(stored.notification.hookNotifiedAt, /T/);
 });
 
-test("legacy delivered record without presentation gets one awareness fallback", (t) => {
+test("legacy delivered record without presentation gets one recap instruction", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-007",
@@ -471,10 +476,10 @@ test("legacy delivered record without presentation gets one awareness fallback",
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /job-hook-007/);
   assert.equal(readJob(env, "job-hook-007").notification.status, "delivered");
-  assert.match(readJob(env, "job-hook-007").notification.awarenessCheckedAt, /T/);
+  assert.match(readJob(env, "job-hook-007").notification.ordinaryPromptRecapInjectedAt, /T/);
 });
 
-test("legacy surface fallback marker suppresses a duplicate generic awareness check", (t) => {
+test("legacy surface fallback marker suppresses a duplicate ordinary-prompt recap", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-legacy-marker",
@@ -495,10 +500,34 @@ test("legacy surface fallback marker suppresses a duplicate generic awareness ch
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
-  assert.equal(readJob(env, "job-hook-legacy-marker").notification.awarenessCheckedAt, undefined);
+  assert.equal(readJob(env, "job-hook-legacy-marker").notification.ordinaryPromptRecapInjectedAt, undefined);
 });
 
-test("mixed delivered and failed jobs receive per-job awareness exactly once on an unknown surface", (t) => {
+test("legacy awareness marker suppresses a duplicate ordinary-prompt recap after upgrade", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-legacy-awareness",
+    ownerThreadId: "thread-hook-legacy-awareness",
+    ownerSurface: "app",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivered",
+      presentation: "durable-refresh-required",
+      awarenessCheckedAt: "2026-07-11T04:33:51.793Z",
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-legacy-awareness",
+    prompt: "continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(readJob(env, "job-hook-legacy-awareness").notification.ordinaryPromptRecapInjectedAt, undefined);
+});
+
+test("mixed delivered and failed jobs receive per-job recap instructions exactly once on an unknown surface", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-mixed-delivered",
@@ -525,8 +554,8 @@ test("mixed delivered and failed jobs receive per-job awareness exactly once on 
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /job-hook-mixed-delivered: completed \(exit 0\)/);
   assert.match(first.stdout, /job-hook-mixed-failed: failed \(exit 4\)/);
-  assert.match(first.stdout, /for each listed job/i);
-  assert.match(readJob(env, "job-hook-mixed-delivered").notification.awarenessCheckedAt, /T/);
+  assert.match(first.stdout, /recap every listed job/i);
+  assert.match(readJob(env, "job-hook-mixed-delivered").notification.ordinaryPromptRecapInjectedAt, /T/);
   assert.equal(readJob(env, "job-hook-mixed-failed").notification.status, "fallback_notified");
 
   const second = runHook(env, {
@@ -538,7 +567,7 @@ test("mixed delivered and failed jobs receive per-job awareness exactly once on 
   assert.equal(second.stdout, "");
 });
 
-test("concurrent awareness hooks claim a delivered multi-job batch exactly once per job", async (t) => {
+test("concurrent recap hooks claim a delivered multi-job batch exactly once per job", async (t) => {
   const env = createEnv(t);
   const ids = Array.from({ length: 5 }, (_, index) => `job-hook-batch-${index + 1}`);
   for (const id of ids) {
@@ -561,10 +590,52 @@ test("concurrent awareness hooks claim a delivered multi-job batch exactly once 
   const combined = results.map((result) => result.stdout).join("\n");
   for (const id of ids) {
     assert.equal(combined.split(id).length - 1, 1, `${id} should appear in one hook output`);
-    assert.match(readJob(env, id).notification.awarenessCheckedAt, /T/);
+    assert.match(readJob(env, id).notification.ordinaryPromptRecapInjectedAt, /T/);
   }
 
   const after = runHook(env, payload);
   assert.equal(after.status, 0, after.stderr);
   assert.equal(after.stdout, "");
+});
+
+test("a later claim failure does not discard already claimed recap context", async () => {
+  const timestamp = "2026-07-11T04:45:00.000Z";
+  const records = new Map([
+    ["job-hook-claim-good", {
+      id: "job-hook-claim-good",
+      ownerThreadId: "thread-hook-partial-claim",
+      status: "completed",
+      exitCode: 0,
+      notification: { status: "delivered" },
+    }],
+    ["job-hook-claim-fails", {
+      id: "job-hook-claim-fails",
+      ownerThreadId: "thread-hook-partial-claim",
+      status: "failed",
+      exitCode: 2,
+      notification: { status: "delivered" },
+    }],
+  ]);
+  const errors = [];
+  const claimed = await claimCandidates(
+    [...records.values()],
+    "thread-hook-partial-claim",
+    timestamp,
+    {
+      async update(id, mutate) {
+        if (id === "job-hook-claim-fails") throw new Error("simulated lock failure");
+        const updated = mutate(records.get(id));
+        records.set(id, updated);
+        return updated;
+      },
+      onError(candidate, error) {
+        errors.push({ id: candidate.id, message: error.message });
+      },
+    },
+  );
+
+  assert.deepEqual(claimed.map((job) => job.id), ["job-hook-claim-good"]);
+  assert.equal(records.get("job-hook-claim-good").notification.ordinaryPromptRecapInjectedAt, timestamp);
+  assert.equal(records.get("job-hook-claim-fails").notification.ordinaryPromptRecapInjectedAt, undefined);
+  assert.deepEqual(errors, [{ id: "job-hook-claim-fails", message: "simulated lock failure" }]);
 });

@@ -209,7 +209,7 @@ test("marks VS Code jobs as durable completions that may require panel refresh",
   }, 5000), true);
 });
 
-test("marks local Codex App jobs for the same transport-independent next-turn awareness", (t) => {
+test("marks local Codex App jobs for the same transport-independent next-turn recap", (t) => {
   const context = makeEnv(t, {
     CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",
   });
@@ -224,7 +224,7 @@ test("marks local Codex App jobs for the same transport-independent next-turn aw
     "process.exit(0)",
   ], context.env);
   assert.match(started.stdout, /a live completion may appear/i);
-  assert.match(started.stdout, /agent will learn the outcome on the next exchange/i);
+  assert.match(started.stdout, /next ordinary exchange will recap the outcome/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);
@@ -257,7 +257,7 @@ test("marks mobile-to-remote Cartesian jobs for durable next-turn refresh", (t) 
     "process.exit(0)",
   ], context.env);
   assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
-  assert.match(started.stdout, /agent will learn the outcome on the next exchange/i);
+  assert.match(started.stdout, /next ordinary exchange will recap the outcome/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);

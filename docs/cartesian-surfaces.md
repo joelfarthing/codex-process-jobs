@@ -58,13 +58,13 @@ notification.presentation: durable-refresh-required
 
 `remote` means **refresh-uncertain**, not proof that the client is physically remote. Generic `source: vscode` metadata is ambiguous, and object-valued sources such as subagent records never qualify. Any non-empty environment originator blocks rollout inference, including an unrecognized custom originator.
 
-All owning surfaces now receive `notification.presentation: durable-refresh-required`; classification remains useful for diagnostics and Cartesian testing, not for deciding whether next-turn awareness is necessary.
+All owning surfaces now receive `notification.presentation: durable-refresh-required`; classification remains useful for diagnostics and Cartesian testing, not for deciding whether a next-turn recap is necessary.
 
 ## Completion contract
 
-For every owning surface, successful direct delivery remains `delivered`, but the next ordinary non-status prompt receives one sanitized awareness check unless `awarenessCheckedAt` is already present. The hook also recognizes the legacy `surfaceFallbackNotifiedAt` marker so upgrades cannot repeat an earlier announcement. It tells Codex not to repeat the announcement if a prior assistant completion for the same job is already visible in context. Explicit status/result requests read durable state directly. The hook never injects process output.
+For every owning surface, successful direct delivery remains `delivered`, but the next ordinary non-status prompt receives one sanitized mandatory recap instruction unless `ordinaryPromptRecapInjectedAt` or a legacy marker is already present. Codex gives the recap even if a synthetic assistant completion appears in model context, because that message may not have rendered in the assigning client. A possible one-time duplicate is intentional. Explicit status/result requests read durable state directly. The hook never injects process output.
 
-User-facing wording is intentionally client-neutral: completion will be recorded, a live notification may appear, the assigning agent will learn the outcome by the next exchange, and status remains available at any time.
+User-facing wording is intentionally client-neutral: completion will be recorded, a live notification may appear, the next ordinary exchange will recap the outcome, and status remains available at any time.
 
 ## Mobile-to-remote verification
 
@@ -73,9 +73,9 @@ User-facing wording is intentionally client-neutral: completion will be recorded
 3. Allow the job to finish, then submit an unrelated ordinary request without asking for status.
 4. The assigning agent should briefly announce the completed job before answering the unrelated request.
 5. Submit a second unrelated request; completion must not be repeated.
-6. Confirm stored state remains `notification.status: delivered` and now has one `awarenessCheckedAt` timestamp.
+6. Confirm stored state remains `notification.status: delivered` and now has one `ordinaryPromptRecapInjectedAt` timestamp.
 7. Confirm `ownerSurface: remote`, `ownerSurfaceDetectedBy: rollout-session-meta`, and `notification.presentation: durable-refresh-required`.
 
 This test distinguishes durable transcript delivery from assigning-agent context refresh without relying on whether a particular client visibly repaints in real time.
 
-Repeat the same test in local Codex App and CLI. Their stored `ownerSurface` values should remain `app` and `cli`, while `notification.presentation` remains `durable-refresh-required` and the same exactly-once awareness contract applies.
+Repeat the same test in local Codex App and CLI. Their stored `ownerSurface` values should remain `app` and `cli`, while `notification.presentation` remains `durable-refresh-required` and the same one-shot recap-injection contract applies.

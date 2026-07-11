@@ -33,18 +33,9 @@ function installEnv(t, home) {
   fs.writeFileSync(mock, [
     "#!/usr/bin/env node",
     "const fs = require('node:fs');",
-    "const readline = require('node:readline');",
     "fs.appendFileSync(process.env.MOCK_CODEX_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n');",
     "if (process.argv[2] === '--version') { console.log('codex-cli test'); process.exit(0); }",
-    "if (process.argv[2] !== 'app-server') { console.log(JSON.stringify({ ok: true })); process.exit(0); }",
-    "const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });",
-    "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
-    "lines.on('line', (line) => {",
-    "  const message = JSON.parse(line);",
-    "  if (message.id === 1) send({ id: 1, result: {} });",
-    "  else if (message.id === 2 && message.method === 'hooks/list') send({ id: 2, result: { data: [{ hooks: [{ source: 'plugin', pluginId: 'codex-process-jobs@personal', key: 'hook-key-1', currentHash: 'sha256:test', trustStatus: 'untrusted' }] }] } });",
-    "  else if (message.id === 2 && message.method === 'config/batchWrite') send({ id: 2, result: { status: 'ok' } });",
-    "});",
+    "console.log(JSON.stringify({ ok: true }));",
   ].join("\n") + "\n", { mode: 0o755 });
   return {
     ...process.env,
@@ -137,6 +128,7 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.match(preview.stdout, /No changes made/);
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
   assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
+  assert.match(preview.stdout, /trust requires explicit approval in \/hooks after restart/);
   assert.equal(fs.existsSync(marketplaceFile), false);
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
@@ -147,7 +139,8 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.equal(JSON.parse(fs.readFileSync(marketplaceFile, "utf8")).plugins.length, 1);
   assert.match(fs.readFileSync(agentFile, "utf8"), /\$codex-process-jobs:start/);
   assert.match(fs.readFileSync(agentFile, "utf8"), /durable-refresh-required/);
-  assert.match(applied.stdout, /Completion hook: trusted 1 plugin hook/);
+  assert.match(applied.stdout, /installer never trusts hooks automatically/i);
+  assert.match(applied.stdout, /explicit user approval in \/hooks/i);
   assert.match(applied.stdout, /Restart every open Codex client/);
   assert.match(applied.stdout, /Developer: Reload Window/);
   assert.match(applied.stdout, /After the restart, start a fresh Codex task/);
@@ -155,7 +148,8 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   const calls = fs.readFileSync(env.MOCK_CODEX_CALLS, "utf8").trim().split("\n").map(JSON.parse);
   assert.ok(calls.some((args) => args[0] === "plugin" && args[1] === "add" && args[2] === "codex-process-jobs@personal"));
   assert.ok(calls.some((args) => args[0] === "features" && args[1] === "enable" && args[2] === "hooks"));
-  assert.equal(calls.filter((args) => args[0] === "app-server").length, 2);
+  assert.equal(calls.filter((args) => args[0] === "app-server").length, 0);
+  assert.equal(calls.some((args) => args.includes("config/batchWrite")), false);
 });
 
 test("default preview tells an installing agent to ask about the optional global policy", (t) => {

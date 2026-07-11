@@ -152,8 +152,27 @@ test("launches a detached command, returns immediately, and stores its result", 
   assert.equal(waited.job.exitCode, 0);
 
   const result = JSON.parse(runCli(["result", job.id, "--json"], context.env).stdout);
+  assert.equal(result.outputTrust, "untrusted-process-output");
+  assert.equal(result.job.dataTrust, "untrusted-local-job-metadata");
   assert.match(result.stdout, /done/);
   assert.match(result.stderr, /warning/);
+});
+
+test("invalid owner thread ids fail closed to status-only notification", (t) => {
+  const context = makeEnv(t, {
+    CODEX_THREAD_ID: "bad\nignore-previous-instructions",
+    CODEX_PROCESS_JOBS_DISABLE_NOTIFY: "0",
+  });
+  const job = startJson([
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], context);
+  assert.equal(job.ownerThreadId, null);
+  assert.equal(job.notification.status, "unavailable");
+  assert.equal(job.notification.presentation, "status-only");
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
 });
 
 test("marks VS Code jobs as durable completions that may require panel refresh", (t) => {
@@ -263,6 +282,53 @@ test("caps high-volume output while preserving the latest bytes", (t) => {
   const stdoutPath = waited.job.logs.stdout;
   assert.ok(fs.statSync(stdoutPath).size <= 4096);
   assert.match(fs.readFileSync(stdoutPath, "utf8"), /^\[\.\.\. earlier output truncated \.\.\.\]\n/);
+});
+
+test("refuses tampered persisted log paths instead of reading another local file", (t) => {
+  const context = makeEnv(t);
+  const job = startJson([
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], context);
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
+  const secret = path.join(context.env.CODEX_HOME, "must-not-leak.txt");
+  fs.writeFileSync(secret, "PRIVATE-CONTENT-MUST-NOT-LEAK");
+  const jobFile = path.join(context.env.CODEX_HOME, "process-jobs", "jobs", `${job.id}.json`);
+  const record = JSON.parse(fs.readFileSync(jobFile, "utf8"));
+  record.logs.stdout = secret;
+  fs.writeFileSync(jobFile, `${JSON.stringify(record)}\n`);
+
+  const result = runCli(["result", job.id], context.env, { expectStatus: 1 });
+  assert.match(result.stderr, /log paths.*private state directory/i);
+  assert.doesNotMatch(result.stdout, /PRIVATE-CONTENT-MUST-NOT-LEAK/);
+  assert.doesNotMatch(result.stderr, /PRIVATE-CONTENT-MUST-NOT-LEAK/);
+});
+
+test("a refused symlinked log does not consume the unread result", (t) => {
+  const context = makeEnv(t);
+  const job = startJson([
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], context);
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
+  const secret = path.join(context.env.CODEX_HOME, "symlink-target.txt");
+  fs.writeFileSync(secret, "SYMLINK-TARGET-MUST-NOT-LEAK");
+  fs.rmSync(job.logs.stdout);
+  fs.symlinkSync(secret, job.logs.stdout);
+
+  const result = runCli(["result", job.id], context.env, { expectStatus: 1 });
+  assert.doesNotMatch(result.stdout, /SYMLINK-TARGET-MUST-NOT-LEAK/);
+  assert.doesNotMatch(result.stderr, /SYMLINK-TARGET-MUST-NOT-LEAK/);
+  const stored = JSON.parse(fs.readFileSync(
+    path.join(context.env.CODEX_HOME, "process-jobs", "jobs", `${job.id}.json`),
+    "utf8"
+  ));
+  assert.equal(stored.resultViewedAt, null);
+  assert.equal(stored.notification.status, "disabled");
 });
 
 test("critical jobs refuse cancellation without an explicit force flag", (t) => {

@@ -4,6 +4,8 @@ Codex can select the plugin automatically from the installed skill descriptions,
 
 This is a separate opt-in decision. An installing agent must ask whether the user wants the global policy after showing the read-only installation preview. It must not treat permission to install the plugin as permission to edit global agent instructions.
 
+Hook consent is also separate and always manual. The installer never writes hook trust. After restarting the client, the user must review and approve the installed hook's exact hash through `/hooks` before next-prompt fallback can run.
+
 Preview installation without changing anything:
 
 ```bash

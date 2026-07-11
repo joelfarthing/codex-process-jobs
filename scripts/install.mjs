@@ -4,8 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const PLUGIN_NAME = "codex-process-jobs";
@@ -265,7 +264,7 @@ function planLines(plan, options) {
     `  plugin version: ${plan.installVersion}`,
     `  personal marketplace: ${plan.marketplaceFile}`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
-    "  completion hook: enable hooks, install plugin hook, and trust its current hash",
+    "  completion hook: enable hooks and install the plugin hook; trust requires explicit approval in /hooks after restart",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
       : "  source safety: source checkout is separate from the runtime destination",
@@ -375,130 +374,6 @@ function ensureHooksEnabled(env) {
   }
 }
 
-function callCodexAppServer({ cwd, env, method, params, timeoutMs = 15_000 }) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("codex", ["app-server"], {
-      cwd,
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: false,
-    });
-    const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
-    let settled = false;
-    let stderr = "";
-    const timeout = setTimeout(() => finish(reject, new Error(`Codex app-server timed out for ${method}.`)), timeoutMs);
-
-    function send(message) {
-      child.stdin.write(`${JSON.stringify(message)}\n`);
-    }
-    function cleanup() {
-      clearTimeout(timeout);
-      lines.close();
-      child.stdin.end();
-      if (child.exitCode == null && child.signalCode == null) child.kill("SIGTERM");
-    }
-    function finish(handler, value) {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      handler(value);
-    }
-
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (error) => finish(reject, error));
-    child.on("exit", (code, signal) => {
-      if (!settled) {
-        finish(reject, new Error(
-          `Codex app-server exited before ${method} responded (code=${code}, signal=${signal})${stderr.trim() ? `: ${stderr.trim()}` : ""}`
-        ));
-      }
-    });
-    lines.on("line", (line) => {
-      if (!line.trim()) return;
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        return;
-      }
-      if (message.id === 1) {
-        if (message.error) {
-          finish(reject, new Error(`Codex app-server initialize failed: ${JSON.stringify(message.error)}`));
-          return;
-        }
-        send({ method: "initialized", params: {} });
-        send({ id: 2, method, params });
-      } else if (message.id === 2) {
-        if (message.error) finish(reject, new Error(`${method} failed: ${JSON.stringify(message.error)}`));
-        else finish(resolve, message.result);
-      }
-    });
-
-    send({
-      id: 1,
-      method: "initialize",
-      params: {
-        clientInfo: {
-          name: "codex-process-jobs-installer",
-          title: "Codex Process Jobs Installer",
-          version: "0.1.0",
-        },
-        capabilities: { experimentalApi: true },
-      },
-    });
-  });
-}
-
-async function trustPluginHooks(plan, selector, env) {
-  try {
-    const listed = await callCodexAppServer({
-      cwd: plan.destination,
-      env,
-      method: "hooks/list",
-      params: { cwds: [plan.destination] },
-    });
-    const hooks = (Array.isArray(listed?.data) ? listed.data : [])
-      .flatMap((entry) => Array.isArray(entry?.hooks) ? entry.hooks : [])
-      .filter((hook) => hook?.source === "plugin" && hook?.pluginId === selector);
-    if (hooks.length === 0) {
-      return { ready: false, detail: "Codex did not report the installed plugin hook; open /hooks in a fresh task." };
-    }
-    const untrusted = hooks.filter((hook) =>
-      ["untrusted", "modified"].includes(String(hook?.trustStatus ?? "").toLowerCase())
-    );
-    if (untrusted.length === 0) {
-      return { ready: true, trusted: 0, detail: `${hooks.length} plugin hook(s) already trusted` };
-    }
-    if (untrusted.some((hook) => typeof hook.key !== "string" || !hook.currentHash)) {
-      return { ready: false, detail: "Codex reported an untrusted hook without a writable trust key; open /hooks." };
-    }
-
-    const value = Object.fromEntries(untrusted.map((hook) => [
-      hook.key,
-      { trusted_hash: hook.currentHash },
-    ]));
-    await callCodexAppServer({
-      cwd: plan.destination,
-      env,
-      method: "config/batchWrite",
-      params: {
-        edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }],
-        filePath: null,
-        expectedVersion: null,
-        reloadUserConfig: true,
-      },
-    });
-    return { ready: true, trusted: untrusted.length, detail: `trusted ${untrusted.length} plugin hook(s)` };
-  } catch (error) {
-    return {
-      ready: false,
-      detail: `automatic hook trust failed: ${error instanceof Error ? error.message : String(error)}; open /hooks`,
-    };
-  }
-}
-
 export async function applyInstall(plan, options, env = process.env) {
   if (plan.sourceDestinationConflict) {
     fail(
@@ -545,7 +420,6 @@ export async function applyInstall(plan, options, env = process.env) {
     if (configBackup) fs.copyFileSync(configFile, configBackup);
     ensureHooksEnabled(env);
     const installed = runCodexPluginAdd(marketplace.name, env);
-    const hookTrust = await trustPluginHooks(plan, installed.selector, env);
     return {
       selector: installed.selector,
       version: plan.installVersion,
@@ -556,7 +430,6 @@ export async function applyInstall(plan, options, env = process.env) {
       agentFile: options.withAgentPolicy ? plan.agentFile : null,
       agentBackup,
       configBackup,
-      hookTrust,
     };
   } catch (error) {
     if (agentChanged) restoreFile(plan.agentFile, agentOriginal);
@@ -583,12 +456,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     `Installed ${result.selector} (${result.version}).`,
     "Restart every open Codex client before testing this install.",
     "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
+    `After restart, open /hooks, review the ${result.selector} UserPromptSubmit hook, and approve its exact hash. The installer never trusts hooks automatically.`,
     "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
     result.agentBackup ? `AGENTS.md backup: ${result.agentBackup}` : null,
     result.configBackup ? `Codex config backup: ${result.configBackup}` : null,
-    `Completion hook: ${result.hookTrust.detail}`,
+    "Completion hook: installed but intentionally left for explicit user approval in /hooks.",
   ].filter(Boolean).join("\n") + "\n");
 }
 

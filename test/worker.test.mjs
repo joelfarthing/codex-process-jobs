@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createJob, readJob } from "../scripts/state.mjs";
+import { createJob, readJob, resolveJobLogs } from "../scripts/state.mjs";
 import { recordNotificationRelaySpawn } from "../scripts/worker.mjs";
 
 function createEnv(t) {
@@ -13,7 +13,7 @@ function createEnv(t) {
   return { ...process.env, CODEX_HOME: codexHome };
 }
 
-function terminalJob(id, notification) {
+function terminalJob(id, notification, env) {
   return {
     id,
     name: id,
@@ -21,6 +21,7 @@ function terminalJob(id, notification) {
     cwd: process.cwd(),
     ownerThreadId: "thread-worker-test",
     notification,
+    logs: resolveJobLogs(id, env),
   };
 }
 
@@ -29,7 +30,7 @@ test("worker relay bookkeeping cannot overwrite a prompt fallback claim", async 
   createJob(terminalJob("job-worker-fallback", {
     status: "fallback_notified",
     hookNotifiedAt: "2026-07-10T12:00:00.000Z",
-  }), env);
+  }, env), env);
 
   await recordNotificationRelaySpawn("job-worker-fallback", 12345, env);
   const stored = readJob("job-worker-fallback", env);
@@ -43,7 +44,7 @@ test("worker records relay metadata without overwriting notifier-owned deliverin
   createJob(terminalJob("job-worker-delivering", {
     status: "delivering",
     attempts: 1,
-  }), env);
+  }, env), env);
 
   await recordNotificationRelaySpawn("job-worker-delivering", 23456, env);
   const stored = readJob("job-worker-delivering", env);

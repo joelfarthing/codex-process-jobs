@@ -3,6 +3,7 @@ import path from "node:path";
 
 export const DEFAULT_MAX_LOG_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_READ_BYTES = 64 * 1024;
+export const MAX_MODEL_LOG_BYTES = 1024 * 1024;
 const TRUNCATION_MARKER = Buffer.from("[... earlier output truncated ...]\n", "utf8");
 
 export function resolveMaxLogBytes(env = process.env) {
@@ -36,8 +37,21 @@ function compactAndAppend(fd, currentSize, chunk, limit) {
 
 export function createBoundedLogWriter(file, limit = DEFAULT_MAX_LOG_BYTES) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const fd = fs.openSync(file, "a+", 0o600);
-  let size = fs.fstatSync(fd).size;
+  const flags = fs.constants.O_RDWR
+    | fs.constants.O_CREAT
+    | fs.constants.O_APPEND
+    | (fs.constants.O_NOFOLLOW ?? 0);
+  const fd = fs.openSync(file, flags, 0o600);
+  let stat;
+  try {
+    stat = fs.fstatSync(fd);
+    if (!stat.isFile()) throw new Error(`Tracked log is not a regular file: ${file}`);
+    fs.fchmodSync(fd, 0o600);
+  } catch (error) {
+    fs.closeSync(fd);
+    throw error;
+  }
+  let size = stat.size;
   if (size > limit) {
     const tail = readTail(file, Math.max(0, limit - TRUNCATION_MARKER.length));
     fs.ftruncateSync(fd, 0);
@@ -60,9 +74,11 @@ export function createBoundedLogWriter(file, limit = DEFAULT_MAX_LOG_BYTES) {
 
 export function readTail(file, maxBytes = DEFAULT_READ_BYTES) {
   try {
-    const fd = fs.openSync(file, "r");
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
     try {
-      const size = fs.fstatSync(fd).size;
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) throw new Error(`Tracked log is not a regular file: ${file}`);
+      const size = stat.size;
       const length = Math.max(0, Math.min(size, maxBytes));
       const buffer = Buffer.alloc(length);
       if (length > 0) fs.readSync(fd, buffer, 0, length, size - length);
@@ -79,7 +95,23 @@ export function readTail(file, maxBytes = DEFAULT_READ_BYTES) {
 export function readLog(file, { full = false, maxBytes = DEFAULT_READ_BYTES } = {}) {
   if (!full) return readTail(file, maxBytes).toString("utf8");
   try {
-    return fs.readFileSync(file, "utf8");
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) throw new Error(`Tracked log is not a regular file: ${file}`);
+      const limit = Math.max(1, Math.min(maxBytes, MAX_MODEL_LOG_BYTES));
+      if (stat.size <= limit) {
+        const buffer = Buffer.alloc(stat.size);
+        if (stat.size > 0) fs.readSync(fd, buffer, 0, stat.size, 0);
+        return buffer.toString("utf8");
+      }
+      const length = Math.max(0, limit - TRUNCATION_MARKER.length);
+      const buffer = Buffer.alloc(length);
+      if (length > 0) fs.readSync(fd, buffer, 0, length, stat.size - length);
+      return Buffer.concat([TRUNCATION_MARKER, buffer]).toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (error) {
     if (error?.code === "ENOENT") return "";
     throw error;

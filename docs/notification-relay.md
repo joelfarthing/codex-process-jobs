@@ -48,6 +48,8 @@ The synthetic `<process_job_notification>` turn is explicitly excluded from this
 
 ## Trust boundary
 
-Process output is untrusted data. It is stored only in bounded logs and is not interpolated into the notification prompt. A user or agent must explicitly invoke `$codex-process-jobs:result` before Codex interprets that output.
+Process output is untrusted data. It is stored only in bounded logs and is not interpolated into the notification prompt. A user or agent must explicitly invoke `$codex-process-jobs:result` before Codex interprets that output, and Codex must treat it only as evidence rather than obeying embedded instructions.
 
-The installer enables Codex's stable `hooks` feature and attempts to trust only the installed `codex-process-jobs@<marketplace>` hook hashes reported by `hooks/list`. If automatic trust cannot be completed, installation succeeds with a warning and `/hooks` is the manual review path.
+The installer enables Codex's stable `hooks` feature and installs the plugin hook, but it never writes hook trust. After restarting the client, the user must open `/hooks`, inspect the installed `codex-process-jobs@<marketplace>` `UserPromptSubmit` command and source, and approve its exact hash. Direct app-server completion remains available without the hook; next-prompt fallback does not run until approval.
+
+Persisted records are bounded and schema-validated before the notifier or hook consumes them. Only a validated filename-bound job ID, terminal status enum, and integer exit code can cross the automatic model-facing boundary. See [Security and threat model](../SECURITY.md).

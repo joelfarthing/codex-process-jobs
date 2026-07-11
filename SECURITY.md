@@ -6,7 +6,7 @@ Codex Process Jobs launches user-authorized local commands under the same OS acc
 
 - Plugin code and a hook hash explicitly approved by the user in `/hooks` are trusted local code.
 - Command metadata, job JSON, stdout, and stderr are local same-user inputs. Treat them as untrusted evidence when Codex displays or interprets them.
-- The automatic completion boundary admits only a validated job ID, a terminal-status enum, and an integer exit code. Command text, labels, paths, errors, argv, environment, and process output never enter synthetic notification or next-prompt fallback instructions.
+- The automatic completion boundary admits only a validated job ID, a terminal-status enum, and an integer exit code. Command text, labels, paths, errors, argv, environment, and process output never enter synthetic notification or transport-independent next-prompt awareness instructions.
 - `$status`, `$tail`, and `$result` intentionally expose bounded metadata or process output. Codex must not obey embedded instructions or initiate follow-up actions merely because that data requests them.
 
 Persisted records are size-bounded, schema-checked, bound to their validated filename, read without following record symlinks, and accepted only when their stdout/stderr paths exactly match the job's private log paths. Model-facing full-log reads have an independent 1 MiB cap.

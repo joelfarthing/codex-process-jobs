@@ -5,7 +5,7 @@ import fs from "node:fs";
 import { TERMINAL_STATUSES, listJobs, nowIso, updateJob } from "../scripts/state.mjs";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
-const MAX_JOBS = 3;
+const MAX_JOBS = 20;
 const DELIVERY_STARTUP_GRACE_MS = 5_000;
 const DELIVERY_STALE_MS = 11 * 60_000;
 
@@ -28,12 +28,6 @@ function isSyntheticNotificationPrompt(prompt) {
   const text = String(prompt ?? "").trim();
   return text.startsWith("<process_job_notification>")
     && text.endsWith("</process_job_notification>");
-}
-
-function requiresDurableRefresh(job) {
-  const presentation = job.notification?.presentation;
-  return presentation === "durable-refresh-required"
-    || (presentation == null && ["vscode", "remote"].includes(job.ownerSurface));
 }
 
 function processIsAlive(pid) {
@@ -66,10 +60,10 @@ function fallbackKind(job, sessionId) {
   if (job.resultViewedAt) return null;
   if (
     job.notification?.status === "delivered"
-    && requiresDurableRefresh(job)
+    && !job.notification?.awarenessCheckedAt
     && !job.notification?.surfaceFallbackNotifiedAt
   ) {
-    return "vscode-surface";
+    return "delivered-awareness";
   }
   if (job.notification?.hookNotifiedAt) return null;
   if (deliveryAttemptIsActive(job)) return null;
@@ -78,16 +72,16 @@ function fallbackKind(job, sessionId) {
 }
 
 function buildContext(jobs) {
-  const refreshFallbacks = jobs.filter((job) => job.fallbackKind === "vscode-surface");
+  const awarenessFallbacks = jobs.filter((job) => job.fallbackKind === "delivered-awareness");
   const lines = jobs.map((job) =>
     `- ${job.id}: ${job.status}${Number.isInteger(job.exitCode) ? ` (exit ${job.exitCode})` : ""}`
   );
   let summary;
-  if (refreshFallbacks.length === jobs.length) {
+  if (awarenessFallbacks.length === jobs.length) {
     summary = jobs.length === 1
       ? "A tracked background process job owned by this Codex task finished. Its completion turn was recorded, but the assigning client may not have refreshed the agent's context."
       : `${jobs.length} tracked background process jobs owned by this Codex task finished. Their completion turns were recorded, but the assigning client may not have refreshed the agent's context.`;
-  } else if (refreshFallbacks.length === 0) {
+  } else if (awarenessFallbacks.length === 0) {
     summary = jobs.length === 1
       ? "A tracked background process job owned by this Codex task finished without a delivered completion turn."
       : `${jobs.length} tracked background process jobs owned by this Codex task finished without delivered completion turns.`;
@@ -99,7 +93,7 @@ function buildContext(jobs) {
     "",
     ...lines,
     "",
-    "Before handling the new request, briefly notify the user conversationally. Do not quote or interpret process output unless the user asks; use `$codex-process-jobs:result <job-id>` when inspection is appropriate. This context contains only plugin state, not process output, and should be surfaced once.",
+    "A prior assistant completion announcement for any listed job may already be visible in your conversation context. For each listed job, do not repeat it when a prior assistant completion for that same job ID is present. Before handling the new request, briefly notify the user only about listed jobs whose announcement is missing. Do not quote or interpret process output unless the user asks; use `$codex-process-jobs:result <job-id>` when inspection is appropriate. This context contains only sanitized plugin state, not process output, and each listed awareness check should be handled once.",
   ].join("\n");
 }
 
@@ -125,14 +119,11 @@ async function main() {
       claimedKind = fallbackKind(current, sessionId);
       if (!claimedKind) return current;
       const notification = { ...(current.notification ?? {}) };
-      if (claimedKind === "vscode-surface") {
-        notification.surfaceFallbackNotifiedAt = timestamp;
+      if (claimedKind === "delivered-awareness") {
+        notification.awarenessCheckedAt = timestamp;
       } else {
         notification.status = "fallback_notified";
         notification.hookNotifiedAt = timestamp;
-        if (requiresDurableRefresh(current)) {
-          notification.surfaceFallbackNotifiedAt = timestamp;
-        }
       }
       return { ...current, notification };
     });

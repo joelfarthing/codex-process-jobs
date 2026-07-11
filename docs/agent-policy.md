@@ -26,6 +26,6 @@ The installer inserts the contents of [`assets/agent-policy.md`](../assets/agent
 <!-- codex-process-jobs:end -->
 ```
 
-Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated personal instructions. It tells the agent to use conversational completion wording only when the controller reports notification as pending, and to disclose context-refresh limitations when the controller identifies VS Code or a refresh-uncertain remote surface. The policy is opt-in; installation without `--with-agent-policy` never changes `AGENTS.md`.
+Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated personal instructions. It tells the agent to use conversational but transport-honest launch wording: completion is recorded, live presentation is best-effort on every client, the assigning agent learns the outcome by the next exchange, and status is always available. The policy is opt-in; installation without `--with-agent-policy` never changes `AGENTS.md`.
 
 Repository-level or nested `AGENTS.md` files can override global guidance for their scope. If a project must never detach a particular command, state that exception close to the project.

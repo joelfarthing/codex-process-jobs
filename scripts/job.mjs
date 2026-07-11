@@ -316,9 +316,7 @@ async function handleStart(args, env = process.env) {
     `stderr: ${job.logs.stderr}`,
     "The process is detached and receives no interactive stdin.",
     job.notification.status === "pending" && job.notification.presentation === "durable-refresh-required"
-      ? job.ownerSurface === "vscode"
-        ? "Completion will be recorded in the owning Codex task. The open VS Code panel may need a reload or the task may need to be reopened to show it; the assigning agent will learn the outcome on the next exchange, and status/result work at any time."
-        : "Completion will be recorded in the owning Codex task. This remote client may not refresh the assigning agent's context immediately; the agent will learn the outcome on the next exchange, and status/result work at any time."
+      ? "Completion will be recorded in the owning Codex task. A live completion may appear, but the separate notification transport cannot guarantee this client's context refresh; the assigning agent will learn the outcome on the next exchange, and status/result work at any time."
       : job.notification.status === "pending"
         ? "The owning Codex task will receive a conversational completion notification."
       : job.notification.status === "disabled"

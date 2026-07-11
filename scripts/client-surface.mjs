@@ -47,10 +47,8 @@ export function detectClientSurface(env = process.env, { threadId = env.CODEX_TH
   return { surface: "unknown", detectedBy: null };
 }
 
-export function notificationPresentation(surface, notificationStatus) {
+export function notificationPresentation(_surface, notificationStatus) {
   if (notificationStatus === "disabled") return "disabled";
   if (notificationStatus === "unavailable") return "status-only";
-  return surface === "vscode" || surface === "remote"
-    ? "durable-refresh-required"
-    : "conversational";
+  return "durable-refresh-required";
 }

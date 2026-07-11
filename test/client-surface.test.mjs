@@ -19,7 +19,7 @@ test("does not mistake Codex Desktop for the VS Code extension", () => {
     detectClientSurface({ CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop" }),
     { surface: "app", detectedBy: "codex-originator" }
   );
-  assert.equal(notificationPresentation("app", "pending"), "conversational");
+  assert.equal(notificationPresentation("app", "pending"), "durable-refresh-required");
 });
 
 test("supports an explicit normalized surface override for wrappers and tests", () => {
@@ -38,6 +38,8 @@ test("supports an explicit normalized surface override for wrappers and tests", 
     detectClientSurface({ CODEX_PROCESS_JOBS_CLIENT_SURFACE: "remote" }),
     { surface: "remote", detectedBy: "process-jobs-override" }
   );
+  assert.equal(notificationPresentation("cli", "pending"), "durable-refresh-required");
+  assert.equal(notificationPresentation("unknown", "pending"), "durable-refresh-required");
 });
 
 test("detects Cartesian remote sessions from exact rollout metadata when env origin is absent", (t) => {

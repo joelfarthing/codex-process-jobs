@@ -189,13 +189,47 @@ test("marks VS Code jobs as durable completions that may require panel refresh",
     "-e",
     "process.exit(0)",
   ], context.env);
-  assert.match(started.stdout, /open VS Code panel may need a reload/i);
+  assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
   assert.match(started.stdout, /status\/result work at any time/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);
   const job = JSON.parse(runCli(["status", id, "--json"], context.env).stdout).job;
   assert.equal(job.ownerSurface, "vscode");
+  assert.equal(job.ownerSurfaceDetectedBy, "codex-originator");
+  assert.equal(job.notification.presentation, "durable-refresh-required");
+  assert.equal(waitJson(id, context.env).job.status, "completed");
+  const jobFile = path.join(context.env.CODEX_HOME, "process-jobs", "jobs", `${id}.json`);
+  assert.equal(waitUntil(() => {
+    try {
+      return JSON.parse(fs.readFileSync(jobFile, "utf8")).notification?.status === "delivered";
+    } catch {
+      return false;
+    }
+  }, 5000), true);
+});
+
+test("marks local Codex App jobs for the same transport-independent next-turn awareness", (t) => {
+  const context = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",
+  });
+  createMockCodex(t, context);
+  const started = runCli([
+    "start",
+    "--name",
+    "Codex App transport wording",
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], context.env);
+  assert.match(started.stdout, /a live completion may appear/i);
+  assert.match(started.stdout, /agent will learn the outcome on the next exchange/i);
+  const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
+  assert.ok(id);
+  context.startedIds.push(id);
+  const job = JSON.parse(runCli(["status", id, "--json"], context.env).stdout).job;
+  assert.equal(job.ownerSurface, "app");
   assert.equal(job.ownerSurfaceDetectedBy, "codex-originator");
   assert.equal(job.notification.presentation, "durable-refresh-required");
   assert.equal(waitJson(id, context.env).job.status, "completed");
@@ -222,7 +256,7 @@ test("marks mobile-to-remote Cartesian jobs for durable next-turn refresh", (t) 
     "-e",
     "process.exit(0)",
   ], context.env);
-  assert.match(started.stdout, /remote client may not refresh/i);
+  assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
   assert.match(started.stdout, /agent will learn the outcome on the next exchange/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);

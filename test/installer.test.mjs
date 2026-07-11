@@ -138,7 +138,8 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.equal(JSON.parse(fs.readFileSync(path.join(destination, ".codex-plugin", "plugin.json"), "utf8")).name, "codex-process-jobs");
   assert.equal(JSON.parse(fs.readFileSync(marketplaceFile, "utf8")).plugins.length, 1);
   assert.match(fs.readFileSync(agentFile, "utf8"), /\$codex-process-jobs:start/);
-  assert.match(fs.readFileSync(agentFile, "utf8"), /durable-refresh-required/);
+  assert.match(fs.readFileSync(agentFile, "utf8"), /separate transport/);
+  assert.match(fs.readFileSync(agentFile, "utf8"), /never promise an immediate live wake/);
   assert.match(applied.stdout, /installer never trusts hooks automatically/i);
   assert.match(applied.stdout, /explicit user approval in \/hooks/i);
   assert.match(applied.stdout, /Restart every open Codex client/);

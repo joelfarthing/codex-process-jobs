@@ -233,7 +233,7 @@ test("delivered refresh-required completion is surfaced on the next real prompt 
   assert.match(first.stdout, /completion turn was recorded, but the assigning client may not have refreshed the agent's context/);
   const stored = readJob(env, "job-hook-004");
   assert.equal(stored.notification.status, "delivered");
-  assert.match(stored.notification.surfaceFallbackNotifiedAt, /T/);
+  assert.match(stored.notification.awarenessCheckedAt, /T/);
 
   const second = runHook(env, {
     hook_event_name: "UserPromptSubmit",
@@ -270,7 +270,7 @@ test("delivered Cartesian remote completion receives the same one-shot context f
   assert.match(first.stdout, /assigning client may not have refreshed/);
   const stored = readJob(env, "job-hook-remote");
   assert.equal(stored.notification.status, "delivered");
-  assert.match(stored.notification.surfaceFallbackNotifiedAt, /T/);
+  assert.match(stored.notification.awarenessCheckedAt, /T/);
 
   const second = runHook(env, {
     hook_event_name: "UserPromptSubmit",
@@ -281,7 +281,7 @@ test("delivered Cartesian remote completion receives the same one-shot context f
   assert.equal(second.stdout, "");
 });
 
-test("delivered non-VS-Code completion is not repeated by the hook", (t) => {
+test("delivered App completion receives a one-shot awareness check even for legacy conversational state", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-005",
@@ -300,8 +300,41 @@ test("delivered non-VS-Code completion is not repeated by the hook", (t) => {
     prompt: "continue",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, "");
-  assert.equal(readJob(env, "job-hook-005").notification.surfaceFallbackNotifiedAt, undefined);
+  assert.match(result.stdout, /job-hook-005: completed \(exit 0\)/);
+  assert.match(result.stdout, /prior assistant completion announcement.*already be visible/i);
+  assert.match(result.stdout, /for each listed job, do not repeat it/i);
+  assert.match(readJob(env, "job-hook-005").notification.awarenessCheckedAt, /T/);
+
+  const second = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-005",
+    prompt: "another request",
+  });
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(second.stdout, "");
+});
+
+test("delivered CLI completion receives the same transport-independent awareness check", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-cli",
+    ownerThreadId: "thread-hook-cli",
+    ownerSurface: "cli",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivered",
+      presentation: "durable-refresh-required",
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-cli",
+    prompt: "continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /job-hook-cli/);
+  assert.match(readJob(env, "job-hook-cli").notification.awarenessCheckedAt, /T/);
 });
 
 test("ordinary prompt does not race a notifier-owned delivering attempt", (t) => {
@@ -420,7 +453,7 @@ test("concurrent next-prompt hooks claim one completion exactly once", async (t)
   assert.match(stored.notification.hookNotifiedAt, /T/);
 });
 
-test("legacy VS Code delivered record without presentation gets one surface fallback", (t) => {
+test("legacy delivered record without presentation gets one awareness fallback", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-007",
@@ -438,5 +471,100 @@ test("legacy VS Code delivered record without presentation gets one surface fall
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /job-hook-007/);
   assert.equal(readJob(env, "job-hook-007").notification.status, "delivered");
-  assert.match(readJob(env, "job-hook-007").notification.surfaceFallbackNotifiedAt, /T/);
+  assert.match(readJob(env, "job-hook-007").notification.awarenessCheckedAt, /T/);
+});
+
+test("legacy surface fallback marker suppresses a duplicate generic awareness check", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-legacy-marker",
+    ownerThreadId: "thread-hook-legacy-marker",
+    ownerSurface: "app",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivered",
+      presentation: "conversational",
+      surfaceFallbackNotifiedAt: "2026-07-10T12:04:00.000Z",
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-legacy-marker",
+    prompt: "continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(readJob(env, "job-hook-legacy-marker").notification.awarenessCheckedAt, undefined);
+});
+
+test("mixed delivered and failed jobs receive per-job awareness exactly once on an unknown surface", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-mixed-delivered",
+    ownerThreadId: "thread-hook-mixed",
+    ownerSurface: "unknown",
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "delivered", presentation: "conversational" },
+  });
+  writeJob(env, {
+    id: "job-hook-mixed-failed",
+    ownerThreadId: "thread-hook-mixed",
+    ownerSurface: "unknown",
+    status: "failed",
+    exitCode: 4,
+    notification: { status: "failed" },
+  });
+
+  const first = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-mixed",
+    prompt: "continue",
+  });
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /job-hook-mixed-delivered: completed \(exit 0\)/);
+  assert.match(first.stdout, /job-hook-mixed-failed: failed \(exit 4\)/);
+  assert.match(first.stdout, /for each listed job/i);
+  assert.match(readJob(env, "job-hook-mixed-delivered").notification.awarenessCheckedAt, /T/);
+  assert.equal(readJob(env, "job-hook-mixed-failed").notification.status, "fallback_notified");
+
+  const second = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-mixed",
+    prompt: "another request",
+  });
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(second.stdout, "");
+});
+
+test("concurrent awareness hooks claim a delivered multi-job batch exactly once per job", async (t) => {
+  const env = createEnv(t);
+  const ids = Array.from({ length: 5 }, (_, index) => `job-hook-batch-${index + 1}`);
+  for (const id of ids) {
+    writeJob(env, {
+      id,
+      ownerThreadId: "thread-hook-batch",
+      ownerSurface: "app",
+      status: "completed",
+      exitCode: 0,
+      notification: { status: "delivered", presentation: "durable-refresh-required" },
+    });
+  }
+  const payload = {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-batch",
+    prompt: "continue",
+  };
+  const results = await Promise.all(Array.from({ length: 6 }, () => runHookAsync(env, payload)));
+  for (const result of results) assert.equal(result.status, 0, result.stderr);
+  const combined = results.map((result) => result.stdout).join("\n");
+  for (const id of ids) {
+    assert.equal(combined.split(id).length - 1, 1, `${id} should appear in one hook output`);
+    assert.match(readJob(env, id).notification.awarenessCheckedAt, /T/);
+  }
+
+  const after = runHook(env, payload);
+  assert.equal(after.status, 0, after.stderr);
+  assert.equal(after.stdout, "");
 });

@@ -1,6 +1,6 @@
 # Completion Wake: VS Code and Cartesian Surface Research
 
-- Status: next-turn agent awareness implemented for VS Code and refresh-uncertain remote surfaces; true live refresh remains an upstream integration gap
+- Status: transport-independent next-turn awareness implemented for every owning surface; true live refresh remains an upstream integration gap
 - Research date: 2026-07-10
 
 ## Goal
@@ -13,14 +13,15 @@ This document records the research process, evidence, current product contract, 
 
 The detached process and durable completion turn work. The remaining limitation on stale-capable clients is presentation and next-turn context refresh, not job tracking or persistence.
 
-- Codex App and Codex CLI can display the synthetic completion turn live in the owning task.
+- Codex App and Codex CLI can sometimes display the synthetic completion turn live, but that presentation is not guaranteed.
 - A separate `codex app-server` process can append the same completion turn to a task opened in the Codex VS Code extension.
 - The VS Code extension's already-open panel does not receive that other app-server process's event stream. The turn is durable and becomes visible after a full window reload and task reopen.
 - The bundled prompt hook now supplies sanitized completion state to the assigning agent on its next ordinary non-status turn, even when the separate completion turn was successfully delivered but the open VS Code webview stayed stale. Explicit status/result requests retrieve that state directly instead.
 - The same stale-context behavior was observed when ChatGPT mobile drove Codex on a remote Linux host: the durable transcript contained the completion, but the agent handling the next request did not.
+- The same stale-context behavior was then reproduced entirely in local Codex App. Its synthetic completion turn finished 16 seconds before the next unrelated App turn began, yet the assigning agent did not receive it in context.
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
-The supported behavior is therefore Cartesian-surface-aware. In VS Code and refresh-uncertain remote clients, the plugin promises durable completion, automatic awareness on the assigning agent's next ordinary turn, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits.
+The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, one awareness check on the assigning agent's next ordinary turn, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits.
 
 ## Why the open VS Code panel stays stale
 
@@ -49,6 +50,7 @@ The investigation used multiple independent paths:
 8. Compared the installed Claude Code VS Code extension and asked Claude for an independent architectural explanation.
 9. Tested the stable client-origin marker used by the Codex VS Code extension and added automated surface-detection coverage.
 10. Repeated the workflow from ChatGPT mobile against a remote Linux execution host and compared durable transcript order with the assigning agent's later context.
+11. Repeated a 75-second heartbeat entirely in local Codex App and verified that the durable completion finished before, but was absent from, the next assigning-agent context.
 
 The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
 
@@ -70,6 +72,8 @@ The corrected design separates the two facts. Synthetic notification prompts nev
 
 After installing the corrected hook, a fresh real-extension task launched `job-mrfj6cze-68619cd8`, which exited `7`. Its durable completion turn reached `status: delivered` while the open panel remained unchanged. On an unrelated “what is 2 + 2?” follow-up with tool use prohibited, the assigning agent first reported the job and exit code, then answered `4`. A second unrelated “what is 3 + 3?” turn answered only `6`. The stored job retained `status: delivered` and gained one `surfaceFallbackNotifiedAt` timestamp. This verifies automatic next-turn awareness and exactly-once presentation in the tested VS Code extension build.
 
+That paragraph preserves the historical field name. The current transport-independent implementation writes `awarenessCheckedAt` and continues to honor existing `surfaceFallbackNotifiedAt` markers so an upgrade cannot repeat an earlier announcement.
+
 ### Continued-turn race hardening
 
 A later state review identified a second interleaving: a process could finish while ordinary user turns continued, allowing prompt fallback to claim `pending` just as the worker or notifier tried to start direct delivery. Without guarded state transitions, the later writer could reset `fallback_notified` to `pending` and eventually append a duplicate synthetic completion.
@@ -82,7 +86,7 @@ A later VS Code-only test exposed a separate installation boundary. The extensio
 
 The evidence points to stale plugin or hook state in the already-running VS Code app-server after a hot reinstall. Reading the result later set `resultViewedAt` and correctly suppressed future fallback, but that happened after the missed prompt and was not the cause.
 
-The supported update procedure now requires a client restart before testing. In VS Code, run **Developer: Reload Window** after every install or update, then start a fresh task. Opening a new task without reloading the window is not a sufficient refresh boundary.
+The supported update procedure now requires a client restart before testing. In VS Code, run **Developer: Reload Window** after every install or update. Quit and restart Codex App or CLI. Then review the hook in `/hooks` and start a fresh task; opening a new task in a pre-install client is not a sufficient refresh boundary.
 
 ## Surface detection
 
@@ -103,7 +107,7 @@ The implementation stores normalized metadata only:
 ```text
 ownerSurface: vscode | app | cli | remote | unknown
 ownerSurfaceDetectedBy: codex-originator | process-jobs-override | rollout-session-meta | null
-notification.presentation: conversational | durable-refresh-required | status-only | disabled
+notification.presentation: durable-refresh-required | status-only | disabled
 ```
 
 It does not persist the inherited environment or raw rollout metadata. `CODEX_PROCESS_JOBS_CLIENT_SURFACE` is an explicit escape hatch for wrappers and testing. See [Cartesian client and execution surfaces](cartesian-surfaces.md) for the evidence, ambiguity boundary, and mobile retest.
@@ -112,14 +116,14 @@ It does not persist the inherited environment or raw rollout metadata. `CODEX_PR
 
 | Surface | Completion behavior | Launch wording |
 |---|---|---|
-| Codex App | Conversational completion turn, with durable status/result fallback | The process will notify this task when it finishes. |
-| Codex CLI | Conversational completion turn, with durable status/result fallback | The process will notify this task when it finishes. |
-| Codex VS Code | Completion turn is recorded; the assigning agent receives it on the next ordinary prompt or retrieves it directly for a status/result request; the open panel may require reload to display the separate completion turn | Completion will be recorded; this panel may not visibly wake immediately, but the agent will learn the outcome on the next exchange and status is available any time. |
-| Mobile/remote, refresh-uncertain | Completion turn is recorded; the assigning agent receives it on the next ordinary prompt or retrieves it directly for a status/result request | Completion will be recorded; this client may not refresh the agent's context immediately, but the agent will learn the outcome on the next exchange and status is available any time. |
-| Unknown surface with an owning thread | Conversational relay is attempted, with durable fallback | The owning task will receive a completion notification. |
+| Codex App | Completion turn is recorded; live presentation is best-effort; the assigning agent receives one next-turn awareness check | Completion will be recorded; a live notification may appear, and either way the agent will learn the outcome by the next exchange. |
+| Codex CLI | Completion turn is recorded; live presentation is best-effort; the assigning agent receives one next-turn awareness check | Same transport-honest wording as App. |
+| Codex VS Code | Completion turn is recorded; the assigning agent receives one next-turn awareness check; the open panel may require reload to display the separate completion turn | Same transport-honest wording, with status available any time. |
+| Mobile/remote | Completion turn is recorded; the assigning agent receives one next-turn awareness check | Same transport-honest wording, with status available any time. |
+| Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; the same next-turn awareness check applies | Same transport-honest wording, with status available any time. |
 | No owning thread | No conversational relay | Use status/result to check completion. |
 
-The distinction is deliberately between a backend wake, visible transcript presentation, and the context loaded into the next assigning agent. These can diverge on both VS Code and mobile-driven remote tasks.
+The distinction is deliberately between a backend wake, visible transcript presentation, and the context loaded into the next assigning agent. These have now diverged in VS Code, mobile-driven remote tasks, and local Codex App.
 
 ## Why Claude's extension behaves differently
 
@@ -131,9 +135,9 @@ The transferable lesson is straightforward: durable state and a live subscriptio
 
 ## Options considered
 
-### 1. Surface-aware durable completion
+### 1. Transport-independent durable completion
 
-This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, informs stale-capable VS Code and remote tasks on the next ordinary prompt, and tells the user exactly what to expect.
+This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, performs one next-turn awareness check on every owning surface, and tells the user exactly what to expect.
 
 ### 2. Companion VS Code extension
 
@@ -176,4 +180,4 @@ Before claiming true VS Code live wake, an implementation must pass all of these
 6. macOS and Linux/WSL behavior is covered.
 7. The mechanism uses a documented API, or is clearly labeled as an opt-in, version-pinned experiment with an automatic safe fallback.
 
-Until then, `durable-refresh-required` plus one-shot next-prompt agent awareness is the supported contract for VS Code and refresh-uncertain Cartesian surfaces.
+Until then, `durable-refresh-required` plus one-shot next-prompt agent awareness is the supported contract for every owning Codex surface.

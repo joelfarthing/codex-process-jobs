@@ -8,11 +8,13 @@ assigning client context × execution host
 
 Examples include Codex App controlling the local Mac, VS Code controlling a local or remote extension host, and the ChatGPT mobile app controlling Codex on a remote Linux host. A completion can be durable on the execution host and visible in an exported transcript while still being absent from the assigning agent's next live context.
 
+Client identity and execution host are useful diagnostic axes, but refresh reliability is governed by another boundary: the notifier appends through a separate app-server transport from the assigning client. No detected client is assumed to observe that external append immediately.
+
 ## Observed mobile-to-remote result
 
 A controlled 75-second heartbeat job ran on a Linux execution host while the entire conversation was driven from the ChatGPT iPad app. The process completed successfully, and a separate app-server relay durably appended the synthetic completion turn and conversational response. More than a minute later, the assigning agent handled an unrelated storage question without seeing that completion and subsequently said it had not received it.
 
-The persisted job state showed:
+The persisted job state in that pre-generalization build showed this legacy snapshot:
 
 ```text
 ownerSurface: unknown
@@ -30,6 +32,12 @@ originator: Codex Desktop
 ```
 
 The launcher environment did not contain `CODEX_INTERNAL_ORIGINATOR_OVERRIDE`. Durable notification delivery succeeded; active-context synchronization did not. This is the same transport boundary previously observed in an already-open VS Code webview, reached through a different Cartesian combination.
+
+## Observed App-to-local result
+
+A second controlled 75-second heartbeat ran entirely in Codex App on the local Mac. The job was classified `ownerSurface: app`, completed at `2026-07-11T04:06:55.088Z`, and the separate notifier durably completed its synthetic turn at `2026-07-11T04:07:01.173Z`. The next unrelated App turn began at `2026-07-11T04:07:17.281Z`, 16 seconds later, but its assigning-agent context omitted the completion. A subsequent status check found `notification.status: delivered` while the user-visible exported transcript contained no completion announcement.
+
+This rules out a busy-turn race and disproves the earlier assumption that local Codex App could safely use a stronger live-notification promise. Durable append and assigning-client awareness are separate on the local App surface too.
 
 ## Classification precedence
 
@@ -50,11 +58,13 @@ notification.presentation: durable-refresh-required
 
 `remote` means **refresh-uncertain**, not proof that the client is physically remote. Generic `source: vscode` metadata is ambiguous, and object-valued sources such as subagent records never qualify. Any non-empty environment originator blocks rollout inference, including an unrecognized custom originator.
 
+All owning surfaces now receive `notification.presentation: durable-refresh-required`; classification remains useful for diagnostics and Cartesian testing, not for deciding whether next-turn awareness is necessary.
+
 ## Completion contract
 
-For `vscode` and `remote` surfaces, successful direct delivery remains `delivered`, but the next ordinary non-status prompt receives sanitized completion state once unless `surfaceFallbackNotifiedAt` is already present. Explicit status/result requests read durable state directly. The hook never injects process output.
+For every owning surface, successful direct delivery remains `delivered`, but the next ordinary non-status prompt receives one sanitized awareness check unless `awarenessCheckedAt` is already present. The hook also recognizes the legacy `surfaceFallbackNotifiedAt` marker so upgrades cannot repeat an earlier announcement. It tells Codex not to repeat the announcement if a prior assistant completion for the same job is already visible in context. Explicit status/result requests read durable state directly. The hook never injects process output.
 
-User-facing wording is intentionally client-neutral: completion will be recorded, the current client may not refresh the assigning agent's context immediately, the agent will learn the outcome on the next exchange, and status remains available at any time.
+User-facing wording is intentionally client-neutral: completion will be recorded, a live notification may appear, the assigning agent will learn the outcome by the next exchange, and status remains available at any time.
 
 ## Mobile-to-remote verification
 
@@ -63,7 +73,9 @@ User-facing wording is intentionally client-neutral: completion will be recorded
 3. Allow the job to finish, then submit an unrelated ordinary request without asking for status.
 4. The assigning agent should briefly announce the completed job before answering the unrelated request.
 5. Submit a second unrelated request; completion must not be repeated.
-6. Confirm stored state remains `notification.status: delivered` and now has one `surfaceFallbackNotifiedAt` timestamp.
+6. Confirm stored state remains `notification.status: delivered` and now has one `awarenessCheckedAt` timestamp.
 7. Confirm `ownerSurface: remote`, `ownerSurfaceDetectedBy: rollout-session-meta`, and `notification.presentation: durable-refresh-required`.
 
 This test distinguishes durable transcript delivery from assigning-agent context refresh without relying on whether a particular client visibly repaints in real time.
+
+Repeat the same test in local Codex App and CLI. Their stored `ownerSurface` values should remain `app` and `cli`, while `notification.presentation` remains `durable-refresh-required` and the same exactly-once awareness contract applies.

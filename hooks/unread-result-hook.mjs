@@ -30,10 +30,10 @@ function isSyntheticNotificationPrompt(prompt) {
     && text.endsWith("</process_job_notification>");
 }
 
-function isVsCodeRefreshSurface(job) {
+function requiresDurableRefresh(job) {
   const presentation = job.notification?.presentation;
   return presentation === "durable-refresh-required"
-    || (presentation == null && job.ownerSurface === "vscode");
+    || (presentation == null && ["vscode", "remote"].includes(job.ownerSurface));
 }
 
 function processIsAlive(pid) {
@@ -66,7 +66,7 @@ function fallbackKind(job, sessionId) {
   if (job.resultViewedAt) return null;
   if (
     job.notification?.status === "delivered"
-    && isVsCodeRefreshSurface(job)
+    && requiresDurableRefresh(job)
     && !job.notification?.surfaceFallbackNotifiedAt
   ) {
     return "vscode-surface";
@@ -85,8 +85,8 @@ function buildContext(jobs) {
   let summary;
   if (refreshFallbacks.length === jobs.length) {
     summary = jobs.length === 1
-      ? "A tracked background process job owned by this Codex task finished. Its completion turn was recorded, but this VS Code panel may not have refreshed."
-      : `${jobs.length} tracked background process jobs owned by this Codex task finished. Their completion turns were recorded, but this VS Code panel may not have refreshed.`;
+      ? "A tracked background process job owned by this Codex task finished. Its completion turn was recorded, but the assigning client may not have refreshed the agent's context."
+      : `${jobs.length} tracked background process jobs owned by this Codex task finished. Their completion turns were recorded, but the assigning client may not have refreshed the agent's context.`;
   } else if (refreshFallbacks.length === 0) {
     summary = jobs.length === 1
       ? "A tracked background process job owned by this Codex task finished without a delivered completion turn."
@@ -130,7 +130,7 @@ async function main() {
       } else {
         notification.status = "fallback_notified";
         notification.hookNotifiedAt = timestamp;
-        if (isVsCodeRefreshSurface(current)) {
+        if (requiresDurableRefresh(current)) {
           notification.surfaceFallbackNotifiedAt = timestamp;
         }
       }

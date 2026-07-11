@@ -1,25 +1,26 @@
-# VS Code Completion Wake: Research and Decision Record
+# Completion Wake: VS Code and Cartesian Surface Research
 
-- Status: next-turn agent awareness implemented; true live refresh remains an upstream integration gap
+- Status: next-turn agent awareness implemented for VS Code and refresh-uncertain remote surfaces; true live refresh remains an upstream integration gap
 - Research date: 2026-07-10
 
 ## Goal
 
-Codex Process Jobs runs long local commands such as CMake builds, test suites, inference comparisons, and device repairs without holding an agent turn open. A finished process should wake the owning Codex task conversationally when the active Codex client supports it. The behavior and wording must remain honest across Codex App, Codex CLI, and the Codex VS Code extension on macOS and Linux.
+Codex Process Jobs runs long local commands such as CMake builds, test suites, inference comparisons, and device repairs without holding an agent turn open. A finished process should wake the owning Codex task conversationally when the active Codex client supports it. The behavior and wording must remain honest across Codex App, Codex CLI, the Codex VS Code extension, and mobile-driven remote execution on macOS and Linux.
 
 This document records the research process, evidence, current product contract, implementation decision, and safe paths for future work.
 
 ## Executive finding
 
-The detached process and durable completion turn work. The remaining VS Code limitation is presentation, not job tracking or persistence.
+The detached process and durable completion turn work. The remaining limitation on stale-capable clients is presentation and next-turn context refresh, not job tracking or persistence.
 
 - Codex App and Codex CLI can display the synthetic completion turn live in the owning task.
 - A separate `codex app-server` process can append the same completion turn to a task opened in the Codex VS Code extension.
 - The VS Code extension's already-open panel does not receive that other app-server process's event stream. The turn is durable and becomes visible after a full window reload and task reopen.
 - The bundled prompt hook now supplies sanitized completion state to the assigning agent on its next ordinary non-status turn, even when the separate completion turn was successfully delivered but the open VS Code webview stayed stale. Explicit status/result requests retrieve that state directly instead.
+- The same stale-context behavior was observed when ChatGPT mobile drove Codex on a remote Linux host: the durable transcript contained the completion, but the agent handling the next request did not.
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
-The supported behavior is therefore surface-aware. In VS Code, the plugin promises durable completion, automatic awareness on the assigning agent's next ordinary turn, and direct retrieval for status/result requests—not a live repaint at the instant the process exits.
+The supported behavior is therefore Cartesian-surface-aware. In VS Code and refresh-uncertain remote clients, the plugin promises durable completion, automatic awareness on the assigning agent's next ordinary turn, and direct retrieval for status/result requests—not a live repaint at the instant the process exits.
 
 ## Why the open VS Code panel stays stale
 
@@ -47,6 +48,7 @@ The investigation used multiple independent paths:
 7. Inspected current Codex app-server documentation and related upstream issues for supported transport and refresh semantics.
 8. Compared the installed Claude Code VS Code extension and asked Claude for an independent architectural explanation.
 9. Tested the stable client-origin marker used by the Codex VS Code extension and added automated surface-detection coverage.
+10. Repeated the workflow from ChatGPT mobile against a remote Linux execution host and compared durable transcript order with the assigning agent's later context.
 
 The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
 
@@ -82,19 +84,21 @@ The Codex VS Code extension launches its child process with:
 CODEX_INTERNAL_ORIGINATOR_OVERRIDE=codex_vscode
 ```
 
-Codex Desktop uses a different originator value. This makes the exact inherited originator marker a practical way for the launcher to identify the VS Code surface before it detaches.
+Codex Desktop uses a different originator value. This makes the exact inherited environment marker a practical way for the launcher to identify known local App, CLI, and VS Code surfaces before it detaches.
 
-The rollout's generic `source` field is not sufficient. Custom app-server clients can also be recorded as `source: "vscode"`; that ambiguity is documented in [openai/codex issue #16614](https://github.com/openai/codex/issues/16614).
+The rollout's generic `source` field is not sufficient to identify VS Code. Custom app-server clients can also be recorded as `source: "vscode"`; that ambiguity is documented in [openai/codex issue #16614](https://github.com/openai/codex/issues/16614).
+
+Mobile-to-remote execution exposed a second path: the launcher environment had no originator marker, while the owning rollout recorded scalar `source: "vscode"` plus `originator: "Codex Desktop"`. Only when the environment originator is absent, that exact pair is classified as `remote`, meaning refresh-uncertain rather than proven physical remoteness. Explicit overrides and any non-empty environment originator take precedence. Object-valued rollout sources such as subagent records never qualify.
 
 The implementation stores normalized metadata only:
 
 ```text
-ownerSurface: vscode | app | cli | unknown
-ownerSurfaceDetectedBy: codex-originator | process-jobs-override | null
+ownerSurface: vscode | app | cli | remote | unknown
+ownerSurfaceDetectedBy: codex-originator | process-jobs-override | rollout-session-meta | null
 notification.presentation: conversational | durable-refresh-required | status-only | disabled
 ```
 
-It does not persist the inherited environment or the raw originator value. `CODEX_PROCESS_JOBS_CLIENT_SURFACE` is an explicit escape hatch for wrappers and testing.
+It does not persist the inherited environment or raw rollout metadata. `CODEX_PROCESS_JOBS_CLIENT_SURFACE` is an explicit escape hatch for wrappers and testing. See [Cartesian client and execution surfaces](cartesian-surfaces.md) for the evidence, ambiguity boundary, and mobile retest.
 
 ## User-facing contract
 
@@ -103,10 +107,11 @@ It does not persist the inherited environment or the raw originator value. `CODE
 | Codex App | Conversational completion turn, with durable status/result fallback | The process will notify this task when it finishes. |
 | Codex CLI | Conversational completion turn, with durable status/result fallback | The process will notify this task when it finishes. |
 | Codex VS Code | Completion turn is recorded; the assigning agent receives it on the next ordinary prompt or retrieves it directly for a status/result request; the open panel may require reload to display the separate completion turn | Completion will be recorded; this panel may not visibly wake immediately, but the agent will learn the outcome on the next exchange and status is available any time. |
+| Mobile/remote, refresh-uncertain | Completion turn is recorded; the assigning agent receives it on the next ordinary prompt or retrieves it directly for a status/result request | Completion will be recorded; this client may not refresh the agent's context immediately, but the agent will learn the outcome on the next exchange and status is available any time. |
 | Unknown surface with an owning thread | Conversational relay is attempted, with durable fallback | The owning task will receive a completion notification. |
 | No owning thread | No conversational relay | Use status/result to check completion. |
 
-The distinction is deliberately between a backend wake and a visible wake. In VS Code, the backend agent turn can run and be persisted while the open renderer remains stale.
+The distinction is deliberately between a backend wake, visible transcript presentation, and the context loaded into the next assigning agent. These can diverge on both VS Code and mobile-driven remote tasks.
 
 ## Why Claude's extension behaves differently
 
@@ -120,7 +125,7 @@ The transferable lesson is straightforward: durable state and a live subscriptio
 
 ### 1. Surface-aware durable completion
 
-This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, informs a stale VS Code task on its next ordinary prompt, and tells the user exactly what to expect.
+This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, informs stale-capable VS Code and remote tasks on the next ordinary prompt, and tells the user exactly what to expect.
 
 ### 2. Companion VS Code extension
 
@@ -146,7 +151,7 @@ The ideal fix is an official command, exported extension API, or app-server cros
 
 ## Portability notes
 
-- Surface detection is based on inherited environment metadata and Node.js, not macOS-specific process inspection.
+- Surface detection prefers inherited environment metadata and uses bounded rollout metadata only for the exact refresh-uncertain remote fallback; it requires no macOS-specific process inspection.
 - The process broker remains limited to macOS and Linux because process-group management and shell behavior are POSIX-specific.
 - The same VS Code origin marker is set in the inspected native and WSL launch paths, but each future extension version should remain covered by smoke testing.
 - No companion extension, daemon, socket service, or vendor-extension patch is required for the supported default.
@@ -163,4 +168,4 @@ Before claiming true VS Code live wake, an implementation must pass all of these
 6. macOS and Linux/WSL behavior is covered.
 7. The mechanism uses a documented API, or is clearly labeled as an opt-in, version-pinned experiment with an automatic safe fallback.
 
-Until then, `durable-refresh-required` plus one-shot next-prompt agent awareness is the supported contract for Codex VS Code.
+Until then, `durable-refresh-required` plus one-shot next-prompt agent awareness is the supported contract for VS Code and refresh-uncertain Cartesian surfaces.

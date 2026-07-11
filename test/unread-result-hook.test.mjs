@@ -167,7 +167,7 @@ test("synthetic completion envelope cannot consume fallback without the relay en
   });
 });
 
-test("delivered VS Code completion is surfaced on the next real prompt once", (t) => {
+test("delivered refresh-required completion is surfaced on the next real prompt once", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-004",
@@ -190,7 +190,7 @@ test("delivered VS Code completion is surfaced on the next real prompt once", (t
   });
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /job-hook-004: failed \(exit 7\)/);
-  assert.match(first.stdout, /completion turn was recorded, but this VS Code panel may not have refreshed/);
+  assert.match(first.stdout, /completion turn was recorded, but the assigning client may not have refreshed the agent's context/);
   const stored = readJob(env, "job-hook-004");
   assert.equal(stored.notification.status, "delivered");
   assert.match(stored.notification.surfaceFallbackNotifiedAt, /T/);
@@ -203,6 +203,42 @@ test("delivered VS Code completion is surfaced on the next real prompt once", (t
   assert.equal(second.status, 0, second.stderr);
   assert.equal(second.stdout, "");
   assert.equal(readJob(env, "job-hook-004").notification.status, "delivered");
+});
+
+test("delivered Cartesian remote completion receives the same one-shot context fallback", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-remote",
+    ownerThreadId: "thread-hook-remote",
+    ownerSurface: "remote",
+    ownerSurfaceDetectedBy: "rollout-session-meta",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivered",
+      presentation: "durable-refresh-required",
+      deliveredAt: "2026-07-11T02:08:45.186Z",
+    },
+  });
+  const first = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-remote",
+    prompt: "how much space is free",
+  });
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /job-hook-remote: completed \(exit 0\)/);
+  assert.match(first.stdout, /assigning client may not have refreshed/);
+  const stored = readJob(env, "job-hook-remote");
+  assert.equal(stored.notification.status, "delivered");
+  assert.match(stored.notification.surfaceFallbackNotifiedAt, /T/);
+
+  const second = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-remote",
+    prompt: "another request",
+  });
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(second.stdout, "");
 });
 
 test("delivered non-VS-Code completion is not repeated by the hook", (t) => {

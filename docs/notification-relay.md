@@ -9,7 +9,7 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 3. A separate lightweight notifier resumes the owning thread through local `codex app-server` and starts one minimal completion turn.
 4. The synthetic turn contains only the sanitized job id, terminal status, and exit code. It never contains the command, working directory, job label, environment, stdout, or stderr.
 5. The completion turn asks Codex for one short conversational sentence and explicitly forbids tool calls or unrelated work.
-6. If direct delivery is unavailable, the bundled `UserPromptSubmit` hook surfaces the unread completion once on the task's next ordinary prompt. For a VS Code task whose durable completion turn was delivered but not repainted in the open webview, the same hook surfaces sanitized completion state on the next non-status prompt. Explicit status/result requests bypass injection because they retrieve the durable state directly.
+6. If direct delivery is unavailable, the bundled `UserPromptSubmit` hook surfaces the unread completion once on the task's next ordinary prompt. For VS Code and refresh-uncertain remote tasks whose durable completion turn was delivered but not loaded into the assigning agent's context, the same hook surfaces sanitized completion state on the next non-status prompt. Explicit status/result requests bypass injection because they retrieve durable state directly.
 7. `$codex-process-jobs:status` and `$codex-process-jobs:result` remain the durable fallback.
 
 This relay uses an ordinary Codex turn and therefore consumes normal Codex usage. Pass `--no-notify` for jobs that should remain polling-only.
@@ -24,11 +24,11 @@ Normal user turns do not disturb a running job, and the prompt hook ignores it u
 
 A live `delivering` attempt is protected from prompt fallback. If its notifier process disappears, the hook can recover the stale attempt after a short startup grace; an apparently live attempt older than the maximum relay window is also recoverable. This prevents both duplicate announcements and a permanently stuck delivery state.
 
-## VS Code presentation note
+## Refresh-required presentation note
 
-The completion turn is persisted in the owning task independently of the client that launched it. In the tested Codex VS Code extension build, an already-open Codex webview cached the transcript and did not live-render a completion turn appended by a separate app-server process. Reloading the VS Code window and reopening the task displayed both the launch turn and the conversational completion turn. Until the extension observes externally appended turns live, start records `notification.presentation` as `durable-refresh-required` and the agent discloses the limitation. The hook then injects sanitized completion state into the assigning agent's next ordinary non-status turn exactly once; an explicit status/result request retrieves the same durable state directly.
+The completion turn is persisted in the owning task independently of the client that launched it. An already-open Codex VS Code webview and a ChatGPT mobile client driving a remote Linux task have both demonstrated stale assigning-agent context after a separate app-server process appended a completion. Start records `notification.presentation` as `durable-refresh-required` for these surfaces and discloses the limitation. The hook then injects sanitized completion state into the assigning agent's next ordinary non-status turn exactly once; an explicit status/result request retrieves the same durable state directly.
 
-The synthetic `<process_job_notification>` turn is explicitly excluded from this fallback. Successful app-server delivery remains `delivered`; the separate `surfaceFallbackNotifiedAt` timestamp records that the stale VS Code surface's assigning agent has also been informed.
+The synthetic `<process_job_notification>` turn is explicitly excluded from this fallback. Successful app-server delivery remains `delivered`; the separate `surfaceFallbackNotifiedAt` timestamp records that the refresh-required surface's assigning agent has also been informed.
 
 ## Delivery states
 
@@ -42,7 +42,7 @@ The synthetic `<process_job_notification>` turn is explicitly excluded from this
 - `disabled`: the launch used `--no-notify` or notification was disabled for tests.
 - `unavailable`: no valid persistent owning thread id was available.
 
-`surfaceFallbackNotifiedAt` is orthogonal to these delivery states. It marks the one-shot VS Code next-turn fallback without rewriting a successful `delivered` state.
+`surfaceFallbackNotifiedAt` is orthogonal to these delivery states. It marks the one-shot next-turn context fallback without rewriting a successful `delivered` state.
 
 ## Trust boundary
 

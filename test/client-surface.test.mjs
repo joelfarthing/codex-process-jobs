@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { detectClientSurface, notificationPresentation } from "../scripts/client-surface.mjs";
@@ -30,6 +33,79 @@ test("supports an explicit normalized surface override for wrappers and tests", 
   assert.deepEqual(
     detectClientSurface({ CODEX_PROCESS_JOBS_CLIENT_SURFACE: "unknown" }),
     { surface: "unknown", detectedBy: "process-jobs-override" }
+  );
+  assert.deepEqual(
+    detectClientSurface({ CODEX_PROCESS_JOBS_CLIENT_SURFACE: "remote" }),
+    { surface: "remote", detectedBy: "process-jobs-override" }
+  );
+});
+
+test("detects Cartesian remote sessions from exact rollout metadata when env origin is absent", (t) => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-surface-"));
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+  const threadId = "thread-cartesian-001";
+  const directory = path.join(codexHome, "sessions", "2026", "07", "10");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, `rollout-test-${threadId}.jsonl`), `${JSON.stringify({
+    timestamp: "2026-07-11T02:07:03.874Z",
+    type: "session_meta",
+    payload: {
+      id: threadId,
+      source: "vscode",
+      originator: "Codex Desktop",
+    },
+  })}\n`);
+  const env = { CODEX_HOME: codexHome, CODEX_THREAD_ID: threadId };
+  assert.deepEqual(
+    detectClientSurface(env),
+    { surface: "remote", detectedBy: "rollout-session-meta" }
+  );
+  assert.equal(notificationPresentation("remote", "pending"), "durable-refresh-required");
+  assert.deepEqual(
+    detectClientSurface({ ...env, CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop" }),
+    { surface: "app", detectedBy: "codex-originator" }
+  );
+  assert.deepEqual(
+    detectClientSurface({ ...env, CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "custom-client" }),
+    { surface: "unknown", detectedBy: null }
+  );
+  assert.deepEqual(
+    detectClientSurface({ ...env, CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "codex_cli" }),
+    { surface: "cli", detectedBy: "codex-originator" }
+  );
+  assert.deepEqual(
+    detectClientSurface({ ...env, CODEX_PROCESS_JOBS_CLIENT_SURFACE: "unknown" }),
+    { surface: "unknown", detectedBy: "process-jobs-override" }
+  );
+});
+
+test("generic vscode session metadata alone is not enough to infer remote", (t) => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-surface-ambiguous-"));
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+  const threadId = "thread-ambiguous-001";
+  const directory = path.join(codexHome, "sessions");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, `rollout-test-${threadId}.jsonl`), `${JSON.stringify({
+    type: "session_meta",
+    payload: { id: threadId, source: "vscode", originator: "custom-client" },
+  })}\n`);
+  assert.deepEqual(
+    detectClientSurface({ CODEX_HOME: codexHome, CODEX_THREAD_ID: threadId }),
+    { surface: "unknown", detectedBy: null }
+  );
+
+  const subagentThreadId = "thread-subagent-001";
+  fs.writeFileSync(path.join(directory, `rollout-test-${subagentThreadId}.jsonl`), `${JSON.stringify({
+    type: "session_meta",
+    payload: {
+      id: subagentThreadId,
+      source: { subagent: "reviewer" },
+      originator: "Codex Desktop",
+    },
+  })}\n`);
+  assert.deepEqual(
+    detectClientSurface({ CODEX_HOME: codexHome, CODEX_THREAD_ID: subagentThreadId }),
+    { surface: "unknown", detectedBy: null }
   );
 });
 

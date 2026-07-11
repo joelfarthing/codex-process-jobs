@@ -8,11 +8,13 @@ The runtime tracks process identity, status, bounded stdout/stderr, exit status,
 
 The process broker and personal-plugin installation flow are functional and tested on macOS. Fresh Codex App, Codex CLI, and Codex VS Code extension tasks have discovered the installed skills and completed detached launches. In all three surfaces, an external process resumed its owning thread through app-server and produced a separate conversational completion turn without polling or a subagent.
 
-Codex App and CLI expose the appended completion turn directly. In the tested VS Code extension build, the already-open Codex webview did not live-render a turn appended by a separate app-server process; reloading the VS Code window and reopening the task displayed the complete two-turn transcript. The job state and completion turn remain durable while the webview is stale, and a one-shot next-prompt hook informs the assigning agent on the next ordinary non-status turn. Explicit status/result requests retrieve the durable state directly. Treat immediate live VS Code presentation as an upstream synchronization limitation until a Codex extension build proves otherwise.
+Codex App and CLI expose the appended completion turn directly. Already-open VS Code webviews and mobile ChatGPT clients driving a remote execution host can retain a stale assigning-agent context even after a separate app-server process durably appends the completion turn. The job state and completion turn remain durable, and a one-shot next-prompt hook informs refresh-required or refresh-uncertain surfaces on the next ordinary non-status turn. Explicit status/result requests retrieve durable state directly.
 
 The repository includes a repeatable surface test for every client. The app-server relay is best-effort because app-server is currently experimental. A one-shot next-prompt hook plus explicit status/result retrieval are the durable fallbacks.
 
 Conversation can continue normally while a job runs. When it finishes, the notifier and next-prompt hook atomically claim one presentation path: a live direct delivery blocks prompt fallback, while a prompt fallback that wins first suppresses later direct delivery. Stale notifier attempts remain recoverable.
+
+The client and execution host are independent Cartesian axes. See [Cartesian client and execution surfaces](docs/cartesian-surfaces.md), [Conversational completion relay](docs/notification-relay.md), and [VS Code completion wake research](docs/vscode-wake-research-and-process.md).
 
 ## Requirements
 
@@ -48,7 +50,7 @@ Start a fresh Codex task after installation so the client picks up the skills.
 
 ### Encourage automatic use
 
-Skill descriptions make Codex route explicit requests such as “background this build” or “keep working while this runs” to the plugin. For a stronger personal default across Codex App, VS Code, and CLI, preview the optional global agent policy:
+Skill descriptions make Codex route explicit requests such as “background this build” or “keep working while this runs” to the plugin. For a stronger personal default across Codex App, VS Code, CLI, and mobile-driven remote tasks, preview the optional global agent policy on each execution host:
 
 ```bash
 node scripts/install.mjs --with-agent-policy
@@ -64,7 +66,7 @@ The managed block is idempotent and preserves unrelated instructions. See [Agent
 
 ### Host and surface scope
 
-Codex App, the local VS Code extension, and Codex CLI share the installation on one host. If VS Code is attached through Remote SSH, a Dev Container, WSL, or another remote extension host, install the plugin in that environment too. On Linux, run the same preview/apply flow under the account that runs Codex.
+Codex App, the local VS Code extension, and Codex CLI share the installation on one host. If VS Code or ChatGPT mobile drives Codex on another execution host through Remote SSH, remote tasks, a Dev Container, WSL, or another bridge, install the plugin in that execution environment too. On Linux, run the same preview/apply flow under the account that runs Codex.
 
 ## Commands
 
@@ -114,7 +116,7 @@ Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, co
 
 Specific-job status checks are deliberately lightweight. They read the job record, stat the two bounded logs, and inspect at most 8 KiB per stream for four recent lines. This supports quick follow-up questions such as “how's the build going?” without attaching to or disturbing the running process.
 
-When the owning persistent task is available, start reports notification as `pending`. In Codex App or CLI, the agent can say naturally: “I've started that build in the background. The process will notify me here when it finishes.” In VS Code, it explains that completion will be recorded, the open panel may not visibly wake immediately, the assigning agent will learn the outcome on the next exchange, and status is available any time. See [Conversational completion relay](docs/notification-relay.md).
+When the owning persistent task is available, start reports notification as `pending`. In a known live Codex App or CLI surface, the agent can say naturally: “I've started that build in the background. The process will notify me here when it finishes.” On VS Code or a refresh-uncertain remote surface, it explains that completion will be recorded, the client may not refresh its context immediately, the assigning agent will learn the outcome on the next exchange, and status is available any time. See [Conversational completion relay](docs/notification-relay.md).
 
 ## Safety model
 
@@ -136,7 +138,7 @@ npm run smoke
 
 The test suite covers real detached launches, app-server completion relay, prompt-data isolation, next-prompt hook fallback, result persistence, bounded output, critical cancellation, shell mode, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, marketplace preservation, hook trust, and idempotent agent-policy insertion. GitHub Actions runs on macOS and Ubuntu with Node.js 18 and 22 once this repository is published.
 
-Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, and CLI.
+Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 
 ## License
 

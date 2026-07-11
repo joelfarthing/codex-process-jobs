@@ -230,7 +230,7 @@ async function handleStart(args, env = process.env) {
   fs.writeFileSync(logs.stderr, "", { mode: 0o600, flag: "wx" });
   const displayCommand = renderCommand(parsed.argv, parsed.shell);
   const ownerThreadId = env.CODEX_THREAD_ID || null;
-  const ownerClient = detectClientSurface(env);
+  const ownerClient = detectClientSurface(env, { threadId: ownerThreadId });
   const notificationRequested = parsed.notify && env.CODEX_PROCESS_JOBS_DISABLE_NOTIFY !== "1";
   const notificationBase = !notificationRequested
     ? { requested: false, status: "disabled", mode: "app-server-turn" }
@@ -307,8 +307,10 @@ async function handleStart(args, env = process.env) {
     `stdout: ${job.logs.stdout}`,
     `stderr: ${job.logs.stderr}`,
     "The process is detached and receives no interactive stdin.",
-    job.notification.status === "pending" && job.ownerSurface === "vscode"
-      ? "Completion will be recorded in the owning Codex task. The open VS Code panel may need a reload or the task may need to be reopened to show it; status/result work at any time."
+    job.notification.status === "pending" && job.notification.presentation === "durable-refresh-required"
+      ? job.ownerSurface === "vscode"
+        ? "Completion will be recorded in the owning Codex task. The open VS Code panel may need a reload or the task may need to be reopened to show it; the assigning agent will learn the outcome on the next exchange, and status/result work at any time."
+        : "Completion will be recorded in the owning Codex task. This remote client may not refresh the assigning agent's context immediately; the agent will learn the outcome on the next exchange, and status/result work at any time."
       : job.notification.status === "pending"
         ? "The owning Codex task will receive a conversational completion notification."
       : job.notification.status === "disabled"

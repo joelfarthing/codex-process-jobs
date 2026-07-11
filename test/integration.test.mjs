@@ -45,6 +45,17 @@ function makeEnv(t, overrides = {}) {
   return { env, startedIds };
 }
 
+function writeSessionMeta(env, { source, originator }) {
+  const threadId = env.CODEX_THREAD_ID;
+  const directory = path.join(env.CODEX_HOME, "sessions", "2026", "07", "10");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, `rollout-test-${threadId}.jsonl`), `${JSON.stringify({
+    timestamp: "2026-07-11T02:07:03.874Z",
+    type: "session_meta",
+    payload: { id: threadId, source, originator },
+  })}\n`);
+}
+
 function startJson(args, context) {
   const started = runCli(["start", "--json", ...args], context.env);
   const payload = JSON.parse(started.stdout);
@@ -172,6 +183,31 @@ test("marks VS Code jobs as durable completions that may require panel refresh",
       return false;
     }
   }, 5000), true);
+});
+
+test("marks mobile-to-remote Cartesian jobs for durable next-turn refresh", (t) => {
+  const context = makeEnv(t, { CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "" });
+  createMockCodex(t, context);
+  writeSessionMeta(context.env, { source: "vscode", originator: "Codex Desktop" });
+  const started = runCli([
+    "start",
+    "--name",
+    "Cartesian remote surface wording",
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], context.env);
+  assert.match(started.stdout, /remote client may not refresh/i);
+  assert.match(started.stdout, /agent will learn the outcome on the next exchange/i);
+  const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
+  assert.ok(id);
+  context.startedIds.push(id);
+  const job = JSON.parse(runCli(["status", id, "--json"], context.env).stdout).job;
+  assert.equal(job.ownerSurface, "remote");
+  assert.equal(job.ownerSurfaceDetectedBy, "rollout-session-meta");
+  assert.equal(job.notification.presentation, "durable-refresh-required");
+  assert.equal(waitJson(id, context.env).job.status, "completed");
 });
 
 test("detached worker relays completion to the owning Codex thread", (t) => {

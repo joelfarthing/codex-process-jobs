@@ -58,13 +58,13 @@ notification.presentation: durable-refresh-required
 
 `remote` means **refresh-uncertain**, not proof that the client is physically remote. Generic `source: vscode` metadata is ambiguous, and object-valued sources such as subagent records never qualify. Any non-empty environment originator blocks rollout inference, including an unrecognized custom originator.
 
-All owning surfaces now receive `notification.presentation: durable-refresh-required`; classification remains useful for diagnostics and Cartesian testing, not for deciding whether a next-turn recap is necessary.
+All owning surfaces now receive `notification.presentation: durable-refresh-required`; classification remains useful for diagnostics and Cartesian testing, not for deciding whether an eligible-turn recap is necessary.
 
 ## Completion contract
 
-For every owning surface, successful direct delivery remains `delivered`, but the next ordinary non-status prompt receives one sanitized mandatory recap instruction unless `ordinaryPromptRecapInjectedAt` or a legacy marker is already present. Codex gives the recap even if a synthetic assistant completion appears in model context, because that message may not have rendered in the assigning client. A possible one-time duplicate is intentional. Explicit status/result requests read durable state directly. The hook never injects process output.
+For every owning surface, successful direct delivery remains `delivered`, but the first eligible ordinary non-status prompt after delivery settles receives one sanitized mandatory recap instruction unless `ordinaryPromptRecapInjectedAt` or a legacy marker is already present. Codex gives the recap even if a synthetic assistant completion appears in model context, because that message may not have rendered in the assigning client. A possible one-time duplicate is intentional. Explicit status/result requests read durable state directly. The hook never injects process output.
 
-User-facing wording is intentionally client-neutral: completion will be recorded, a live notification may appear, the next ordinary exchange will recap the outcome, and status remains available at any time.
+User-facing wording is intentionally client-neutral and temporally precise: completion will be recorded, a live notification may appear, after the process finishes the agent will recap the outcome as soon as an ordinary exchange can pick it up, and status remains available at any time. Ordinary exchanges before terminal state continue normally and do not promise an outcome that does not yet exist. An ordinary prompt submitted during an active notifier-owned delivery attempt also continues without racing it; the first eligible non-status prompt after delivery settles receives the recap.
 
 ## Mobile-to-remote verification
 

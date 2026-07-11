@@ -9,7 +9,7 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 3. A separate lightweight notifier resumes the owning thread through local `codex app-server` and starts one minimal completion turn.
 4. The synthetic turn contains only the sanitized job id, terminal status, and exit code. It never contains the command, working directory, job label, environment, stdout, or stderr.
 5. The completion turn asks Codex for one short conversational sentence and explicitly forbids tool calls or unrelated work.
-6. If direct delivery is unavailable, the bundled `UserPromptSubmit` hook surfaces the unread completion once on the task's next ordinary prompt. After successful direct delivery, the hook also injects one transport-independent mandatory recap on the next non-status prompt. Codex gives that recap even when the synthetic assistant completion is already present in model context, because a recorded message is not proof that the assigning client rendered it. Explicit status/result requests bypass this recap because they retrieve durable state directly.
+6. If direct delivery is unavailable, the bundled `UserPromptSubmit` hook surfaces the unread completion on the first eligible ordinary non-status prompt. After successful direct delivery settles, the hook also injects one transport-independent mandatory recap on that first eligible prompt. Codex gives that recap even when the synthetic assistant completion is already present in model context, because a recorded message is not proof that the assigning client rendered it. Explicit status/result requests bypass this recap because they retrieve durable state directly.
 7. `$codex-process-jobs:status` and `$codex-process-jobs:result` remain the durable fallback.
 
 This relay uses an ordinary Codex turn and therefore consumes normal Codex usage. Pass `--no-notify` for jobs that should remain polling-only.
@@ -30,7 +30,9 @@ A live `delivering` attempt is protected from prompt fallback. If its notifier p
 
 The completion turn is persisted in the owning task independently of the client that launched it. Codex App on the local Mac, an already-open Codex VS Code webview, and a ChatGPT mobile client driving a remote Linux task have all demonstrated stale assigning-agent context after a separate app-server process appended a completion. In the App test, the synthetic completion turn finished 16 seconds before the next ordinary turn began, ruling out a busy-turn race.
 
-Start therefore records `notification.presentation` as `durable-refresh-required` for every owning client and discloses that live presentation is best-effort. Surface detection remains diagnostic metadata; it does not decide whether recap fallback is required. The hook injects sanitized completion state into the assigning agent's next ordinary non-status turn once per job and requires a user-facing recap. That recap may duplicate a separately rendered synthetic completion once because the plugin has no trustworthy rendered-visibility signal.
+Start therefore records `notification.presentation` as `durable-refresh-required` for every owning client and discloses that live presentation is best-effort. Surface detection remains diagnostic metadata; it does not decide whether recap fallback is required. After delivery settles, the hook injects sanitized completion state into the assigning agent's first eligible ordinary non-status turn once per job and requires a user-facing recap. That recap may duplicate a separately rendered synthetic completion once because the plugin has no trustworthy rendered-visibility signal.
+
+Codex App can present a tool-using response in two useful phases: live commentary while work continues, followed by a final answer that causes commentary to auto-collapse. When the completion recap appears in commentary, repeating the concise outcome in the final answer is intentional so the durable visible answer still contains it. This within-turn presentation is distinct from the possible cross-turn duplicate caused by an independently rendered synthetic completion.
 
 The synthetic `<process_job_notification>` turn is explicitly excluded from this check. Successful app-server delivery remains `delivered`; the separate `ordinaryPromptRecapInjectedAt` timestamp records only that the hook injected its one recap instruction. It does not claim the model complied or that the client rendered the response. The legacy `awarenessCheckedAt` and `surfaceFallbackNotifiedAt` markers are still honored after upgrades so historical jobs do not resurface. That migration choice cannot retroactively prove old client rendering; it deliberately applies the stronger recap contract to jobs completed under the new implementation without replaying an arbitrary backlog.
 
@@ -48,7 +50,7 @@ One prompt can carry up to 20 sanitized completion records. A larger backlog rem
 - `disabled`: the launch used `--no-notify` or notification was disabled for tests.
 - `unavailable`: no valid persistent owning thread id was available.
 
-`ordinaryPromptRecapInjectedAt` is orthogonal to these delivery states. It honestly marks the one-shot next-turn recap instruction without claiming user-visible presentation or rewriting a successful `delivered` state.
+`ordinaryPromptRecapInjectedAt` is orthogonal to these delivery states. It honestly marks the one-shot recap instruction on an eligible ordinary prompt without claiming user-visible presentation or rewriting a successful `delivered` state.
 
 ## Trust boundary
 

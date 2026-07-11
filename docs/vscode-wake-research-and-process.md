@@ -1,6 +1,6 @@
 # Completion Wake: VS Code and Cartesian Surface Research
 
-- Status: transport-independent next-turn recap implemented for every owning surface; true live refresh remains an upstream integration gap
+- Status: transport-independent eligible-turn recap implemented for every owning surface; true live refresh remains an upstream integration gap
 - Research date: 2026-07-10
 
 ## Goal
@@ -16,12 +16,12 @@ The detached process and durable completion turn work. The remaining limitation 
 - Codex App and Codex CLI can sometimes display the synthetic completion turn live, but that presentation is not guaranteed.
 - A separate `codex app-server` process can append the same completion turn to a task opened in the Codex VS Code extension.
 - The VS Code extension's already-open panel does not receive that other app-server process's event stream. The turn is durable and becomes visible after a full window reload and task reopen.
-- The bundled prompt hook now supplies sanitized completion state and requires a short recap on the assigning agent's next ordinary non-status turn, even when the separate completion turn was successfully delivered. Explicit status/result requests retrieve that state directly instead.
+- After notifier delivery settles, the bundled prompt hook supplies sanitized completion state and requires a short recap on the assigning agent's first eligible ordinary non-status turn, even when the separate completion turn was successfully delivered. Explicit status/result requests retrieve that state directly instead.
 - The same stale-context behavior was observed when ChatGPT mobile drove Codex on a remote Linux host: the durable transcript contained the completion, but the agent handling the next request did not.
 - Local Codex App exposed both failure variants. In one test, a synthetic completion turn finished 16 seconds before the next unrelated turn yet was absent from assigning-agent context. In a later test, the hidden completion was present in model context but absent from the rendered and exported conversation, proving that context presence is not evidence of user-visible presentation.
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
-The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, one mandatory recap instruction on the assigning agent's next ordinary turn, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits. Because the plugin cannot prove whether a synthetic turn rendered, a live completion may be recapped once.
+The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, one mandatory recap instruction on the assigning agent's first eligible ordinary non-status turn after delivery settles, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits. Because the plugin cannot prove whether a synthetic turn rendered, a live completion may be recapped once.
 
 ## Why the open VS Code panel stays stale
 
@@ -52,6 +52,7 @@ The investigation used multiple independent paths:
 10. Repeated the workflow from ChatGPT mobile against a remote Linux execution host and compared durable transcript order with the assigning agent's later context.
 11. Repeated a 75-second heartbeat entirely in local Codex App and verified that the durable completion finished before, but was absent from, the next assigning-agent context.
 12. Repeated the App heartbeat after adding universal next-turn awareness and found the complementary case: the hidden synthetic assistant completion was loaded into model context, the App did not render or export it, and context-based duplicate suppression incorrectly omitted the recap from the next visible response.
+13. Repeated the App heartbeat after requiring the recap regardless of model-context history and verified visible success: the first unrelated post-terminal turn reported completion in live commentary, continued unrelated work, and preserved the recap in its final answer.
 
 The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
 
@@ -97,7 +98,15 @@ A later local Codex App test completed a 75-second heartbeat with exit code zero
 
 Twenty seconds later, an unrelated ordinary prompt triggered the transport-independent hook. The assigning model's context contained the hidden synthetic completion, so the previous hook instruction—"do not repeat when a prior assistant completion is present"—caused Codex to answer only the unrelated question. A later user question confirmed that the agent had received the completion before that response.
 
-This establishes a stricter boundary than stale context alone: a message can exist in durable rollout state and model context while remaining absent from the rendered conversation. The plugin has no trustworthy client-rendered visibility signal. The current hook therefore requires one short recap on the next ordinary prompt even when the synthetic assistant message is already in context. A possible one-time duplicate is an explicit reliability tradeoff. The state field `ordinaryPromptRecapInjectedAt` records hook injection only; it does not claim model compliance or rendered presentation.
+This establishes a stricter boundary than stale context alone: a message can exist in durable rollout state and model context while remaining absent from the rendered conversation. The plugin has no trustworthy client-rendered visibility signal. After delivery settles, the current hook therefore requires one short recap on the first eligible ordinary non-status prompt even when the synthetic assistant message is already in context. A possible one-time duplicate is an explicit reliability tradeoff. The state field `ordinaryPromptRecapInjectedAt` records hook injection only; it does not claim model compliance or rendered presentation.
+
+### Successful local App recap verification
+
+After installing the mandatory-recap hook and restarting Codex App, another 75-second heartbeat completed with exit code zero. The synthetic completion turn finished successfully and remained absent from the rendered/exported conversation. About eight seconds later, the user submitted an unrelated Mars question. The hook injected the sanitized completed state and wrote `ordinaryPromptRecapInjectedAt`; Codex immediately reported the successful heartbeat in live commentary, continued the unrelated research, and preserved the completion again in the final answer.
+
+This is the first verified end-to-end rendered success for the transport-independent fallback on local Codex App. It proves that a detached ordinary process can finish, record a hidden durable completion, and then regain visible conversational continuity on an eligible ordinary exchange after terminal state without polling or a subagent. In this test, that happened on the first post-terminal prompt because notifier delivery had already settled. The commentary-plus-final presentation is desired on App: commentary is readable live but auto-collapses when the final answer renders, so the final repetition keeps the completion visible in the durable chat.
+
+The test also exposed a wording precision issue. “The next ordinary exchange will recap the outcome” is false when an exchange occurs before the process finishes. A review then found a narrower post-terminal race: an ordinary prompt can arrive while notifier-owned delivery is still in flight and correctly decline to race it. Launch wording now says: “After it finishes, I'll recap the outcome as soon as our conversation can pick it up.” The technical contract is the first eligible non-status prompt after delivery settles.
 
 ## Surface detection
 
@@ -127,11 +136,11 @@ It does not persist the inherited environment or raw rollout metadata. `CODEX_PR
 
 | Surface | Completion behavior | Launch wording |
 |---|---|---|
-| Codex App | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap | Completion will be recorded; a live notification may appear, and the next ordinary exchange will recap the outcome. |
-| Codex CLI | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap | Same transport-honest wording as App. |
-| Codex VS Code | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap; the open panel may require reload to display the separate completion turn | Same transport-honest wording, with status available any time. |
-| Mobile/remote | Completion turn is recorded; live presentation is best-effort; the next ordinary exchange requires one recap | Same transport-honest wording, with status available any time. |
-| Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; live presentation is best-effort; the same next-turn recap applies | Same transport-honest wording, with status available any time. |
+| Codex App | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. |
+| Codex CLI | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Same transport-honest wording as App. |
+| Codex VS Code | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap; the open panel may require reload to display the separate completion turn | Same transport-honest wording, with status available any time. |
+| Mobile/remote | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Same transport-honest wording, with status available any time. |
+| Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; live presentation is best-effort; the same eligible recap applies | Same transport-honest wording, with status available any time. |
 | No owning thread | No conversational relay | Use status/result to check completion. |
 
 The distinction is deliberately between a backend wake, visible transcript presentation, and the context loaded into the next assigning agent. These have now diverged in VS Code, mobile-driven remote tasks, and local Codex App.
@@ -148,7 +157,7 @@ The transferable lesson is straightforward: durable state and a live subscriptio
 
 ### 1. Transport-independent durable completion
 
-This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, injects one mandatory next-turn recap on every owning surface, and tells the user exactly what to expect. It intentionally accepts a possible one-time duplicate because durable/model context does not prove rendered visibility.
+This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, injects one mandatory recap on the first eligible ordinary non-status prompt after delivery settles on every owning surface, and tells the user exactly what to expect. It intentionally accepts a possible one-time duplicate because durable/model context does not prove rendered visibility.
 
 ### 2. Companion VS Code extension
 
@@ -191,4 +200,4 @@ Before claiming true VS Code live wake, an implementation must pass all of these
 6. macOS and Linux/WSL behavior is covered.
 7. The mechanism uses a documented API, or is clearly labeled as an opt-in, version-pinned experiment with an automatic safe fallback.
 
-Until then, `durable-refresh-required` plus one-shot next-prompt recap injection is the supported contract for every owning Codex surface.
+Until then, `durable-refresh-required` plus one-shot recap injection on the first eligible ordinary non-status prompt after delivery settles is the supported contract for every owning Codex surface.

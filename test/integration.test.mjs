@@ -224,7 +224,7 @@ test("marks local Codex App jobs for the same transport-independent next-turn re
     "process.exit(0)",
   ], context.env);
   assert.match(started.stdout, /a live completion may appear/i);
-  assert.match(started.stdout, /next ordinary exchange will recap the outcome/i);
+  assert.match(started.stdout, /after the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);
@@ -257,7 +257,7 @@ test("marks mobile-to-remote Cartesian jobs for durable next-turn refresh", (t) 
     "process.exit(0)",
   ], context.env);
   assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
-  assert.match(started.stdout, /next ordinary exchange will recap the outcome/i);
+  assert.match(started.stdout, /after the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);

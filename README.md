@@ -12,7 +12,9 @@ Live presentation is best-effort on every client. Codex App, an already-open VS 
 
 The repository includes a repeatable surface test for every client. The app-server relay is best-effort because app-server is currently experimental. A one-shot next-prompt hook plus explicit status/result retrieval are the durable fallbacks.
 
-Conversation can continue normally while a job runs. While direct delivery is pending, the notifier and next-prompt hook atomically claim one delivery path. After successful delivery, the next ordinary prompt requires a short recap before Codex handles the new request, even if the synthetic completion already appears in model context. Model context cannot prove that the assigning client rendered the message, so one possible duplicate is preferred over a silent completion. Stale notifier attempts remain recoverable.
+Conversation can continue normally while a job runs. While direct delivery is pending, the notifier and next-prompt hook atomically claim one delivery path. After delivery settles, the first eligible ordinary non-status prompt requires a short recap before Codex handles the new request, even if the synthetic completion already appears in model context. Model context cannot prove that the assigning client rendered the message, so one possible duplicate is preferred over a silent completion. Stale notifier attempts remain recoverable.
+
+A later local Codex App test verified the complete fallback path: the direct synthetic completion was durable but absent from the exported conversation, then the first unrelated prompt after terminal state received the hook recap and visibly reported success before continuing. Codex App showed the recap in live commentary and repeated it in the final answer. That is desirable App behavior because commentary auto-collapses when the final answer renders, while the final preserves the completion in the conversation.
 
 The client and execution host are independent Cartesian axes. See [Cartesian client and execution surfaces](docs/cartesian-surfaces.md), [Conversational completion relay](docs/notification-relay.md), and [VS Code completion wake research](docs/vscode-wake-research-and-process.md).
 
@@ -118,7 +120,7 @@ Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, co
 
 Specific-job status checks are deliberately lightweight. They read the job record, stat the two bounded logs, and inspect at most 8 KiB per stream for four recent lines. This supports quick follow-up questions such as “how's the build going?” without attaching to or disturbing the running process.
 
-When the owning persistent task is available, start reports notification as `pending`. The agent says naturally: “I've started that build in the background. Completion will be recorded; a live notification may appear, and the next ordinary exchange will recap the outcome. We can check status any time.” This wording is intentionally independent of the detected client because the relay and assigning client use separate transports. See [Conversational completion relay](docs/notification-relay.md).
+When the owning persistent task is available, start reports notification as `pending`. The agent says naturally: “I've started that build in the background. Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. We can check status any time.” The completion clause is deliberately conditional: ordinary turns can continue while the process is still running, and an ordinary prompt that arrives while direct delivery is still in flight does not race the notifier. The first eligible non-status prompt after delivery settles receives the recap. This wording is intentionally independent of the detected client because the relay and assigning client use separate transports. See [Conversational completion relay](docs/notification-relay.md).
 
 ## Safety model
 

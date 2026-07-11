@@ -95,7 +95,11 @@ function buildContext(jobs) {
     "",
     ...lines,
     "",
-    "Before handling the new request, briefly recap every listed job to the user. Do this even if a prior assistant completion for the same job ID appears in conversation context: it may come from a synthetic completion turn that was durably recorded but never rendered by the assigning client. A possible one-time duplicate is intentional and safer than a silent completion. Do not quote or interpret process output unless the user asks; use `$codex-process-jobs:result <job-id>` when inspection is appropriate. This context contains only sanitized plugin state, not process output, and this ordinary-prompt recap instruction is injected once per listed job.",
+    "Before handling the new request, briefly recap every listed job to the user.",
+    "- If you send commentary, announce each completion there so the user can see it live.",
+    "- In all cases, the final answer MUST also include a concise recap for every listed job, even if commentary or a prior assistant completion already mentions it.",
+    "- Do not treat commentary or a synthetic completion turn as satisfying the final-answer requirement. Codex App may auto-collapse commentary when the final answer renders, so this within-turn repetition is intentional.",
+    "A prior assistant completion for the same job ID may come from a synthetic turn that was durably recorded but never rendered by the assigning client. A possible cross-turn duplicate is intentional and safer than a silent completion. Do not quote or interpret process output unless the user asks; use `$codex-process-jobs:result <job-id>` when inspection is appropriate. This context contains only sanitized plugin state, not process output, and this ordinary-prompt recap instruction is injected once per listed job.",
   ].join("\n");
 }
 

@@ -53,6 +53,7 @@ The investigation used multiple independent paths:
 11. Repeated a 75-second heartbeat entirely in local Codex App and verified that the durable completion finished before, but was absent from, the next assigning-agent context.
 12. Repeated the App heartbeat after adding universal next-turn awareness and found the complementary case: the hidden synthetic assistant completion was loaded into model context, the App did not render or export it, and context-based duplicate suppression incorrectly omitted the recap from the next visible response.
 13. Repeated the App heartbeat after requiring the recap regardless of model-context history and verified visible success: the first unrelated post-terminal turn reported completion in live commentary, continued unrelated work, and preserved the recap in its final answer.
+14. Repeated the same App flow and observed a presentation split: Codex reported completion in live commentary but omitted it from the final answer, so App auto-collapse removed the outcome from the durable rendered answer. This established final-answer retention as a separate requirement.
 
 The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
 
@@ -107,6 +108,12 @@ After installing the mandatory-recap hook and restarting Codex App, another 75-s
 This is the first verified end-to-end rendered success for the transport-independent fallback on local Codex App. It proves that a detached ordinary process can finish, record a hidden durable completion, and then regain visible conversational continuity on an eligible ordinary exchange after terminal state without polling or a subagent. In this test, that happened on the first post-terminal prompt because notifier delivery had already settled. The commentary-plus-final presentation is desired on App: commentary is readable live but auto-collapses when the final answer renders, so the final repetition keeps the completion visible in the durable chat.
 
 The test also exposed a wording precision issue. “The next ordinary exchange will recap the outcome” is false when an exchange occurs before the process finishes. A review then found a narrower post-terminal race: an ordinary prompt can arrive while notifier-owned delivery is still in flight and correctly decline to race it. Launch wording now says: “After it finishes, I'll recap the outcome as soon as our conversation can pick it up.” The technical contract is the first eligible non-status prompt after delivery settles.
+
+### Commentary-only recap is not durable App presentation
+
+A subsequent local App heartbeat reached the same successful process and relay states. After delivery settled, an unrelated technical question triggered the hook and wrote `ordinaryPromptRecapInjectedAt`. Codex immediately announced the successful completion in live commentary, performed unrelated research, and then omitted the completion from its final answer. The exported conversation retained the commentary only inside collapsed prior-message details.
+
+This result confirms that “recap before handling the new request” is insufficient on App: commentary satisfies that instruction but auto-collapses when the final answer renders. The hook now states two independent requirements. If commentary is used, announce completion there for live visibility. In all cases, the final answer must also retain a concise completion recap; neither commentary nor a synthetic completion turn satisfies that final-answer requirement. The within-turn repetition is intentional.
 
 ## Surface detection
 

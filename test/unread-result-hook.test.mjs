@@ -283,7 +283,7 @@ test("delivered Cartesian remote completion receives the same one-shot recap ins
   assert.equal(second.stdout, "");
 });
 
-test("delivered App completion requires a recap even when a synthetic announcement may be in context", (t) => {
+test("delivered App completion requires live commentary when used and final-answer retention", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-005",
@@ -304,9 +304,11 @@ test("delivered App completion requires a recap even when a synthetic announceme
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /job-hook-005: completed \(exit 0\)/);
   assert.match(result.stdout, /briefly recap every listed job/i);
-  assert.match(result.stdout, /even if a prior assistant completion.*appears in conversation context/i);
-  assert.match(result.stdout, /never rendered by the assigning client/i);
-  assert.match(result.stdout, /one-time duplicate is intentional/i);
+  assert.match(result.stdout, /if you send commentary, announce each completion there/i);
+  assert.match(result.stdout, /final answer MUST also include a concise recap for every listed job/i);
+  assert.match(result.stdout, /do not treat commentary or a synthetic completion turn as satisfying the final-answer requirement/i);
+  assert.match(result.stdout, /auto-collapse commentary when the final answer renders/i);
+  assert.match(result.stdout, /cross-turn duplicate is intentional/i);
   assert.doesNotMatch(result.stdout, /do not repeat/i);
   assert.match(readJob(env, "job-hook-005").notification.ordinaryPromptRecapInjectedAt, /T/);
 

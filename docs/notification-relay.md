@@ -14,6 +14,8 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 
 This relay uses an ordinary Codex turn and therefore consumes normal Codex usage. Pass `--no-notify` for jobs that should remain polling-only.
 
+After installing or updating the plugin, restart every open Codex client before testing this flow. In VS Code, run **Developer: Reload Window**. Opening a new task in the same pre-install client process can leave its plugin or hook registry stale.
+
 ## Continued conversation while a job runs
 
 Normal user turns do not disturb a running job, and the prompt hook ignores it until its process state is terminal. If the process finishes while the owning task is busy, the notifier waits for an idle boundary. At the next boundary, exactly one path claims presentation under the job-state lock:

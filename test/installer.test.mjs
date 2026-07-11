@@ -9,7 +9,9 @@ import test from "node:test";
 import {
   POLICY_BEGIN,
   POLICY_END,
+  applyInstall,
   mergeMarketplace,
+  sourceConflictsWithDestination,
   upsertAgentPolicy,
   withCodexCachebuster,
 } from "../scripts/install.mjs";
@@ -108,6 +110,21 @@ test("cachebuster replaces existing build metadata", () => {
   );
 });
 
+test("detects when the source checkout is also the runtime destination", async () => {
+  const source = path.join(os.tmpdir(), "codex-process-jobs-source-conflict");
+  assert.equal(sourceConflictsWithDestination(source, source), true);
+  assert.equal(sourceConflictsWithDestination(source, `${source}-installed`), false);
+
+  await assert.rejects(
+    applyInstall({
+      sourceRoot: source,
+      destination: source,
+      sourceDestinationConflict: true,
+    }, {}),
+    /Refusing to replace the source checkout/
+  );
+});
+
 test("preview is read-only and apply installs into an isolated home", (t) => {
   const home = temporaryHome(t);
   const env = installEnv(t, home);
@@ -118,6 +135,8 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   const preview = runInstaller(["--with-agent-policy"], env);
   assert.equal(preview.status, 0, preview.stderr);
   assert.match(preview.stdout, /No changes made/);
+  assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
+  assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
   assert.equal(fs.existsSync(marketplaceFile), false);
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
@@ -129,6 +148,9 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.match(fs.readFileSync(agentFile, "utf8"), /\$codex-process-jobs:start/);
   assert.match(fs.readFileSync(agentFile, "utf8"), /durable-refresh-required/);
   assert.match(applied.stdout, /Completion hook: trusted 1 plugin hook/);
+  assert.match(applied.stdout, /Restart every open Codex client/);
+  assert.match(applied.stdout, /Developer: Reload Window/);
+  assert.match(applied.stdout, /After the restart, start a fresh Codex task/);
 
   const calls = fs.readFileSync(env.MOCK_CODEX_CALLS, "utf8").trim().split("\n").map(JSON.parse);
   assert.ok(calls.some((args) => args[0] === "plugin" && args[1] === "add" && args[2] === "codex-process-jobs@personal"));

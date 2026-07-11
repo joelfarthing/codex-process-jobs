@@ -20,7 +20,7 @@ The detached process and durable completion turn work. The remaining limitation 
 - The same stale-context behavior was observed when ChatGPT mobile drove Codex on a remote Linux host: the durable transcript contained the completion, but the agent handling the next request did not.
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
-The supported behavior is therefore Cartesian-surface-aware. In VS Code and refresh-uncertain remote clients, the plugin promises durable completion, automatic awareness on the assigning agent's next ordinary turn, and direct retrieval for status/result requests—not a live repaint at the instant the process exits.
+The supported behavior is therefore Cartesian-surface-aware. In VS Code and refresh-uncertain remote clients, the plugin promises durable completion, automatic awareness on the assigning agent's next ordinary turn, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits.
 
 ## Why the open VS Code panel stays stale
 
@@ -75,6 +75,14 @@ After installing the corrected hook, a fresh real-extension task launched `job-m
 A later state review identified a second interleaving: a process could finish while ordinary user turns continued, allowing prompt fallback to claim `pending` just as the worker or notifier tried to start direct delivery. Without guarded state transitions, the later writer could reset `fallback_notified` to `pending` and eventually append a duplicate synthetic completion.
 
 The relay now treats presentation as an atomic claim. Worker bookkeeping never overwrites `fallback_notified`; the notifier re-checks suppression under the job lock before changing `pending` to `delivering`; a live `delivering` attempt blocks prompt fallback and additional notifiers; and notifier success/failure finalizers preserve a fallback that won concurrently. A dead or over-age delivering attempt remains recoverable so duplicate prevention cannot strand completion permanently. Automated coverage exercises worker bookkeeping, notifier start/finalization, active and stale delivering attempts, accepted fallback, and concurrent prompt claims.
+
+### Hot reinstall and stale hook state
+
+A later VS Code-only test exposed a separate installation boundary. The extension's app-server process was already running when a new plugin snapshot and trusted hook hash were installed. A subsequent task could use the updated skill and launch a job, and the external relay durably completed its synthetic turn, but the next ordinary prompt did not receive the hook fallback. The job remained without `surfaceFallbackNotifiedAt`. An earlier job from a client process that had loaded the hook correctly did record that marker.
+
+The evidence points to stale plugin or hook state in the already-running VS Code app-server after a hot reinstall. Reading the result later set `resultViewedAt` and correctly suppressed future fallback, but that happened after the missed prompt and was not the cause.
+
+The supported update procedure now requires a client restart before testing. In VS Code, run **Developer: Reload Window** after every install or update, then start a fresh task. Opening a new task without reloading the window is not a sufficient refresh boundary.
 
 ## Surface detection
 

@@ -94,6 +94,20 @@ export function withCodexCachebuster(version, timestamp) {
   return `${base}+codex.local-${timestamp}`;
 }
 
+function canonicalPath(file) {
+  const resolved = path.resolve(file);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch (error) {
+    if (error?.code === "ENOENT") return resolved;
+    throw error;
+  }
+}
+
+export function sourceConflictsWithDestination(sourceRoot, destination) {
+  return canonicalPath(sourceRoot) === canonicalPath(destination);
+}
+
 function expectedMarketplaceEntry() {
   return {
     name: PLUGIN_NAME,
@@ -225,11 +239,13 @@ export function resolveInstallPlan({ env = process.env, now = new Date(), source
   const home = resolveHome(env);
   const codexHome = path.resolve(env.CODEX_HOME || path.join(home, ".codex"));
   const timestamp = cachebusterTimestamp(now);
+  const destination = path.join(home, "plugins", PLUGIN_NAME);
   return {
     sourceRoot: root,
     home,
     codexHome,
-    destination: path.join(home, "plugins", PLUGIN_NAME),
+    destination,
+    sourceDestinationConflict: sourceConflictsWithDestination(root, destination),
     marketplaceFile: path.join(home, ".agents", "plugins", "marketplace.json"),
     agentFile: path.join(codexHome, "AGENTS.md"),
     agentPolicyFile: path.join(root, "assets", "agent-policy.md"),
@@ -250,6 +266,10 @@ function planLines(plan, options) {
     `  personal marketplace: ${plan.marketplaceFile}`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
     "  completion hook: enable hooks, install plugin hook, and trust its current hash",
+    plan.sourceDestinationConflict
+      ? "  source safety: BLOCKED - source checkout is the runtime destination"
+      : "  source safety: source checkout is separate from the runtime destination",
+    "  client refresh: restart open Codex clients after apply; VS Code requires Developer: Reload Window",
     `  global agent policy: ${options.withAgentPolicy ? `selected; update ${plan.agentFile}` : "not selected; ask the user whether to include the optional managed policy before apply"}`,
     `  active tracked jobs: ${plan.activeJobs.length}`,
   ];
@@ -480,6 +500,12 @@ async function trustPluginHooks(plan, selector, env) {
 }
 
 export async function applyInstall(plan, options, env = process.env) {
+  if (plan.sourceDestinationConflict) {
+    fail(
+      `Refusing to replace the source checkout at ${plan.sourceRoot}. `
+      + `Move or clone the repository outside ${plan.destination}, then run the installer from that checkout.`
+    );
+  }
   if (!plan.codex.available) fail("Codex CLI is not available on PATH.");
   if (plan.activeJobs.length > 0 && !options.allowActiveJobs) {
     fail("Tracked process jobs are active. Wait for them to finish, or review and pass --allow-active-jobs.");
@@ -555,7 +581,9 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   process.stdout.write([
     "",
     `Installed ${result.selector} (${result.version}).`,
-    "Start a fresh Codex task before testing skill discovery.",
+    "Restart every open Codex client before testing this install.",
+    "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
+    "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
     result.agentBackup ? `AGENTS.md backup: ${result.agentBackup}` : null,

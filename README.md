@@ -26,7 +26,9 @@ No runtime npm packages are required.
 
 ## Installation
 
-Clone or copy the repository to any local directory. The installer is deliberately two-phase: its default mode only shows the source, destination, marketplace, optional agent policy, Codex CLI, and active-job check.
+Clone or copy the repository somewhere other than `~/plugins/codex-process-jobs`. That path is the installed runtime destination. The installer refuses to replace a source checkout at the destination path.
+
+The installer is deliberately two-phase: its default mode only shows the source, destination, marketplace, optional agent policy, Codex CLI, source-path safety, client refresh requirement, and active-job check.
 
 When Codex performs the installation, it must show and describe this preview, then explicitly ask whether the user wants the optional managed policy in global `~/.codex/AGENTS.md`. A request to install the plugin does not imply consent to change global agent instructions.
 
@@ -46,7 +48,7 @@ If automatic hook trust is unavailable, the installer reports that clearly and l
 
 The installer refuses to replace the plugin while tracked jobs are active. `--allow-active-jobs` is an explicit escape hatch after inspecting those jobs.
 
-Start a fresh Codex task after installation so the client picks up the skills.
+Restart every open Codex client after installation or update. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After the restart, start a fresh task so the client picks up the new plugin snapshot and hook registry. Starting a new task without restarting the client is not sufficient after a hot reinstall.
 
 ### Encourage automatic use
 

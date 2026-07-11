@@ -61,26 +61,35 @@ async function launchNotificationRelay(job, env) {
       windowsHide: true,
     });
     notifier.unref();
-    return await updateJob(job.id, (current) => ({
+    return await recordNotificationRelaySpawn(job.id, notifier.pid ?? null, env);
+  } catch (error) {
+    return await updateJob(job.id, (current) => {
+      if (!["pending", "delivering"].includes(current.notification?.status)) return current;
+      return {
+        ...current,
+        notification: {
+          ...(current.notification ?? {}),
+          status: "failed",
+          failedAt: nowIso(),
+          errorMessage: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }, env);
+  }
+}
+
+export async function recordNotificationRelaySpawn(jobId, relayPid, env = process.env) {
+  return await updateJob(jobId, (current) => {
+    if (!["pending", "delivering"].includes(current.notification?.status)) return current;
+    return {
       ...current,
       notification: {
         ...(current.notification ?? {}),
-        status: "pending",
-        relayPid: notifier.pid ?? null,
+        relayPid,
         relayStartedAt: nowIso(),
       },
-    }), env);
-  } catch (error) {
-    return await updateJob(job.id, (current) => ({
-      ...current,
-      notification: {
-        ...(current.notification ?? {}),
-        status: "failed",
-        failedAt: nowIso(),
-        errorMessage: error instanceof Error ? error.message : String(error),
-      },
-    }), env);
-  }
+    };
+  }, env);
 }
 
 export async function runWorker(jobId, env = process.env) {

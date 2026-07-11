@@ -12,7 +12,7 @@ import {
   runNotifier,
   waitForOwnerIdle,
 } from "../scripts/notifier.mjs";
-import { createJob, readJob, resolveJobLogs } from "../scripts/state.mjs";
+import { createJob, readJob, resolveJobLogs, updateJob } from "../scripts/state.mjs";
 
 function createMockCodex(t, root) {
   const executable = path.join(root, "mock-codex");
@@ -49,6 +49,16 @@ function terminalJob(overrides = {}) {
     notification: { requested: true, status: "pending", mode: "app-server-turn" },
     ...overrides,
   };
+}
+
+async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = readJob(jobId, env);
+    if (job.notification?.status === status) return job;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Timed out waiting for ${jobId} notification status ${status}.`);
 }
 
 test("notification prompt contains only sanitized state, never job name or output", () => {
@@ -134,6 +144,124 @@ test("notifier persists delivered thread and turn metadata", async (t) => {
   assert.equal(stored.notification.threadId, "thread-notify-001");
   assert.equal(stored.notification.turnId, "turn-notify-001");
   assert.match(stored.notification.deliveredAt, /T/);
+});
+
+test("notifier does not deliver after next-prompt fallback already informed the task", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-fallback-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: path.join(root, "must-not-start"),
+  };
+  const logs = resolveJobLogs("job-notify-fallback", env);
+  createJob(terminalJob({
+    id: "job-notify-fallback",
+    logs,
+    notification: {
+      requested: true,
+      status: "fallback_notified",
+      mode: "app-server-turn",
+      hookNotifiedAt: "2026-07-10T12:02:00.000Z",
+    },
+  }), env);
+
+  const stored = await runNotifier("job-notify-fallback", env);
+  assert.equal(stored.notification.status, "fallback_notified");
+  assert.equal(stored.notification.hookNotifiedAt, "2026-07-10T12:02:00.000Z");
+  assert.equal(stored.notification.attempts, undefined);
+});
+
+test("second notifier does not start while a delivery attempt is in flight", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-in-flight-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: path.join(root, "must-not-start"),
+  };
+  const logs = resolveJobLogs("job-notify-in-flight", env);
+  createJob(terminalJob({
+    id: "job-notify-in-flight",
+    logs,
+    notification: {
+      requested: true,
+      status: "delivering",
+      mode: "app-server-turn",
+      attempts: 1,
+    },
+  }), env);
+
+  const stored = await runNotifier("job-notify-in-flight", env);
+  assert.equal(stored.notification.status, "delivering");
+  assert.equal(stored.notification.attempts, 1);
+});
+
+test("accepted and delivered states never restart direct notification", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-terminal-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: path.join(root, "must-not-start"),
+  };
+  for (const [id, notification] of [
+    ["job-notify-accepted", { status: "accepted", attempts: 1 }],
+    ["job-notify-delivered", {
+      status: "delivered",
+      attempts: 1,
+      surfaceFallbackNotifiedAt: "2026-07-10T12:04:00.000Z",
+    }],
+  ]) {
+    createJob(terminalJob({ id, logs: resolveJobLogs(id, env), notification }), env);
+    const stored = await runNotifier(id, env);
+    assert.equal(stored.notification.status, notification.status);
+    assert.equal(stored.notification.attempts, 1);
+  }
+});
+
+test("notifier failure cannot overwrite fallback claimed during an attempt", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-race-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-delayed-active");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "const readline = require('node:readline');",
+    "const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });",
+    "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+    "lines.on('line', (line) => {",
+    "  const message = JSON.parse(line);",
+    "  if (message.id === 1) send({ id: 1, result: {} });",
+    "  else if (message.id === 2) setTimeout(() => send({ id: 2, result: { thread: { id: message.params.threadId, status: { type: 'active', activeFlags: [] } } } }), 100);",
+    "});",
+  ].join("\n") + "\n", { mode: 0o755 });
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_NOTIFY_MAX_ATTEMPTS: "2",
+    CODEX_PROCESS_JOBS_NOTIFY_RETRY_DELAY_MS: "10",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+  };
+  const logs = resolveJobLogs("job-notify-race", env);
+  createJob(terminalJob({ id: "job-notify-race", logs }), env);
+
+  const notifying = runNotifier("job-notify-race", env);
+  await waitForNotificationStatus("job-notify-race", "delivering", env);
+  await updateJob("job-notify-race", (current) => ({
+    ...current,
+    notification: {
+      ...(current.notification ?? {}),
+      status: "fallback_notified",
+      hookNotifiedAt: "2026-07-10T12:03:00.000Z",
+    },
+  }), env);
+
+  const stored = await notifying;
+  assert.equal(stored.notification.status, "fallback_notified");
+  assert.equal(stored.notification.hookNotifiedAt, "2026-07-10T12:03:00.000Z");
+  assert.equal(stored.notification.errorMessage, null);
 });
 
 test("session lifecycle guard waits for a settled task_complete event", async (t) => {

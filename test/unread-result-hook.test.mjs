@@ -228,6 +228,100 @@ test("delivered non-VS-Code completion is not repeated by the hook", (t) => {
   assert.equal(readJob(env, "job-hook-005").notification.surfaceFallbackNotifiedAt, undefined);
 });
 
+test("ordinary prompt does not race a notifier-owned delivering attempt", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-delivering",
+    ownerThreadId: "thread-hook-delivering",
+    ownerSurface: "vscode",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivering",
+      presentation: "durable-refresh-required",
+      relayPid: process.pid,
+      lastAttemptAt: new Date().toISOString(),
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-delivering",
+    prompt: "continue with unrelated work",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.deepEqual(readJob(env, "job-hook-delivering").notification, {
+    status: "delivering",
+    presentation: "durable-refresh-required",
+    relayPid: process.pid,
+    lastAttemptAt: readJob(env, "job-hook-delivering").notification.lastAttemptAt,
+  });
+});
+
+test("ordinary prompt recovers a stale delivering attempt whose notifier disappeared", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-stale-delivering",
+    ownerThreadId: "thread-hook-stale-delivering",
+    status: "failed",
+    exitCode: 3,
+    notification: {
+      status: "delivering",
+      relayPid: 99999999,
+      lastAttemptAt: "2026-07-10T12:00:00.000Z",
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-stale-delivering",
+    prompt: "continue with unrelated work",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /job-hook-stale-delivering: failed \(exit 3\)/);
+  assert.equal(readJob(env, "job-hook-stale-delivering").notification.status, "fallback_notified");
+});
+
+test("ordinary prompt recovers legacy delivering state with no attempt timestamp", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-untimed-delivering",
+    ownerThreadId: "thread-hook-untimed-delivering",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivering",
+      relayPid: process.pid,
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-untimed-delivering",
+    prompt: "continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /job-hook-untimed-delivering/);
+  assert.equal(readJob(env, "job-hook-untimed-delivering").notification.status, "fallback_notified");
+});
+
+test("accepted notification remains eligible for next-prompt fallback", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-accepted",
+    ownerThreadId: "thread-hook-accepted",
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "accepted" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-accepted",
+    prompt: "continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /job-hook-accepted/);
+  assert.equal(readJob(env, "job-hook-accepted").notification.status, "fallback_notified");
+});
+
 test("concurrent next-prompt hooks claim one completion exactly once", async (t) => {
   const env = createEnv(t);
   writeJob(env, {

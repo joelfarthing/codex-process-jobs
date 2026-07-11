@@ -285,13 +285,24 @@ function delay(ms) {
 }
 
 function notificationSuppressed(job) {
-  return Boolean(job.resultViewedAt) || ["disabled", "unavailable", "suppressed", "accepted", "delivered"].includes(job.notification?.status);
+  return Boolean(job.resultViewedAt) || [
+    "disabled",
+    "unavailable",
+    "suppressed",
+    "accepted",
+    "delivered",
+    "fallback_notified",
+  ].includes(job.notification?.status);
+}
+
+function relayInFlight(job) {
+  return job.notification?.status === "delivering";
 }
 
 export async function runNotifier(jobId, env = process.env) {
   let job = readJob(jobId, env);
   if (!TERMINAL_STATUSES.has(job.status)) throw new Error(`Job ${job.id} is not terminal.`);
-  if (notificationSuppressed(job)) return job;
+  if (notificationSuppressed(job) || relayInFlight(job)) return job;
   if (!job.ownerThreadId) {
     return await updateJob(job.id, (current) => ({
       ...current,
@@ -316,46 +327,60 @@ export async function runNotifier(jobId, env = process.env) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     job = readJob(job.id, env);
-    if (notificationSuppressed(job)) return job;
-    await updateJob(job.id, (current) => ({
-      ...current,
-      notification: {
-        ...(current.notification ?? {}),
-        status: "delivering",
-        attempts: attempt,
-        lastAttemptAt: nowIso(),
-        errorMessage: null,
-      },
-    }), env);
+    if (notificationSuppressed(job) || relayInFlight(job)) return job;
+    let attemptClaimed = false;
+    job = await updateJob(job.id, (current) => {
+      if (notificationSuppressed(current) || relayInFlight(current)) return current;
+      attemptClaimed = true;
+      return {
+        ...current,
+        notification: {
+          ...(current.notification ?? {}),
+          status: "delivering",
+          attempts: attempt,
+          lastAttemptAt: nowIso(),
+          errorMessage: null,
+        },
+      };
+    }, env);
+    if (!attemptClaimed) return job;
 
     try {
       const delivered = await deliverNotificationTurn(job, env);
-      return await updateJob(job.id, (current) => ({
-        ...current,
-        notification: {
-          ...(current.notification ?? {}),
-          status: "delivered",
-          deliveredAt: nowIso(),
-          threadId: delivered.threadId,
-          turnId: delivered.turnId,
-          relayPid: null,
-          errorMessage: null,
-        },
-      }), env);
+      return await updateJob(job.id, (current) => {
+        if (notificationSuppressed(current)) return current;
+        return {
+          ...current,
+          notification: {
+            ...(current.notification ?? {}),
+            status: "delivered",
+            deliveredAt: nowIso(),
+            threadId: delivered.threadId,
+            turnId: delivered.turnId,
+            relayPid: null,
+            errorMessage: null,
+          },
+        };
+      }, env);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const accepted = Boolean(error?.turnAccepted);
-      await updateJob(job.id, (current) => ({
-        ...current,
-        notification: {
-          ...(current.notification ?? {}),
-          status: accepted ? "accepted" : attempt === maxAttempts ? "failed" : "pending",
-          errorMessage: message,
-          failedAt: attempt === maxAttempts || accepted ? nowIso() : null,
-          relayPid: attempt === maxAttempts || accepted ? null : current.notification?.relayPid ?? null,
-        },
-      }), env);
-      if (accepted || attempt === maxAttempts) return readJob(job.id, env);
+      let failureRecorded = false;
+      job = await updateJob(job.id, (current) => {
+        if (notificationSuppressed(current)) return current;
+        failureRecorded = true;
+        return {
+          ...current,
+          notification: {
+            ...(current.notification ?? {}),
+            status: accepted ? "accepted" : attempt === maxAttempts ? "failed" : "pending",
+            errorMessage: message,
+            failedAt: attempt === maxAttempts || accepted ? nowIso() : null,
+            relayPid: attempt === maxAttempts || accepted ? null : current.notification?.relayPid ?? null,
+          },
+        };
+      }, env);
+      if (!failureRecorded || accepted || attempt === maxAttempts) return job;
       await delay(Math.min(30_000, retryDelayMs * attempt));
     }
   }

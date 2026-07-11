@@ -6,6 +6,8 @@ import { TERMINAL_STATUSES, listJobs, nowIso, updateJob } from "../scripts/state
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const MAX_JOBS = 3;
+const DELIVERY_STARTUP_GRACE_MS = 5_000;
+const DELIVERY_STALE_MS = 11 * 60_000;
 
 function readInput() {
   const raw = fs.readFileSync(0);
@@ -34,6 +36,30 @@ function isVsCodeRefreshSurface(job) {
     || (presentation == null && job.ownerSurface === "vscode");
 }
 
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function deliveryAttemptIsActive(job) {
+  if (job.notification?.status !== "delivering") return false;
+  const timestamp = Date.parse(
+    job.notification?.lastAttemptAt
+      ?? job.notification?.relayStartedAt
+      ?? ""
+  );
+  const ageMs = Number.isFinite(timestamp) ? Math.max(0, Date.now() - timestamp) : null;
+  if (ageMs != null && ageMs < DELIVERY_STARTUP_GRACE_MS) return true;
+  return ageMs != null
+    && processIsAlive(job.notification?.relayPid)
+    && ageMs < DELIVERY_STALE_MS;
+}
+
 function fallbackKind(job, sessionId) {
   if (!TERMINAL_STATUSES.has(job.status)) return null;
   if (!sessionId || job.ownerThreadId !== sessionId) return null;
@@ -46,6 +72,7 @@ function fallbackKind(job, sessionId) {
     return "vscode-surface";
   }
   if (job.notification?.hookNotifiedAt) return null;
+  if (deliveryAttemptIsActive(job)) return null;
   if (["delivered", "suppressed", "disabled", "fallback_notified"].includes(job.notification?.status)) return null;
   return "delivery-fallback";
 }

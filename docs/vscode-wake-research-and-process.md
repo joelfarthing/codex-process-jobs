@@ -68,6 +68,12 @@ The corrected design separates the two facts. Synthetic notification prompts nev
 
 After installing the corrected hook, a fresh real-extension task launched `job-mrfj6cze-68619cd8`, which exited `7`. Its durable completion turn reached `status: delivered` while the open panel remained unchanged. On an unrelated “what is 2 + 2?” follow-up with tool use prohibited, the assigning agent first reported the job and exit code, then answered `4`. A second unrelated “what is 3 + 3?” turn answered only `6`. The stored job retained `status: delivered` and gained one `surfaceFallbackNotifiedAt` timestamp. This verifies automatic next-turn awareness and exactly-once presentation in the tested VS Code extension build.
 
+### Continued-turn race hardening
+
+A later state review identified a second interleaving: a process could finish while ordinary user turns continued, allowing prompt fallback to claim `pending` just as the worker or notifier tried to start direct delivery. Without guarded state transitions, the later writer could reset `fallback_notified` to `pending` and eventually append a duplicate synthetic completion.
+
+The relay now treats presentation as an atomic claim. Worker bookkeeping never overwrites `fallback_notified`; the notifier re-checks suppression under the job lock before changing `pending` to `delivering`; a live `delivering` attempt blocks prompt fallback and additional notifiers; and notifier success/failure finalizers preserve a fallback that won concurrently. A dead or over-age delivering attempt remains recoverable so duplicate prevention cannot strand completion permanently. Automated coverage exercises worker bookkeeping, notifier start/finalization, active and stale delivering attempts, accepted fallback, and concurrent prompt claims.
+
 ## Surface detection
 
 The Codex VS Code extension launches its child process with:

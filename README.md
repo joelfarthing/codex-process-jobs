@@ -12,6 +12,8 @@ Codex App and CLI expose the appended completion turn directly. In the tested VS
 
 The repository includes a repeatable surface test for every client. The app-server relay is best-effort because app-server is currently experimental. A one-shot next-prompt hook plus explicit status/result retrieval are the durable fallbacks.
 
+Conversation can continue normally while a job runs. When it finishes, the notifier and next-prompt hook atomically claim one presentation path: a live direct delivery blocks prompt fallback, while a prompt fallback that wins first suppresses later direct delivery. Stale notifier attempts remain recoverable.
+
 ## Requirements
 
 - macOS or Linux

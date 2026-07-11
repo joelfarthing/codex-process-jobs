@@ -54,6 +54,7 @@ The investigation used multiple independent paths:
 12. Repeated the App heartbeat after adding universal next-turn awareness and found the complementary case: the hidden synthetic assistant completion was loaded into model context, the App did not render or export it, and context-based duplicate suppression incorrectly omitted the recap from the next visible response.
 13. Repeated the App heartbeat after requiring the recap regardless of model-context history and verified visible success: the first unrelated post-terminal turn reported completion in live commentary, continued unrelated work, and preserved the recap in its final answer.
 14. Repeated the same App flow and observed a presentation split: Codex reported completion in live commentary but omitted it from the final answer, so App auto-collapse removed the outcome from the durable rendered answer. This established final-answer retention as a separate requirement.
+15. Repeated the App flow after enforcing final-answer retention and passed the full acceptance contract: completion appeared in commentary, unrelated local inspection continued, and the rendered final answer retained both the requested result and the successful detached-job outcome.
 
 The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
 
@@ -114,6 +115,12 @@ The test also exposed a wording precision issue. “The next ordinary exchange w
 A subsequent local App heartbeat reached the same successful process and relay states. After delivery settled, an unrelated technical question triggered the hook and wrote `ordinaryPromptRecapInjectedAt`. Codex immediately announced the successful completion in live commentary, performed unrelated research, and then omitted the completion from its final answer. The exported conversation retained the commentary only inside collapsed prior-message details.
 
 This result confirms that “recap before handling the new request” is insufficient on App: commentary satisfies that instruction but auto-collapses when the final answer renders. The hook now states two independent requirements. If commentary is used, announce completion there for live visibility. In all cases, the final answer must also retain a concise completion recap; neither commentary nor a synthetic completion turn satisfies that final-answer requirement. The within-turn repetition is intentional.
+
+### Local App acceptance baseline
+
+The next local App run passed both presentation phases. After the 75-second heartbeat finished and delivery settled, an unrelated disk-capacity request triggered the hook. Codex reported the successful exit in live commentary, completed the local disk inspection, and retained a concise successful-job recap in the rendered final answer alongside the requested capacity result. The second channel therefore survived App's commentary auto-collapse exactly as intended.
+
+This redacted sequence is the macOS App acceptance baseline for release-candidate testing. Equivalent runs should now be recorded for local VS Code and CLI, Linux VS Code and CLI, and mobile/iOS driving each execution host. See [Codex surface smoke test](surface-smoke-test.md) for the matrix and required reinstall/restart boundaries.
 
 ## Surface detection
 

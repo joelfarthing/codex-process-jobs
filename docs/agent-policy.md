@@ -26,6 +26,6 @@ The installer inserts the contents of [`assets/agent-policy.md`](../assets/agent
 <!-- codex-process-jobs:end -->
 ```
 
-Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated personal instructions. It tells the agent to use conversational but transport-honest launch wording: completion is recorded, live presentation is best-effort on every client, and after the process finishes the agent recaps the outcome as soon as an eligible ordinary exchange can pick it up; status is always available. It also discloses that this recap may repeat a live-rendered completion once because model context cannot prove client rendering. The policy is opt-in; installation without `--with-agent-policy` never changes `AGENTS.md`.
+Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated personal instructions. It requires every pending-notification launch response to preserve four facts: background job label/id, durable completion with possible live presentation, later conversational recap, and status availability. It also discloses that this recap may repeat a live-rendered completion once because model context cannot prove client rendering. The policy is opt-in; installation without `--with-agent-policy` never changes `AGENTS.md`.
 
 Repository-level or nested `AGENTS.md` files can override global guidance for their scope. If a project must never detach a particular command, state that exception close to the project.

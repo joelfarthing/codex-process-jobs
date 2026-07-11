@@ -25,3 +25,18 @@ Also ask “how's the build going?” during a longer smoke job. The agent shoul
 Test Codex App, Codex VS Code extension, and Codex CLI on the same host after one installation. For VS Code Remote SSH, Dev Containers, WSL, or another remote extension host, install and test the plugin in that host environment as well.
 
 For Codex App and ChatGPT mobile driving a remote Codex host, use a job lasting at least 60 seconds. After it finishes, allow notifier delivery to settle, then send an unrelated ordinary non-status request. The agent should recap the completion before answering regardless of whether the synthetic turn is present in model context. Confirm one `ordinaryPromptRecapInjectedAt` timestamp and `presentation: durable-refresh-required`. Preserve `ownerSurface` only as diagnostic evidence (`app` locally, `remote` for the observed mobile-to-Linux route).
+
+## Release-candidate matrix
+
+Run the same acceptance contract in every row. Record the host OS, Codex client/version, installed plugin version, owner surface metadata, direct live rendering, commentary recap, final-answer retention, and second-prompt non-repetition.
+
+| Execution host | Client path | Required refresh before test | Acceptance focus |
+|---|---|---|---|
+| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | Commentary live, final retains recap after auto-collapse |
+| macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | Open webview may miss direct turn; eligible prompt must recap |
+| macOS | Codex CLI | Exit/restart CLI; review `/hooks`; fresh task | Terminal presentation plus durable final recap |
+| Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local job state and extension refresh boundary |
+| Linux | Codex CLI | Reinstall on Linux host; restart CLI; review `/hooks`; fresh task | Portable detached lifecycle and recap |
+| macOS or Linux | ChatGPT mobile/iOS driving the host | Reinstall on execution host; approve `/hooks` through Codex CLI or VS Code attached to that host; reconnect/start fresh mobile task | `ownerSurface: remote`, durable delivery, eligible-turn final retention |
+
+Pulling source commits does not update an installed runtime snapshot. On every execution host with the updated source checkout, run and review the installer preview, then run the authorized apply step before restarting clients. Select the optional global policy only with separate user consent. No runtime `npm install`, persistent daemon, or manual `codex plugin marketplace add` is required for the default personal marketplace.

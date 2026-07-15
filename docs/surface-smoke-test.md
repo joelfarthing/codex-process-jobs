@@ -5,14 +5,14 @@ Run `npm run smoke` first to verify the process runtime in isolated temporary st
 After that restart, start a fresh persistent task in each installed Codex surface and paste this prompt:
 
 ```text
-Use $codex-process-jobs:start to launch a harmless direct-argv Node job named surface-smoke. It should print "configure 25%", "compile 63%", and "link 100%" over about five seconds, then exit 0. Return immediately after launch and report the job id and launch time. Tell me naturally that completion will be recorded, a live notification may appear, and after it finishes you'll recap the outcome as soon as the conversation can pick it up; status is available any time. End the turn without calling status, wait, or result. Do not edit plugin or marketplace state.
+Use $codex-process-jobs:start to launch a harmless direct-argv Node job named surface-smoke. It should print "configure 25%", "compile 63%", and "link 100%" over about five seconds, then exit 0. Do not edit plugin or marketplace state.
 ```
 
 Pass criteria:
 
 1. The client was restarted after the latest plugin install or update, the hook was explicitly reviewed and approved in `/hooks`, and the fresh task discovers the namespaced skills without being given a filesystem path.
 2. Start returns a job id in under two seconds.
-3. The launch turn ends while the ordinary OS process remains active.
+3. Without the user prompt coaching this behavior, the launch turn ends while the ordinary OS process remains active. It does not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or another monitor/probe after start returns.
 4. The separate synthetic completion turn is durably recorded. Live rendering is best-effort on every client.
 5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. On the first eligible unrelated non-status prompt after delivery settles, the assigning agent briefly recaps the completion before answering, even if a synthetic completion is already present in model context. A live-rendered synthetic message may therefore be repeated once. In Codex App, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only completion is a failure. A second eligible unrelated prompt must not repeat the job.
 6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code `0`, and `notification.presentation: durable-refresh-required`.

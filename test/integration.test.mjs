@@ -190,7 +190,10 @@ test("marks VS Code jobs as durable completions that may require panel refresh",
     "process.exit(0)",
   ], context.env);
   assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
-  assert.match(started.stdout, /status\/result work at any time/i);
+  assert.match(started.stdout, /do not monitor this job from its launch turn/i);
+  assert.match(started.stdout, /status\/result belong to a later user-initiated turn or later automatic continuation of an explicitly active Goal/i);
+  assert.match(started.stdout, /only an explicit request to keep this exact turn open and wait overrides this boundary/i);
+  assert.match(started.stdout, /permits one bounded wait and, if terminal, bounded result inspection/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);

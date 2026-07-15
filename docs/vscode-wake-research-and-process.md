@@ -23,6 +23,14 @@ The detached process and durable completion turn work. The remaining limitation 
 
 The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, one mandatory recap instruction on the assigning agent's first eligible ordinary non-status turn after delivery settles, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits. Because the plugin cannot prove whether a synthetic turn rendered, a live completion may be recapped once.
 
+## 2026-07-14 launch-turn hostage incident
+
+A live GPT-5.6 Sol task in the Codex VS Code extension on Linux exposed a separate assigning-agent failure. Sol registered a detached evaluation job and gave the correct background/notification explanation, but seven seconds later loaded the status skill. It then repeatedly invoked `status --wait --timeout-ms 55000`, waited on the yielded tool sessions, and added independent process probes. The owning lifecycle remained active, so the notifier could not acquire the idle boundary required for completion delivery. Detachment worked; the model recreated blocking behavior above it.
+
+The root cause was an instruction and acceptance-test gap. The start skill and optional global policy required the four conversational launch facts but did not explicitly end the launch turn or prohibit same-turn monitoring. The surface smoke-test prompt itself supplied “return immediately” and “end the turn without calling status, wait, or result,” masking the missing installed behavior.
+
+The corrected contract makes successful registration a hard launch-turn release boundary. The assigning agent does not read status or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or another monitor/probe after start returns. It may finish already-requested independent work, but defers result-dependent work to completion delivery, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. Only an explicit request to keep that exact turn open and wait overrides the boundary; that narrow exception permits one bounded wait and same-turn result inspection only if terminal. The smoke prompt no longer coaches this behavior, so future surface tests exercise the installed skill and policy honestly.
+
 ## Why the open VS Code panel stays stale
 
 Codex app-server events are transport-scoped. The official protocol tells a client to start or resume a thread and then keep reading notifications such as `turn/completed` and `thread/status/changed` on that active transport. A subscription can also be removed per connection with `thread/unsubscribe`. See the [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server).

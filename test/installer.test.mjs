@@ -143,6 +143,9 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.match(agentPolicy, /never promise an immediate live wake/);
   assert.match(agentPolicy, /after the process finishes, recap the outcome as soon as an ordinary exchange can pick it up/i);
   assert.match(agentPolicy, /launch response must state all four facts without omission/i);
+  assert.match(agentPolicy, /successful detached start is a hard release boundary/i);
+  assert.match(agentPolicy, /do not call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`/i);
+  assert.match(agentPolicy, /only an explicit request to keep this exact turn open and wait/i);
   assert.match(agentPolicy, /never .*imply that an exchange before completion can report the outcome/i);
   assert.match(applied.stdout, /installer never trusts hooks automatically/i);
   assert.match(applied.stdout, /explicit user approval in \/hooks/i);

@@ -315,8 +315,9 @@ async function handleStart(args, env = process.env) {
     `stdout: ${job.logs.stdout}`,
     `stderr: ${job.logs.stderr}`,
     "The process is detached and receives no interactive stdin.",
+    "Do not monitor this job from its launch turn. After reporting the launch, end the Codex turn (or finish only already-requested independent work); status/result belong to a later user-initiated turn or later automatic continuation of an explicitly active Goal. Only an explicit request to keep this exact turn open and wait overrides this boundary; that override permits one bounded wait and, if terminal, bounded result inspection.",
     job.notification.status === "pending" && job.notification.presentation === "durable-refresh-required"
-      ? "Completion will be recorded in the owning Codex task. A live completion may appear, but the separate notification transport cannot guarantee this client's context refresh. After the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up; status/result work at any time."
+      ? "Completion will be recorded in the owning Codex task. A live completion may appear, but the separate notification transport cannot guarantee this client's context refresh. After the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up; status/result remain available when requested later."
       : job.notification.status === "pending"
         ? "The owning Codex task will receive a conversational completion notification."
       : job.notification.status === "disabled"

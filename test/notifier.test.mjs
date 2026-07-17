@@ -157,6 +157,18 @@ test("App and remote notices inspect results while hidden-prone surfaces only re
   }
 });
 
+test("Goal-mode notice consumes the bounded result and continues authorized Goal work", () => {
+  const prompt = buildNotificationPrompt(
+    terminalJob({ goalMode: true, ownerSurface: "vscode" }),
+    { CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" },
+  );
+  assert.match(prompt, /result skill with job-notify-001 --peek/);
+  assert.match(prompt, /If the owning Goal is still active/);
+  assert.match(prompt, /continue its next already-authorized in-scope step/);
+  assert.match(prompt, /new authority, a consequential choice, or expanded scope/);
+  assert.doesNotMatch(prompt, /Wait for the user's direction before inspecting/);
+});
+
 test("completion mode override supports safer report and explicit inspect profiles", () => {
   const report = buildNotificationPrompt(
     terminalJob({ ownerSurface: "app" }),

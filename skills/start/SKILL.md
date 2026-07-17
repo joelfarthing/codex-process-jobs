@@ -29,17 +29,19 @@ Do not route quick commands here merely because detachment is possible. Do not u
 3. Use direct argv mode by default. Use `--shell -- '<single command string>'` only when the authorized command requires pipes, redirection, globbing, or other shell syntax.
 4. Add `--name <label>` when a concise recognizable label is useful.
 5. Add `--critical` for filesystem/device repair, firmware operations, database migrations, destructive conversions, or any command whose interruption could worsen state.
-6. Run the controller once and return its job id, status, and log paths. A successful detached launch completes the job-launch work for this Codex turn even when the higher-level task will eventually depend on the result.
-7. Report the launch and end the turn. If the same user request includes independent work, continue only that independent work without monitoring the job, then end the turn.
+6. Add `--goal-mode` only when this command belongs to an explicitly active Codex Goal. The visible Goal context is sufficient; if Goal activity is suggested but unclear and the supported `get_goal` tool is available, check it once. Never inspect Codex's private Goal database or infer Goal mode merely from repeated turns.
+7. Run the controller once and return its job id, status, and log paths. A successful detached launch completes the job-launch work for this Codex turn even when the higher-level task will eventually depend on the result.
+8. Report the launch and end the turn. If the same user request includes independent work, continue only that independent work without monitoring the job, then end the turn.
 
 Supported options before `--`:
 
 - `--name <label>`
 - `--cwd <absolute-or-relative-directory>`
 - `--critical`
+- `--goal-mode`
 - `--shell`
-  - `--no-notify` to opt out of the owning-thread completion turn
-  - `--json`
+- `--no-notify` to opt out of the owning-thread completion turn
+- `--json`
 
 ## Safety and lifecycle
 
@@ -47,7 +49,9 @@ Supported options before `--`:
 - The launched command must remain in the foreground until its work is complete. Do not append `&` or use a daemonizing mode. If a command merely asks an external service to begin work and then exits, track that service through its own blocking/status interface instead.
 - A job is machine-scoped and survives Codex App, IDE, or CLI exit. Never add session-exit cleanup.
 - Treat a successful controller return as a hard launch-turn release boundary. Do not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or any other polling or process probe for that job in the launch turn. Defer result-dependent work to the completion relay, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. General instructions to finish the higher-level task, persist, or not stop do not authorize same-turn monitoring; durable job state and the completion relay provide persistence. Only an explicit user request to keep this exact Codex turn open and wait for this process overrides the boundary. Under that override, follow the status skill's one-wait limit; if the job becomes terminal, bounded result inspection is allowed in the same turn, and if the wait times out, report that it remains active and end the turn.
-- When the controller reports that owning-thread notification is pending, the launch response MUST state all four facts: the recognizable job label/id and that it is running in the background; completion will be recorded and a live notification may appear; after it finishes, recap the outcome as soon as the conversation can pick it up; the user can request status any time. Paraphrase naturally, but do not omit any fact. Example: “I've started that <job label> in the background as <job-id>. Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. You can ask me to check status any time.” The completion relay uses a separate transport, so do not promise an immediate live wake, imply that an exchange before completion can report the outcome, or guarantee the first post-terminal prompt while notification delivery is still in flight. When notification is `disabled` or `unavailable`, explain the status/result fallback instead.
+- For an ordinary pending-notification launch, the response MUST state all four facts: the recognizable job label/id and that it is running in the background; completion will be recorded and a live notification may appear; after it finishes, recap the outcome as soon as the conversation can pick it up; the user can request status any time. Paraphrase naturally, but do not omit any fact. Example: “I've started that <job label> in the background as <job-id>. Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. You can ask me to check status any time.” The completion relay uses a separate transport, so do not promise an immediate live wake, imply that an exchange before completion can report the outcome, or guarantee the first post-terminal prompt while notification delivery is still in flight.
+- For a `--goal-mode` launch, say instead that the job is running under the active Goal, completion is recorded durably, automatic Goal continuation should pick up the terminal result, direct completion delivery remains an idle-thread fallback, and status is available on request. Do not imply that CPJ can suppress Goal's automatic `Continue` turns. On those continuations, work independently when possible; when result-gated, follow the status skill's one bounded-wait rule.
+- When notification is `disabled` or `unavailable`, explain the status/result fallback instead.
 - Do not place secrets in argv or redirect secrets into tracked logs. The controller stores argv and cwd, but never persists the inherited environment.
 - Critical jobs refuse cancellation unless the user later gives explicit approval and `$cancel` is invoked with `--force`.
 - The notification relay resumes the owning persistent Codex thread through local app-server and starts a minimal synthetic completion turn containing sanitized job metadata only. It never embeds process output. After delivery settles, the bundled hook requires one short recap for every delivered completion on the first eligible ordinary non-status turn before handling the new request. Give that recap even if the synthetic assistant announcement already appears in model context, because context does not prove the assigning client rendered it. A possible one-time duplicate is intentional. Explicit status/result requests retrieve durable state directly.

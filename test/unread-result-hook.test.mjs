@@ -97,6 +97,28 @@ test("next-prompt hook surfaces one same-thread unread completion once", (t) => 
   assert.equal(second.stdout, "");
 });
 
+test("Goal continuation receives terminal result-consumption and continuation instructions", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-goal",
+    ownerThreadId: "thread-hook-goal",
+    goalMode: true,
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "failed" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-goal",
+    prompt: "Continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /listed terminal jobs were launched in Goal mode/);
+  assert.match(result.stdout, /result <job-id> --peek/);
+  assert.match(result.stdout, /continue its next already-authorized in-scope step/);
+  assert.match(result.stdout, /new authority, a consequential choice, or expanded scope/);
+});
+
 test("invalid persisted records cannot poison or inject into hook context", (t) => {
   const env = createEnv(t);
   writeJob(env, {

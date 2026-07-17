@@ -96,6 +96,16 @@ test("accepts only known persisted notification transports", (t) => {
   assert.equal(created.notification.transport, "desktop-ipc");
 });
 
+test("rejects a non-boolean persisted Goal-mode marker", (t) => {
+  const env = withTemporaryHome(t);
+  assert.throws(() => createJob({
+    id: "job-invalid-goal-mode",
+    status: "completed",
+    goalMode: "active",
+    logs: resolveJobLogs("job-invalid-goal-mode", env),
+  }, env), /goal mode flag/i);
+});
+
 test("rejects tampered log paths and skips the record during listing", (t) => {
   const env = withTemporaryHome(t);
   const id = "job-tampered-logs";

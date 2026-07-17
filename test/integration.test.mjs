@@ -132,6 +132,29 @@ function createMockCodex(t, context) {
   return promptFile;
 }
 
+test("Goal-mode start persists the marker and emits Goal-specific release guidance", (t) => {
+  const context = makeEnv(t);
+  const started = runCli([
+    "start",
+    "--goal-mode",
+    "--name",
+    "goal-integrated build",
+    "--",
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ], context.env);
+  assert.match(started.stdout, /Goal mode is active/i);
+  assert.match(started.stdout, /at most one bounded wait per continuation/i);
+  assert.match(started.stdout, /inspect its bounded saved result and continue the already-authorized Goal/i);
+  const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
+  assert.ok(id);
+  context.startedIds.push(id);
+  const job = JSON.parse(runCli(["status", id, "--json"], context.env).stdout).job;
+  assert.equal(job.goalMode, true);
+  assert.equal(waitJson(id, context.env).job.status, "completed");
+});
+
 test("launches a detached command, returns immediately, and stores its result", (t) => {
   const context = makeEnv(t);
   const startedAt = Date.now();
@@ -233,7 +256,7 @@ test("marks VS Code jobs as durable completions that may require panel refresh",
   ], context.env);
   assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
   assert.match(started.stdout, /do not monitor this job from its launch turn/i);
-  assert.match(started.stdout, /status\/result belong to a later user-initiated turn or later automatic continuation of an explicitly active Goal/i);
+  assert.match(started.stdout, /status\/result belong to a later user-initiated turn/i);
   assert.match(started.stdout, /only an explicit request to keep this exact turn open and wait overrides this boundary/i);
   assert.match(started.stdout, /permits one bounded wait and, if terminal, bounded result inspection/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];

@@ -40,7 +40,7 @@ const PROGRESS_LINE_COUNT = 4;
 function usage() {
   return [
     "Usage:",
-    "  node scripts/job.mjs start [--name <label>] [--cwd <dir>] [--critical] [--shell] [--no-notify] [--json] -- <command> [args...]",
+    "  node scripts/job.mjs start [--name <label>] [--cwd <dir>] [--critical] [--goal-mode] [--shell] [--no-notify] [--json] -- <command> [args...]",
     "  node scripts/job.mjs status [job-id] [--name <text>] [--wait] [--timeout-ms <ms>] [--poll-interval-ms <ms>] [--all] [--json]",
     "  node scripts/job.mjs tail [job-id] [--stdout|--stderr|--both] [--bytes <n>]",
     "  node scripts/job.mjs result [job-id] [--full] [--bytes <n>] [--peek] [--json]",
@@ -76,6 +76,7 @@ function parseStartArgs(args) {
   let name = null;
   let cwd = process.cwd();
   let critical = false;
+  let goalMode = false;
   let shell = false;
   let json = false;
   let notify = true;
@@ -85,6 +86,7 @@ function parseStartArgs(args) {
     if (flag === "--name") name = takeValue(flags, index++, "--name");
     else if (flag === "--cwd") cwd = path.resolve(takeValue(flags, index++, "--cwd"));
     else if (flag === "--critical") critical = true;
+    else if (flag === "--goal-mode") goalMode = true;
     else if (flag === "--shell") shell = true;
     else if (flag === "--no-notify") notify = false;
     else if (flag === "--json") json = true;
@@ -100,7 +102,7 @@ function parseStartArgs(args) {
   if (process.platform !== "darwin" && process.platform !== "linux") {
     fail(`Unsupported platform: ${process.platform}. Use macOS or Linux.`);
   }
-  return { name, cwd, critical, shell, notify, json, argv };
+  return { name, cwd, critical, goalMode, shell, notify, json, argv };
 }
 
 function parseCommonJobArgs(args) {
@@ -144,6 +146,7 @@ function publicJob(job) {
     status: job.status,
     phase: job.phase,
     critical: Boolean(job.critical),
+    goalMode: Boolean(job.goalMode),
     command: job.displayCommand,
     cwd: job.cwd,
     pid: job.pid ?? null,
@@ -279,6 +282,7 @@ async function handleStart(args, env = process.env) {
       status: "queued",
       phase: "queued",
       critical: parsed.critical,
+      goalMode: parsed.goalMode,
       shell: parsed.shell,
       argv: parsed.argv,
       displayCommand,
@@ -332,8 +336,12 @@ async function handleStart(args, env = process.env) {
     `stdout: ${job.logs.stdout}`,
     `stderr: ${job.logs.stderr}`,
     "The process is detached and receives no interactive stdin.",
-    "Do not monitor this job from its launch turn. After reporting the launch, end the Codex turn (or finish only already-requested independent work); status/result belong to a later user-initiated turn or later automatic continuation of an explicitly active Goal. Only an explicit request to keep this exact turn open and wait overrides this boundary; that override permits one bounded wait and, if terminal, bounded result inspection.",
-    job.notification.status === "pending" && job.notification.presentation === "durable-refresh-required"
+    parsed.goalMode
+      ? "Goal mode is active. Release this launch turn and use later Goal continuations for independent in-scope work while the process runs. If the Goal is result-gated, make at most one bounded wait per continuation instead of repeatedly sampling status. When the job becomes terminal, inspect its bounded saved result and continue the already-authorized Goal."
+      : "Do not monitor this job from its launch turn. After reporting the launch, end the Codex turn (or finish only already-requested independent work); status/result belong to a later user-initiated turn. Only an explicit request to keep this exact turn open and wait overrides this boundary; that override permits one bounded wait and, if terminal, bounded result inspection.",
+    parsed.goalMode && job.notification.status === "pending"
+      ? "Completion is recorded durably. Automatic Goal continuation should pick up the terminal result; direct completion delivery remains an idle-thread fallback, and status is available on request."
+      : job.notification.status === "pending" && job.notification.presentation === "durable-refresh-required"
       ? "Completion will be recorded in the owning Codex task. A live completion may appear, but the separate notification transport cannot guarantee this client's context refresh. After the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up; status/result remain available when requested later."
       : job.notification.status === "pending"
         ? "The owning Codex task will receive a conversational completion notification."

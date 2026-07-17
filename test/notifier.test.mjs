@@ -129,8 +129,10 @@ async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
 test("notification prompt contains only sanitized state, never job name or output", () => {
   const prompt = buildNotificationPrompt(terminalJob());
   assert.match(prompt, /### Background job finished/);
-  assert.match(prompt, /automatic local notification/);
-  assert.match(prompt, /<!-- codex-process-jobs:notification/);
+  assert.match(prompt, /automatic Codex Process Jobs notice/);
+  assert.match(prompt, /> \*\*Codex Process Jobs notice:\*\*/);
+  assert.match(prompt, /Wait for the user's direction/);
+  assert.doesNotMatch(prompt, /<!--|-->/);
   assert.match(prompt, /job-notify-001/);
   assert.match(prompt, /finished successfully/);
   assert.doesNotMatch(prompt, /malicious/);
@@ -248,7 +250,7 @@ test("Codex App relay uses private Desktop IPC and confirms the matching durable
   });
   const prompt = fs.readFileSync(promptFile, "utf8");
   assert.match(prompt, /### Background job finished/);
-  assert.match(prompt, /automatic local notification/i);
+  assert.match(prompt, /automatic Codex Process Jobs notice/i);
   assert.doesNotMatch(prompt, /malicious|untrusted process output|ignore prior instructions/);
 });
 

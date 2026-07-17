@@ -230,6 +230,35 @@ test("user-friendly completion notification marker cannot consume fallback", (t)
       "",
       "`job-hook-friendly-notice` finished successfully with exit code `0`.",
       "",
+      "_This automatic Codex Process Jobs notice contains no process output._",
+      "",
+      "> **Codex Process Jobs notice:** Briefly acknowledge this completion and mention that the saved result is available. Wait for the user's direction before inspecting it or resuming other work.",
+    ].join("\n"),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(readJob(env, "job-hook-friendly-notice").notification.status, "delivering");
+});
+
+test("legacy HTML notification marker remains excluded from fallback", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-legacy-notice",
+    ownerThreadId: "thread-hook-legacy-notice",
+    ownerSurface: "app",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivering",
+      presentation: "durable-refresh-required",
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-legacy-notice",
+    prompt: [
+      "### Background job finished",
+      "",
       "<!-- codex-process-jobs:notification",
       "Agent instruction: acknowledge this completion briefly.",
       "-->",
@@ -237,7 +266,7 @@ test("user-friendly completion notification marker cannot consume fallback", (t)
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
-  assert.equal(readJob(env, "job-hook-friendly-notice").notification.status, "delivering");
+  assert.equal(readJob(env, "job-hook-legacy-notice").notification.status, "delivering");
 });
 
 test("delivered refresh-required completion receives one ordinary-prompt recap instruction", (t) => {

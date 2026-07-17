@@ -27,8 +27,11 @@ function isExplicitJobRequest(prompt) {
 
 function isSyntheticNotificationPrompt(prompt) {
   const text = String(prompt ?? "").trim();
-  return text.startsWith("<process_job_notification>")
-    && text.endsWith("</process_job_notification>");
+  return text.includes("<!-- codex-process-jobs:notification")
+    || (
+      text.startsWith("<process_job_notification>")
+      && text.endsWith("</process_job_notification>")
+    );
 }
 
 function processIsAlive(pid) {

@@ -1,0 +1,210 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import net from "node:net";
+import path from "node:path";
+import process from "node:process";
+
+const MAX_FRAME_BYTES = 256 * 1024 * 1024;
+const INITIALIZE_VERSION = 0;
+const START_TURN_VERSION = 1;
+
+function desktopIpcError(message, { accepted = false } = {}) {
+  const error = new Error(message);
+  error.desktopIpcUnavailable = !accepted;
+  error.turnAccepted = accepted;
+  return error;
+}
+
+function encodeFrame(message) {
+  const json = JSON.stringify(message);
+  const length = Buffer.byteLength(json, "utf8");
+  const output = Buffer.allocUnsafe(4 + length);
+  output.writeUInt32LE(length, 0);
+  output.write(json, 4, "utf8");
+  return output;
+}
+
+function attachFrameReader(socket, onMessage, onError) {
+  let buffer = Buffer.alloc(0);
+  const onData = (chunk) => {
+    try {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 4) {
+        const length = buffer.readUInt32LE(0);
+        if (length < 1 || length > MAX_FRAME_BYTES) {
+          throw new Error(`Invalid Desktop IPC frame length: ${length}.`);
+        }
+        if (buffer.length < 4 + length) return;
+        const body = buffer.subarray(4, 4 + length).toString("utf8");
+        buffer = buffer.subarray(4 + length);
+        onMessage(JSON.parse(body));
+      }
+    } catch (error) {
+      onError(error);
+    }
+  };
+  socket.on("data", onData);
+  return () => socket.off("data", onData);
+}
+
+function validateOwnedPrivatePath(candidate, { socket = false } = {}) {
+  const stat = fs.lstatSync(candidate);
+  if (socket ? !stat.isSocket() : !stat.isDirectory()) {
+    throw desktopIpcError(`Desktop IPC ${socket ? "endpoint is not a socket" : "parent is not a directory"}.`);
+  }
+  const uid = process.getuid?.();
+  if (uid != null && stat.uid !== uid) {
+    throw desktopIpcError(`Desktop IPC ${socket ? "socket" : "directory"} is not owned by the current user.`);
+  }
+  if ((stat.mode & 0o077) !== 0) {
+    throw desktopIpcError(`Desktop IPC ${socket ? "socket" : "directory"} is accessible by other users.`);
+  }
+}
+
+export function resolveDesktopIpcSocket(job, env = process.env) {
+  if (env.CODEX_PROCESS_JOBS_DISABLE_DESKTOP_IPC === "1") return null;
+  if (job.ownerSurface !== "app") return null;
+  const override = String(env.CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET ?? "").trim();
+  if (!override && process.platform !== "darwin") return null;
+  const codexHome = env.CODEX_HOME || path.join(env.HOME ?? "", ".codex");
+  const socketPath = override || path.join(codexHome, "ipc", "ipc.sock");
+  try {
+    validateOwnedPrivatePath(path.dirname(socketPath));
+    validateOwnedPrivatePath(socketPath, { socket: true });
+    return socketPath;
+  } catch (error) {
+    if (error?.desktopIpcUnavailable) throw error;
+    if (["ENOENT", "ENOTDIR", "EACCES"].includes(error?.code)) return null;
+    throw desktopIpcError(`Desktop IPC endpoint validation failed: ${error.message}`);
+  }
+}
+
+function sendRequest(socket, clientId, method, params, version, timeoutMs) {
+  const requestId = crypto.randomUUID();
+  const acceptanceUncertain = method === "thread-follower-start-turn";
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(desktopIpcError(
+        `Desktop IPC ${method} timed out after ${timeoutMs}ms.`,
+        { accepted: acceptanceUncertain },
+      ));
+    }, timeoutMs);
+    const onMessage = (message) => {
+      if (message?.type !== "response" || message.requestId !== requestId) return;
+      cleanup();
+      if (message.resultType === "error") {
+        reject(desktopIpcError(`Desktop IPC ${method} failed: ${message.error ?? "unknown error"}.`));
+      } else {
+        resolve(message);
+      }
+    };
+    const onSocketError = (error) => {
+      cleanup();
+      reject(desktopIpcError(
+        `Desktop IPC ${method} connection failed: ${error.message}`,
+        { accepted: acceptanceUncertain },
+      ));
+    };
+    const onSocketClose = () => {
+      cleanup();
+      reject(desktopIpcError(
+        `Desktop IPC ${method} connection closed before a response.`,
+        { accepted: acceptanceUncertain },
+      ));
+    };
+    function cleanup() {
+      clearTimeout(timeout);
+      socket.off("desktop-ipc-message", onMessage);
+      socket.off("error", onSocketError);
+      socket.off("close", onSocketClose);
+    }
+    socket.on("desktop-ipc-message", onMessage);
+    socket.once("error", onSocketError);
+    socket.once("close", onSocketClose);
+    socket.write(encodeFrame({
+      type: "request",
+      requestId,
+      sourceClientId: clientId,
+      version,
+      method,
+      params,
+      timeoutMs,
+    }));
+  });
+}
+
+export async function startDesktopNotificationTurn(
+  job,
+  prompt,
+  threadId,
+  timeoutMs,
+  env = process.env,
+  { beforeStart = async () => {} } = {},
+) {
+  const socketPath = resolveDesktopIpcSocket(job, env);
+  if (!socketPath) return null;
+
+  const socket = net.createConnection(socketPath);
+  let readerError = null;
+  const detachReader = attachFrameReader(
+    socket,
+    (message) => socket.emit("desktop-ipc-message", message),
+    (error) => {
+      readerError = error;
+      socket.destroy(error);
+    },
+  );
+  await new Promise((resolve, reject) => {
+    const onConnect = () => {
+      socket.off("error", onError);
+      resolve();
+    };
+    const onError = (error) => {
+      socket.off("connect", onConnect);
+      reject(desktopIpcError(`Unable to connect to Desktop IPC: ${error.message}`));
+    };
+    socket.once("connect", onConnect);
+    socket.once("error", onError);
+  });
+
+  try {
+    const initialized = await sendRequest(
+      socket,
+      "initializing-client",
+      "initialize",
+      { clientType: "codex-process-jobs" },
+      INITIALIZE_VERSION,
+      Math.min(timeoutMs, 15_000),
+    );
+    const clientId = initialized.result?.clientId;
+    if (!clientId) throw desktopIpcError("Desktop IPC initialize returned no client ID.");
+    await beforeStart();
+
+    const started = await sendRequest(
+      socket,
+      clientId,
+      "thread-follower-start-turn",
+      {
+        conversationId: threadId,
+        turnStartParams: {
+          input: [{ type: "text", text: prompt, text_elements: [] }],
+        },
+      },
+      START_TURN_VERSION,
+      Math.min(timeoutMs, 30_000),
+    );
+    if (readerError) throw readerError;
+    const turnId = started.result?.result?.turn?.id;
+    if (typeof turnId !== "string" || !/^[A-Za-z0-9_-]{8,160}$/.test(turnId)) {
+      throw desktopIpcError("Desktop IPC returned no valid turn ID.", { accepted: true });
+    }
+    return { threadId, turnId, status: "accepted", transport: "desktop-ipc" };
+  } catch (error) {
+    if (error?.desktopIpcUnavailable || error?.turnAccepted) throw error;
+    throw desktopIpcError(error instanceof Error ? error.message : String(error));
+  } finally {
+    detachReader();
+    socket.end();
+  }
+}

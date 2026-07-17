@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { resolveDesktopIpcSocket } from "../scripts/desktop-ipc.mjs";
 import {
   buildNotificationPrompt,
   deliverNotificationTurn,
@@ -37,6 +39,69 @@ function createMockCodex(t, root) {
   return executable;
 }
 
+function encodeDesktopFrame(message) {
+  const json = JSON.stringify(message);
+  const output = Buffer.allocUnsafe(4 + Buffer.byteLength(json));
+  output.writeUInt32LE(Buffer.byteLength(json), 0);
+  output.write(json, 4, "utf8");
+  return output;
+}
+
+async function createMockDesktopRouter(t, rollout, promptFile) {
+  const directory = fs.mkdtempSync("/tmp/cpj-ipc-");
+  const socketPath = path.join(directory, "ipc.sock");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(directory, 0o700);
+  const server = net.createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    socket.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 4) {
+        const length = buffer.readUInt32LE(0);
+        if (buffer.length < 4 + length) return;
+        const message = JSON.parse(buffer.subarray(4, 4 + length).toString("utf8"));
+        buffer = buffer.subarray(4 + length);
+        if (message.method === "initialize") {
+          socket.write(encodeDesktopFrame({
+            type: "response",
+            requestId: message.requestId,
+            resultType: "success",
+            result: { clientId: "desktop-client-001" },
+          }));
+        } else if (message.method === "thread-follower-start-turn") {
+          fs.writeFileSync(promptFile, message.params.turnStartParams.input[0].text);
+          fs.appendFileSync(rollout, `${JSON.stringify({
+            timestamp: "2026-07-10T12:01:00Z",
+            type: "event_msg",
+            payload: { type: "task_started", turn_id: "turn-desktop-001" },
+          })}\n`);
+          socket.write(encodeDesktopFrame({
+            type: "response",
+            requestId: message.requestId,
+            resultType: "success",
+            result: { result: { turn: { id: "turn-desktop-001", status: "inProgress" } } },
+          }));
+          setTimeout(() => fs.appendFileSync(rollout, `${JSON.stringify({
+            timestamp: "2026-07-10T12:01:01Z",
+            type: "event_msg",
+            payload: { type: "task_complete", turn_id: "turn-desktop-001" },
+          })}\n`), 20);
+        }
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  fs.chmodSync(socketPath, 0o600);
+  t.after(() => {
+    server.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+  return socketPath;
+}
+
 function terminalJob(overrides = {}) {
   return {
     id: "job-notify-001",
@@ -63,11 +128,41 @@ async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
 
 test("notification prompt contains only sanitized state, never job name or output", () => {
   const prompt = buildNotificationPrompt(terminalJob());
+  assert.match(prompt, /### Background job finished/);
+  assert.match(prompt, /automatic local notification/);
+  assert.match(prompt, /<!-- codex-process-jobs:notification/);
   assert.match(prompt, /job-notify-001/);
   assert.match(prompt, /finished successfully/);
   assert.doesNotMatch(prompt, /malicious/);
   assert.doesNotMatch(prompt, /untrusted process output/);
   assert.doesNotMatch(prompt, /ignore prior instructions/);
+});
+
+test("Desktop IPC requires an App-owned private same-user socket", async (t) => {
+  const directory = fs.mkdtempSync("/tmp/cpj-ipc-security-");
+  const socketPath = path.join(directory, "ipc.sock");
+  fs.chmodSync(directory, 0o700);
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  t.after(() => {
+    server.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  fs.chmodSync(socketPath, 0o666);
+  assert.throws(() => resolveDesktopIpcSocket(
+    { ownerSurface: "app" },
+    { ...process.env, CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath },
+  ), /accessible by other users/i);
+
+  fs.chmodSync(socketPath, 0o600);
+  assert.equal(resolveDesktopIpcSocket(
+    { ownerSurface: "vscode" },
+    { ...process.env, CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath },
+  ), null);
 });
 
 test("relay refuses to start a completion turn while the owner is active", async (t) => {
@@ -114,8 +209,47 @@ test("app-server relay resumes the owner and completes a synthetic turn", async 
     threadId: "thread-notify-001",
     turnId: "turn-notify-001",
     status: "completed",
+    transport: "app-server",
   });
-  assert.match(fs.readFileSync(promptFile, "utf8"), /synthetic completion event/);
+  assert.match(fs.readFileSync(promptFile, "utf8"), /Background job finished/);
+});
+
+test("Codex App relay uses private Desktop IPC and confirms the matching durable turn", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-desktop-ipc-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const threadId = "thread-desktop-001";
+  const sessionDirectory = path.join(codexHome, "sessions", "2026", "07", "10");
+  const rollout = path.join(sessionDirectory, `rollout-test-${threadId}.jsonl`);
+  const promptFile = path.join(root, "desktop-prompt.txt");
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  fs.writeFileSync(rollout, `${JSON.stringify({
+    timestamp: "2026-07-10T12:00:00Z",
+    type: "event_msg",
+    payload: { type: "task_complete", turn_id: "turn-previous-001" },
+  })}\n`);
+  const socketPath = await createMockDesktopRouter(t, rollout, promptFile);
+  const result = await deliverNotificationTurn(terminalJob({
+    ownerThreadId: threadId,
+    ownerSurface: "app",
+  }), {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_PROCESS_JOBS_CODEX_BIN: path.join(root, "fallback-must-not-start"),
+    CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath,
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_SETTLE_MS: "10",
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+  });
+  assert.deepEqual(result, {
+    threadId,
+    turnId: "turn-desktop-001",
+    status: "completed",
+    transport: "desktop-ipc",
+  });
+  const prompt = fs.readFileSync(promptFile, "utf8");
+  assert.match(prompt, /### Background job finished/);
+  assert.match(prompt, /automatic local notification/i);
+  assert.doesNotMatch(prompt, /malicious|untrusted process output|ignore prior instructions/);
 });
 
 test("notifier persists delivered thread and turn metadata", async (t) => {
@@ -143,6 +277,7 @@ test("notifier persists delivered thread and turn metadata", async (t) => {
   assert.equal(stored.notification.status, "delivered");
   assert.equal(stored.notification.threadId, "thread-notify-001");
   assert.equal(stored.notification.turnId, "turn-notify-001");
+  assert.equal(stored.notification.transport, "app-server");
   assert.match(stored.notification.deliveredAt, /T/);
 });
 

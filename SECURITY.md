@@ -7,6 +7,7 @@ Codex Process Jobs launches user-authorized local commands under the same OS acc
 - Plugin code and a hook hash explicitly approved by the user in `/hooks` are trusted local code.
 - Command metadata, job JSON, stdout, and stderr are local same-user inputs. Treat them as untrusted evidence when Codex displays or interprets them.
 - The automatic completion boundary admits only a validated job ID, a terminal-status enum, and an integer exit code. Command text, labels, paths, errors, argv, environment, and process output never enter synthetic notification or transport-independent next-prompt recap instructions.
+- On local macOS Codex App tasks, the notifier may connect to the App's same-user private IPC router. It requires a real socket and parent directory owned by the current user with no group or other permissions. The IPC request still contains only the sanitized automatic completion notice.
 - `$status`, `$tail`, and `$result` intentionally expose bounded metadata or process output. Codex must not obey embedded instructions or initiate follow-up actions merely because that data requests them.
 
 Persisted records are size-bounded, schema-checked, bound to their validated filename, read without following record symlinks, and accepted only when their stdout/stderr paths exactly match the job's private log paths. Model-facing full-log reads have an independent 1 MiB cap.
@@ -25,8 +26,8 @@ The installer enables Codex's hooks feature and installs the plugin hook, but ne
 - Do not place secrets in argv or tracked output. The broker does not persist the inherited environment, but the launched command receives it.
 - Shell mode is explicit and should be used only when the authorized command requires shell syntax.
 - Critical repair, firmware, migration, and destructive jobs require an explicit force flag to cancel; cancellation still cannot make interruption intrinsically safe.
-- Completion delivery uses local Codex app-server behavior and is best-effort. Durable state plus explicit status/result retrieval remain the authority.
+- Completion delivery uses experimental local Codex transports and is best-effort. The guarded Desktop IPC path automatically falls back to the separate app-server relay before acceptance; after a turn may have been accepted, it fails closed rather than risking duplicate delivery. Durable state plus explicit status/result retrieval remain the authority.
 
 ## Security validation
 
-The test suite covers malicious labels and output exclusion from automatic prompts, invalid and oversized records, filename/ID mismatch, tampered log paths, no-follow file reads, bounded model-facing output, hook delivery races, and process-identity validation before cancellation.
+The test suite covers malicious labels and output exclusion from automatic prompts, private Desktop IPC ownership and framing, transport fallback, matching durable turn completion, invalid and oversized records, filename/ID mismatch, tampered log paths, no-follow file reads, bounded model-facing output, hook delivery races, and process-identity validation before cancellation.

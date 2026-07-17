@@ -71,6 +71,31 @@ test("serializes concurrent state updates without corrupting JSON", async (t) =>
   assert.equal(readJob(id, env).counter, 12);
 });
 
+test("accepts only known persisted notification transports", (t) => {
+  const env = withTemporaryHome(t);
+  assert.throws(() => createJob({
+    id: "job-invalid-transport",
+    status: "completed",
+    notification: { status: "delivered", transport: "untrusted-router" },
+    logs: resolveJobLogs("job-invalid-transport", env),
+  }, env), /notification transport/i);
+
+  assert.throws(() => createJob({
+    id: "job-premature-transport",
+    status: "completed",
+    notification: { status: "pending", transport: "desktop-ipc" },
+    logs: resolveJobLogs("job-premature-transport", env),
+  }, env), /requires delivered status/i);
+
+  const created = createJob({
+    id: "job-desktop-transport",
+    status: "completed",
+    notification: { status: "delivered", transport: "desktop-ipc" },
+    logs: resolveJobLogs("job-desktop-transport", env),
+  }, env);
+  assert.equal(created.notification.transport, "desktop-ipc");
+});
+
 test("rejects tampered log paths and skips the record during listing", (t) => {
   const env = withTemporaryHome(t);
   const id = "job-tampered-logs";

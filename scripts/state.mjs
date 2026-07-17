@@ -35,6 +35,7 @@ const NOTIFICATION_PRESENTATIONS = new Set([
   "status-only",
   "disabled",
 ]);
+const NOTIFICATION_TRANSPORTS = new Set(["app-server", "desktop-ipc"]);
 const OWNER_SURFACES = new Set(["app", "cli", "vscode", "remote", "unknown"]);
 
 const LOCK_TIMEOUT_MS = 5_000;
@@ -191,6 +192,15 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
       && !NOTIFICATION_PRESENTATIONS.has(job.notification.presentation)
     ) {
       throw new Error(`Invalid persisted notification presentation for ${id}.`);
+    }
+    if (
+      job.notification.transport != null
+      && !NOTIFICATION_TRANSPORTS.has(job.notification.transport)
+    ) {
+      throw new Error(`Invalid persisted notification transport for ${id}.`);
+    }
+    if (job.notification.transport != null && job.notification.status !== "delivered") {
+      throw new Error(`Persisted notification transport for ${id} requires delivered status.`);
     }
     if (
       job.notification.errorMessage != null

@@ -13,9 +13,9 @@ Pass criteria:
 1. The client was restarted after the latest plugin install or update, the hook was explicitly reviewed and approved in `/hooks`, and the fresh task discovers the namespaced skills without being given a filesystem path.
 2. Start returns a job id in under two seconds.
 3. Without the user prompt coaching this behavior, the launch turn ends while the ordinary OS process remains active. It does not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or another monitor/probe after start returns.
-4. The separate synthetic completion turn is durably recorded. Live rendering is best-effort on every client.
+4. The separate completion turn is durably recorded. On local macOS Codex App, the user-friendly automatic notice and the agent's one-sentence acknowledgment should render live exactly once, and the job should record `notification.transport: desktop-ipc`. Other clients may use `app-server`, where live rendering remains best-effort.
 5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. On the first eligible unrelated non-status prompt after delivery settles, the assigning agent briefly recaps the completion before answering, even if a synthetic completion is already present in model context. A live-rendered synthetic message may therefore be repeated once. In Codex App, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only completion is a failure. A second eligible unrelated prompt must not repeat the job.
-6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code `0`, and `notification.presentation: durable-refresh-required`.
+6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code `0`, and `notification.presentation: durable-refresh-required`. After direct completion, it also reports `notification.transport: desktop-ipc` or `app-server`.
 7. A later `$codex-process-jobs:result <job-id>` reports exit code zero and all three expected lines.
 
 For every client, verify the owning task with a fresh transcript load as well as the current view. For the Codex VS Code extension, run **Developer: Reload Window** when necessary before comparing. Record live rendering separately from durable relay and eligible-turn recap behavior.
@@ -32,7 +32,7 @@ Run the same acceptance contract in every row. Record the host OS, Codex client/
 
 | Execution host | Client path | Required refresh before test | Acceptance focus |
 |---|---|---|---|
-| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | Commentary live, final retains recap after auto-collapse |
+| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | Friendly notice and one-sentence response render live exactly once through Desktop IPC; later recap contract remains intact |
 | macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | Open webview may miss direct turn; eligible prompt must recap |
 | macOS | Codex CLI | Exit/restart CLI; review `/hooks`; fresh task | Terminal presentation plus durable final recap |
 | Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local job state and extension refresh boundary |

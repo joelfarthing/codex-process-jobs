@@ -128,11 +128,11 @@ async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
 
 test("notification prompt contains only sanitized state, never job name or output", () => {
   const prompt = buildNotificationPrompt(terminalJob());
-  assert.match(prompt, /### Background job finished/);
-  assert.match(prompt, /automatic Codex Process Jobs notice/);
-  assert.match(prompt, /> \*\*Codex Process Jobs notice:\*\*/);
+  assert.match(prompt, /^Background job finished$/m);
+  assert.match(prompt, /^Codex Process Jobs notice: No process output is included\.$/m);
+  assert.match(prompt, /^Codex: Briefly acknowledge/m);
   assert.match(prompt, /Wait for the user's direction/);
-  assert.doesNotMatch(prompt, /<!--|-->/);
+  assert.doesNotMatch(prompt, /<!--|-->|(?:^|\n)[#>]|[*_`]/);
   assert.match(prompt, /job-notify-001/);
   assert.match(prompt, /finished successfully/);
   assert.doesNotMatch(prompt, /malicious/);
@@ -249,8 +249,8 @@ test("Codex App relay uses private Desktop IPC and confirms the matching durable
     transport: "desktop-ipc",
   });
   const prompt = fs.readFileSync(promptFile, "utf8");
-  assert.match(prompt, /### Background job finished/);
-  assert.match(prompt, /automatic Codex Process Jobs notice/i);
+  assert.match(prompt, /^Background job finished$/m);
+  assert.match(prompt, /^Codex Process Jobs notice: No process output is included\.$/m);
   assert.doesNotMatch(prompt, /malicious|untrusted process output|ignore prior instructions/);
 });
 

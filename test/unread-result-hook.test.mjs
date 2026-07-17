@@ -226,18 +226,41 @@ test("user-friendly completion notification marker cannot consume fallback", (t)
     hook_event_name: "UserPromptSubmit",
     session_id: "thread-hook-friendly-notice",
     prompt: [
-      "### Background job finished",
+      "Background job finished",
       "",
-      "`job-hook-friendly-notice` finished successfully with exit code `0`.",
+      "job-hook-friendly-notice finished successfully with exit code 0.",
       "",
-      "_This automatic Codex Process Jobs notice contains no process output._",
+      "Codex Process Jobs notice: No process output is included.",
       "",
-      "> **Codex Process Jobs notice:** Briefly acknowledge this completion and mention that the saved result is available. Wait for the user's direction before inspecting it or resuming other work.",
+      "Codex: Briefly acknowledge this completion and mention that the saved result is available. Wait for the user's direction before inspecting it or resuming other work.",
     ].join("\n"),
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
   assert.equal(readJob(env, "job-hook-friendly-notice").notification.status, "delivering");
+});
+
+test("legacy Markdown notification marker remains excluded from fallback", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-markdown-notice",
+    ownerThreadId: "thread-hook-markdown-notice",
+    ownerSurface: "app",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "delivering",
+      presentation: "durable-refresh-required",
+    },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-markdown-notice",
+    prompt: "> **Codex Process Jobs notice:** Briefly acknowledge this completion.",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(readJob(env, "job-hook-markdown-notice").notification.status, "delivering");
 });
 
 test("legacy HTML notification marker remains excluded from fallback", (t) => {

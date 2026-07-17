@@ -34,13 +34,13 @@ export function buildNotificationPrompt(job) {
   const exitCode = Number.isInteger(job.exitCode) ? String(job.exitCode) : "not reported";
   const outcome = status === "completed" ? "finished successfully" : `finished with status ${status}`;
   return [
-    "### Background job finished",
+    "Background job finished",
     "",
-    `\`${id}\` ${outcome} with exit code \`${exitCode}\`.`,
+    `${id} ${outcome} with exit code ${exitCode}.`,
     "",
-    "_This automatic Codex Process Jobs notice contains no process output._",
+    "Codex Process Jobs notice: No process output is included.",
     "",
-    "> **Codex Process Jobs notice:** Briefly acknowledge this completion and mention that the saved result is available. Wait for the user's direction before inspecting it or resuming other work.",
+    "Codex: Briefly acknowledge this completion and mention that the saved result is available. Wait for the user's direction before inspecting it or resuming other work.",
   ].join("\n");
 }
 

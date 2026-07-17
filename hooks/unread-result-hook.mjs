@@ -27,7 +27,7 @@ function isExplicitJobRequest(prompt) {
 
 function isSyntheticNotificationPrompt(prompt) {
   const text = String(prompt ?? "").trim();
-  return text.includes("**Codex Process Jobs notice:**")
+  return text.includes("Codex Process Jobs notice:")
     || text.includes("<!-- codex-process-jobs:notification")
     || (
       text.startsWith("<process_job_notification>")

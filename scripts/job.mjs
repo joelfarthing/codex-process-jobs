@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { DEFAULT_READ_BYTES, MAX_MODEL_LOG_BYTES, readLog } from "./logs.mjs";
 import { detectClientSurface, notificationPresentation } from "./client-surface.mjs";
+import { COMPLETION_MODES, readPreferences, resolvePreferencesFile, writePreferences } from "./preferences.mjs";
 import { sanitizeThreadId } from "./session.mjs";
 import {
   renderCommand,
@@ -44,6 +45,7 @@ function usage() {
     "  node scripts/job.mjs tail [job-id] [--stdout|--stderr|--both] [--bytes <n>]",
     "  node scripts/job.mjs result [job-id] [--full] [--bytes <n>] [--peek] [--json]",
     "  node scripts/job.mjs cancel <job-id> [--force] [--json]",
+    "  node scripts/job.mjs config [--completion-mode <auto|report|inspect>] [--json]",
     "",
     "Detached jobs never receive interactive stdin. --critical jobs require --force to cancel.",
   ].join("\n");
@@ -117,6 +119,21 @@ function parseCommonJobArgs(args) {
   }
   if (positionals.length > 1) fail(`Expected at most one job id, got: ${positionals.join(" ")}`);
   return { jobId: positionals[0] ?? null, options };
+}
+
+function parseConfigArgs(args) {
+  let completionMode = null;
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--completion-mode") completionMode = takeValue(args, index++, arg).trim().toLowerCase();
+    else if (arg === "--json") json = true;
+    else fail(`Unknown config option: ${arg}`);
+  }
+  if (completionMode != null && !COMPLETION_MODES.has(completionMode)) {
+    fail(`--completion-mode must be one of: ${[...COMPLETION_MODES].join(", ")}`);
+  }
+  return { completionMode, json };
 }
 
 function publicJob(job) {
@@ -495,6 +512,18 @@ async function handleResult(args, env = process.env) {
   output(result, rendered, options.json);
 }
 
+async function handleConfig(args, env = process.env) {
+  const options = parseConfigArgs(args);
+  const preferences = options.completionMode == null
+    ? readPreferences(env)
+    : writePreferences({ completionMode: options.completionMode }, env);
+  output(
+    { preferences, file: resolvePreferencesFile(env) },
+    `Completion mode: ${preferences.completionMode}\nPreferences: ${resolvePreferencesFile(env)}`,
+    options.json,
+  );
+}
+
 async function handleCancel(args, env = process.env) {
   const { jobId, options } = parseCommonJobArgs(args);
   if (!jobId) fail("cancel requires a job id.");
@@ -583,6 +612,7 @@ export async function runCli(argv, env = process.env) {
   else if (command === "tail") await handleTail(args, env);
   else if (command === "result") await handleResult(args, env);
   else if (command === "cancel") await handleCancel(args, env);
+  else if (command === "config") await handleConfig(args, env);
   else fail(`Unknown command: ${command}\n\n${usage()}`);
 }
 

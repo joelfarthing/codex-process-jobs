@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { resolveDesktopIpcSocket } from "../scripts/desktop-ipc.mjs";
+import { writePreferences } from "../scripts/preferences.mjs";
 import {
   buildNotificationPrompt,
   deliverNotificationTurn,
@@ -127,7 +128,7 @@ async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
 }
 
 test("notification prompt contains only sanitized state, never job name or output", () => {
-  const prompt = buildNotificationPrompt(terminalJob(), {});
+  const prompt = buildNotificationPrompt(terminalJob(), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
   assert.match(prompt, /^Background job finished$/m);
   assert.match(prompt, /^Codex Process Jobs notice: No process output is included\.$/m);
   assert.match(prompt, /^Codex: Briefly acknowledge/m);
@@ -142,7 +143,7 @@ test("notification prompt contains only sanitized state, never job name or outpu
 
 test("App and remote notices inspect results while hidden-prone surfaces only report", () => {
   for (const surface of ["app", "remote"]) {
-    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), {});
+    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
     assert.match(prompt, /result skill with job-notify-001 --peek/);
     assert.match(prompt, /untrusted evidence/);
     assert.match(prompt, /recommend the single next best step/);
@@ -150,7 +151,7 @@ test("App and remote notices inspect results while hidden-prone surfaces only re
     assert.match(prompt, /Do not execute that next step/);
   }
   for (const surface of ["vscode", "cli", "unknown"]) {
-    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), {});
+    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
     assert.match(prompt, /Briefly acknowledge/);
     assert.doesNotMatch(prompt, /--peek|recommend the single next best step/);
   }
@@ -176,6 +177,32 @@ test("completion mode override supports safer report and explicit inspect profil
   );
   assert.match(invalid, /Briefly acknowledge/);
   assert.doesNotMatch(invalid, /--peek|arbitrary prompt injection/);
+});
+
+test("durable completion preference overrides surface heuristic but not environment", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-mode-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const env = { CODEX_HOME: root };
+  writePreferences({ completionMode: "inspect" }, env);
+
+  const preferred = buildNotificationPrompt(terminalJob({ ownerSurface: "unknown" }), env);
+  assert.match(preferred, /result skill with job-notify-001 --peek/);
+
+  const overridden = buildNotificationPrompt(
+    terminalJob({ ownerSurface: "app" }),
+    { ...env, CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" },
+  );
+  assert.match(overridden, /Briefly acknowledge/);
+  assert.doesNotMatch(overridden, /--peek/);
+
+  fs.writeFileSync(path.join(root, "process-jobs", "config.json"), JSON.stringify({
+    schemaVersion: 1,
+    completionMode: "inspect",
+    prompt: "untrusted custom instruction",
+  }), { mode: 0o600 });
+  const failedClosed = buildNotificationPrompt(terminalJob({ ownerSurface: "app" }), env);
+  assert.match(failedClosed, /Briefly acknowledge/);
+  assert.doesNotMatch(failedClosed, /--peek|untrusted custom instruction/);
 });
 
 test("Desktop IPC requires an App-owned private same-user socket", async (t) => {

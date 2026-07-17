@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { startDesktopNotificationTurn } from "./desktop-ipc.mjs";
+import { COMPLETION_MODES, readPreferences } from "./preferences.mjs";
 import { resolveOwnerRolloutFile, sanitizeThreadId } from "./session.mjs";
 import { nowIso, readJob, updateJob } from "./state.mjs";
 
@@ -28,9 +29,17 @@ function parsePositiveInteger(value, fallback, maximum) {
 }
 
 export function completionMode(job, env = process.env) {
-  const configured = String(env.CODEX_PROCESS_JOBS_COMPLETION_MODE ?? "auto").trim().toLowerCase();
+  const override = String(env.CODEX_PROCESS_JOBS_COMPLETION_MODE ?? "").trim().toLowerCase();
+  if (override && !COMPLETION_MODES.has(override)) return "report";
+  let configured = override;
+  if (!configured) {
+    try {
+      configured = readPreferences(env).completionMode;
+    } catch {
+      return "report";
+    }
+  }
   if (configured === "inspect" || configured === "report") return configured;
-  if (configured !== "auto") return "report";
   return INSPECT_SURFACES.has(job.ownerSurface) ? "inspect" : "report";
 }
 

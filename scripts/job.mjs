@@ -42,7 +42,7 @@ function usage() {
     "  node scripts/job.mjs start [--name <label>] [--cwd <dir>] [--critical] [--shell] [--no-notify] [--json] -- <command> [args...]",
     "  node scripts/job.mjs status [job-id] [--name <text>] [--wait] [--timeout-ms <ms>] [--poll-interval-ms <ms>] [--all] [--json]",
     "  node scripts/job.mjs tail [job-id] [--stdout|--stderr|--both] [--bytes <n>]",
-    "  node scripts/job.mjs result [job-id] [--full] [--bytes <n>] [--json]",
+    "  node scripts/job.mjs result [job-id] [--full] [--bytes <n>] [--peek] [--json]",
     "  node scripts/job.mjs cancel <job-id> [--force] [--json]",
     "",
     "Detached jobs never receive interactive stdin. --critical jobs require --force to cancel.",
@@ -107,7 +107,7 @@ function parseCommonJobArgs(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg.startsWith("--")) positionals.push(arg);
-    else if (["--wait", "--all", "--json", "--full", "--force", "--stdout", "--stderr", "--both"].includes(arg)) {
+    else if (["--wait", "--all", "--json", "--full", "--peek", "--force", "--stdout", "--stderr", "--both"].includes(arg)) {
       options[arg.slice(2)] = true;
     } else if (["--timeout-ms", "--poll-interval-ms", "--bytes", "--name"].includes(arg)) {
       options[arg.slice(2)] = takeValue(args, index++, arg);
@@ -468,7 +468,7 @@ async function handleResult(args, env = process.env) {
   const bytes = options.full ? MAX_MODEL_LOG_BYTES : parseReadBytes(options);
   const stdout = readLog(job.logs.stdout, { full: Boolean(options.full), maxBytes: bytes });
   const stderr = readLog(job.logs.stderr, { full: Boolean(options.full), maxBytes: bytes });
-  if (TERMINAL_STATUSES.has(job.status)) {
+  if (TERMINAL_STATUSES.has(job.status) && !options.peek) {
     job = await updateJob(job.id, (current) => ({
       ...current,
       resultViewedAt: current.resultViewedAt ?? nowIso(),

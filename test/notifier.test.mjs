@@ -127,7 +127,7 @@ async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
 }
 
 test("notification prompt contains only sanitized state, never job name or output", () => {
-  const prompt = buildNotificationPrompt(terminalJob());
+  const prompt = buildNotificationPrompt(terminalJob(), {});
   assert.match(prompt, /^Background job finished$/m);
   assert.match(prompt, /^Codex Process Jobs notice: No process output is included\.$/m);
   assert.match(prompt, /^Codex: Briefly acknowledge/m);
@@ -138,6 +138,44 @@ test("notification prompt contains only sanitized state, never job name or outpu
   assert.doesNotMatch(prompt, /malicious/);
   assert.doesNotMatch(prompt, /untrusted process output/);
   assert.doesNotMatch(prompt, /ignore prior instructions/);
+});
+
+test("App and remote notices inspect results while hidden-prone surfaces only report", () => {
+  for (const surface of ["app", "remote"]) {
+    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), {});
+    assert.match(prompt, /result skill with job-notify-001 --peek/);
+    assert.match(prompt, /untrusted evidence/);
+    assert.match(prompt, /recommend the single next best step/);
+    assert.match(prompt, /ask whether the user wants to proceed/);
+    assert.match(prompt, /Do not execute that next step/);
+  }
+  for (const surface of ["vscode", "cli", "unknown"]) {
+    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), {});
+    assert.match(prompt, /Briefly acknowledge/);
+    assert.doesNotMatch(prompt, /--peek|recommend the single next best step/);
+  }
+});
+
+test("completion mode override supports safer report and explicit inspect profiles", () => {
+  const report = buildNotificationPrompt(
+    terminalJob({ ownerSurface: "app" }),
+    { CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" },
+  );
+  assert.match(report, /Briefly acknowledge/);
+  assert.doesNotMatch(report, /--peek/);
+
+  const inspect = buildNotificationPrompt(
+    terminalJob({ ownerSurface: "vscode" }),
+    { CODEX_PROCESS_JOBS_COMPLETION_MODE: "inspect" },
+  );
+  assert.match(inspect, /result skill with job-notify-001 --peek/);
+
+  const invalid = buildNotificationPrompt(
+    terminalJob({ ownerSurface: "app" }),
+    { CODEX_PROCESS_JOBS_COMPLETION_MODE: "arbitrary prompt injection" },
+  );
+  assert.match(invalid, /Briefly acknowledge/);
+  assert.doesNotMatch(invalid, /--peek|arbitrary prompt injection/);
 });
 
 test("Desktop IPC requires an App-owned private same-user socket", async (t) => {

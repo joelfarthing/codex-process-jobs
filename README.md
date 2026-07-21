@@ -1,5 +1,7 @@
 # Codex Process Jobs
 
+> **Community beta:** This is an independent project, not an official OpenAI plugin. Detached job state is durable, while automatic conversational completion uses consent-gated hooks and experimental local Codex transports on a best-effort basis.
+
 Codex Process Jobs is a dependency-free Codex plugin for launching ordinary macOS or Linux commands as durable detached process jobs. It is intended for work such as CMake builds, long test suites, inference A/B runs, data processing, and repair utilities that should not monopolize an active Codex turn.
 
 The runtime tracks process identity, status, bounded stdout/stderr, exit status, and safe cancellation metadata under `$CODEX_HOME/process-jobs` (normally `~/.codex/process-jobs`). Jobs are machine-scoped and survive Codex App, IDE, or CLI exit.
@@ -191,6 +193,8 @@ The test suite covers real detached launches, private Desktop IPC and app-server
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 
 Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Distribution currently uses the clone-and-install flow above, and `package.json` remains private to prevent accidental npm publication.
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [Release checklist](docs/releasing.md) for the publication gate.
 
 ## License
 

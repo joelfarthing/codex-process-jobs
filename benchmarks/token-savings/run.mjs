@@ -9,6 +9,20 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SYNTHETIC_BUILD = path.join(ROOT, "benchmarks", "token-savings", "synthetic-build.mjs");
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "cancel_failed"]);
+const ARMS = ["foreground", "cpj-report", "cpj-inspect"];
+const METRIC_KEYS = [
+  "totalTokens",
+  "inputTokens",
+  "cachedInputTokens",
+  "uncachedInputTokens",
+  "outputTokens",
+  "reasoningOutputTokens",
+  "uncachedPlusOutputTokens",
+  "modelInvocations",
+  "taskCount",
+  "toolCalls",
+  "toolResultBytes",
+];
 
 function option(argv, name, fallback = null) {
   const index = argv.indexOf(name);
@@ -82,8 +96,14 @@ function findRollout(threadId) {
 function rolloutMetrics(file) {
   let latest = null;
   const cumulativeTotals = new Set();
+  const invocationUsage = [];
   let toolCalls = 0;
   const toolNames = {};
+  let toolResultBytes = 0;
+  let taskCount = 0;
+  const assistantText = [];
+  let startCommandCalls = 0;
+  let resultCommandCalls = 0;
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) continue;
     let event;
@@ -96,13 +116,35 @@ function rolloutMetrics(file) {
       const usage = event.payload?.info?.total_token_usage;
       if (usage && Number.isFinite(usage.total_tokens)) {
         latest = usage;
-        cumulativeTotals.add(usage.total_tokens);
+        if (!cumulativeTotals.has(usage.total_tokens)) {
+          cumulativeTotals.add(usage.total_tokens);
+          const invocation = event.payload?.info?.last_token_usage;
+          if (invocation && Number.isFinite(invocation.total_tokens)) invocationUsage.push(invocation);
+        }
       }
     }
+    if (event?.type === "event_msg" && event.payload?.type === "task_started") taskCount += 1;
     if (event?.type === "response_item" && ["custom_tool_call", "function_call"].includes(event.payload?.type)) {
       toolCalls += 1;
       const name = String(event.payload?.name ?? "unknown");
       toolNames[name] = (toolNames[name] ?? 0) + 1;
+      const rawArguments = event.payload?.input ?? event.payload?.arguments ?? "";
+      const argumentsText = typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments);
+      if (/job\.mjs[\s\S]{0,2000}\bstart\b/.test(argumentsText)) startCommandCalls += 1;
+      if (/job\.mjs[\s\S]{0,2000}\bresult\b/.test(argumentsText)) resultCommandCalls += 1;
+    }
+    if (
+      event?.type === "response_item"
+      && ["custom_tool_call_output", "function_call_output"].includes(event.payload?.type)
+    ) {
+      const output = event.payload?.output ?? "";
+      const serialized = typeof output === "string" ? output : JSON.stringify(output);
+      toolResultBytes += Buffer.byteLength(serialized, "utf8");
+    }
+    if (event?.type === "response_item" && event.payload?.type === "message" && event.payload?.role === "assistant") {
+      for (const content of event.payload?.content ?? []) {
+        if (typeof content?.text === "string") assistantText.push(content.text);
+      }
     }
   }
   if (!latest) throw new Error(`No token usage found in ${file}.`);
@@ -116,8 +158,20 @@ function rolloutMetrics(file) {
     reasoningOutputTokens: latest.reasoning_output_tokens ?? 0,
     uncachedPlusOutputTokens: uncachedInputTokens + latest.output_tokens,
     modelInvocations: cumulativeTotals.size,
+    invocationUsage,
+    taskCount,
     toolCalls,
     toolNames,
+    toolResultBytes,
+    startCommandCalls,
+    resultCommandCalls,
+    reportedMarker: assistantText.some(
+      (text) => /CPJ_BENCHMARK_RESULT[\s\S]{0,80}steps=\d+ checksum=[a-f0-9]{64}/.test(text),
+    ),
+    reportedExitZero: assistantText.some((text) => /exit (?:status|code)[^0-9-]{0,16}0\b/i.test(text)),
+    acknowledgedSavedResult: assistantText.some(
+      (text) => /saved[- ]result|result (?:is )?(?:ready|available)/i.test(text),
+    ),
   };
 }
 
@@ -176,7 +230,12 @@ async function runCodex({ name, prompt, model, effort, directory, env = {} }) {
   return { threadId, outputFile, errorFile, wallMs: Date.now() - startedAt };
 }
 
-async function waitForTreatmentJob(threadId, earliestMs, timeoutMs = 3 * 60_000) {
+async function waitForTreatmentJob(
+  threadId,
+  earliestMs,
+  { expectedName, expectedArgv },
+  timeoutMs = 3 * 60_000,
+) {
   const deadline = Date.now() + timeoutMs;
   let selected = null;
   while (Date.now() < deadline) {
@@ -184,6 +243,12 @@ async function waitForTreatmentJob(threadId, earliestMs, timeoutMs = 3 * 60_000)
       .filter((job) => job.ownerThreadId === threadId)
       .filter((job) => Date.parse(job.createdAt ?? "") >= earliestMs - 5_000)
       .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))[0] ?? null;
+    if (selected && (selected.name !== expectedName || JSON.stringify(selected.argv) !== JSON.stringify(expectedArgv))) {
+      throw new Error(
+        `Treatment launched an unexpected job: expected ${expectedName} ${JSON.stringify(expectedArgv)}, `
+        + `received ${selected.name} ${JSON.stringify(selected.argv)}.`,
+      );
+    }
     if (selected && TERMINAL_JOB_STATUSES.has(selected.status) && selected.notification?.status === "delivered") {
       return selected;
     }
@@ -199,10 +264,74 @@ function percent(delta, baseline) {
   return baseline === 0 ? null : Number(((delta / baseline) * 100).toFixed(2));
 }
 
+function mean(values) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function round(value) {
+  return Number(value.toFixed(2));
+}
+
+function aggregateRuns(runs) {
+  return Object.fromEntries(METRIC_KEYS.map((key) => {
+    const values = runs.map((run) => run[key]);
+    return [key, {
+      mean: round(mean(values)),
+      median: round(median(values)),
+      min: Math.min(...values),
+      max: Math.max(...values),
+    }];
+  }));
+}
+
+function compareRuns(candidate, baseline) {
+  const totalTokens = candidate.totalTokens - baseline.totalTokens;
+  const uncachedPlusOutputTokens = candidate.uncachedPlusOutputTokens - baseline.uncachedPlusOutputTokens;
+  return {
+    totalTokenCost: totalTokens,
+    totalTokenCostPercent: percent(totalTokens, baseline.totalTokens),
+    uncachedPlusOutputCost: uncachedPlusOutputTokens,
+    uncachedPlusOutputCostPercent: percent(uncachedPlusOutputTokens, baseline.uncachedPlusOutputTokens),
+    modelInvocationCost: candidate.modelInvocations - baseline.modelInvocations,
+    toolCallCost: candidate.toolCalls - baseline.toolCalls,
+  };
+}
+
+function aggregateComparisons(comparisons) {
+  const keys = [
+    "totalTokenCost",
+    "totalTokenCostPercent",
+    "uncachedPlusOutputCost",
+    "uncachedPlusOutputCostPercent",
+    "modelInvocationCost",
+    "toolCallCost",
+  ];
+  return Object.fromEntries(keys.map((key) => {
+    const values = comparisons.map((comparison) => comparison[key]).filter(Number.isFinite);
+    return [key, {
+      mean: round(mean(values)),
+      median: round(median(values)),
+      min: Math.min(...values),
+      max: Math.max(...values),
+    }];
+  }));
+}
+
 const model = option(process.argv, "--model", "gpt-5.6-luna");
 const effort = option(process.argv, "--effort", "medium");
 const durationMs = positiveInteger(option(process.argv, "--duration-ms"), 75_000, "--duration-ms");
 const intervalMs = positiveInteger(option(process.argv, "--interval-ms"), 1_000, "--interval-ms");
+const pairs = positiveInteger(option(process.argv, "--pairs"), 3, "--pairs");
+const outputMode = option(process.argv, "--output-mode", "compact");
+if (!["compact", "verbose"].includes(outputMode)) throw new Error("--output-mode must be compact or verbose.");
 const directory = path.resolve(option(
   process.argv,
   "--output",
@@ -210,84 +339,186 @@ const directory = path.resolve(option(
 ));
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
 
-const command = `node ${JSON.stringify(SYNTHETIC_BUILD)} --duration-ms ${durationMs} --interval-ms ${intervalMs}`;
-const common = [
-  "This is a controlled Codex Process Jobs token benchmark. Do not edit files or perform unrelated work.",
-  `Run exactly this harmless synthetic build command: ${command}`,
-  "After the command finishes, report its exit status and the final CPJ_BENCHMARK_RESULT marker.",
-].join("\n");
-const controlPrompt = [
-  common,
-  "CONTROL ARM: Do not use Codex Process Jobs, shell backgrounding, nohup, tmux, screen, or any detached mechanism.",
-  "Keep this agent turn open and use ordinary local command execution until the process exits.",
-].join("\n");
-const treatmentPrompt = [
-  common,
-  "TREATMENT ARM: Use the installed codex-process-jobs start skill with the label luna-token-treatment.",
-  "Release the launch turn immediately without monitoring. Let the automatic completion turn inspect the bounded saved result and report the marker.",
-].join("\n");
-fs.writeFileSync(path.join(directory, "control.prompt.txt"), `${controlPrompt}\n`, { mode: 0o600, flag: "wx" });
-fs.writeFileSync(path.join(directory, "treatment.prompt.txt"), `${treatmentPrompt}\n`, { mode: 0o600, flag: "wx" });
+const commandArgv = [
+  "node",
+  SYNTHETIC_BUILD,
+  "--duration-ms", String(durationMs),
+  "--interval-ms", String(intervalMs),
+  "--output-mode", outputMode,
+];
+const command = commandArgv.map((argument, index) => index === 1 ? JSON.stringify(argument) : argument).join(" ");
 
-const jobsBeforeControl = new Set(readJobRecords().map((job) => job.id));
-const controlRun = await runCodex({ name: "control", prompt: controlPrompt, model, effort, directory });
-const controlJobs = readJobRecords().filter(
-  (job) => !jobsBeforeControl.has(job.id) && job.ownerThreadId === controlRun.threadId,
-);
-if (controlJobs.length > 0) throw new Error(`Control arm detached ${controlJobs.length} process job(s); trial is invalid.`);
+function treatmentLabel(arm, pair) {
+  const mode = arm === "cpj-report" ? "report" : "inspect";
+  return `luna-token-${mode}-p${String(pair).padStart(2, "0")}`;
+}
 
-const treatmentStartedAt = Date.now();
-const treatmentLaunch = await runCodex({
-  name: "treatment-launch",
-  prompt: treatmentPrompt,
-  model,
-  effort,
-  directory,
-  env: { CODEX_PROCESS_JOBS_COMPLETION_MODE: "inspect" },
+function buildPrompt(arm, pair) {
+  const common = [
+    "This is a controlled Codex Process Jobs token benchmark. Do not edit files or perform unrelated work.",
+    `Run exactly this harmless synthetic build command: ${command}`,
+  ];
+  if (arm === "foreground") {
+    return [
+      ...common,
+      "FOREGROUND ARM: Do not use Codex Process Jobs, shell backgrounding, nohup, tmux, screen, or any detached mechanism.",
+      "Keep this agent turn open and use ordinary local command execution until the process exits.",
+      "Then report its exit status and the final CPJ_BENCHMARK_RESULT marker.",
+    ].join("\n");
+  }
+  const mode = arm === "cpj-report" ? "report" : "inspect";
+  return [
+    ...common,
+    `${arm.toUpperCase()} ARM: Use the installed codex-process-jobs start skill with the label ${treatmentLabel(arm, pair)}.`,
+    "Release the launch turn immediately without monitoring and let the automatic completion turn follow its supplied instruction.",
+    mode === "report"
+      ? "In the automatic completion turn, only acknowledge the supplied numeric exit status and saved-result availability; do not inspect the saved output or report its marker."
+      : "In the automatic completion turn, inspect the bounded saved result and report its exit status and final CPJ_BENCHMARK_RESULT marker.",
+  ].join("\n");
+}
+
+async function runArm(arm, pair, position) {
+  const name = `pair-${String(pair).padStart(2, "0")}-${String(position + 1).padStart(2, "0")}-${arm}`;
+  const prompt = buildPrompt(arm, pair);
+  fs.writeFileSync(path.join(directory, `${name}.prompt.txt`), `${prompt}\n`, { mode: 0o600, flag: "wx" });
+  if (arm === "foreground") {
+    const jobsBefore = new Set(readJobRecords().map((job) => job.id));
+    const run = await runCodex({ name, prompt, model, effort, directory });
+    const unexpectedJobs = readJobRecords().filter(
+      (job) => !jobsBefore.has(job.id) && job.ownerThreadId === run.threadId,
+    );
+    if (unexpectedJobs.length > 0) {
+      throw new Error(`Foreground arm detached ${unexpectedJobs.length} process job(s); trial is invalid.`);
+    }
+    const rollout = findRollout(run.threadId);
+    const metrics = rolloutMetrics(rollout);
+    if (metrics.startCommandCalls !== 0) throw new Error("Foreground arm called the process-jobs start command.");
+    if (!metrics.reportedMarker || !metrics.reportedExitZero) {
+      throw new Error("Foreground arm did not report the required terminal evidence.");
+    }
+    return { arm, pair, position: position + 1, threadId: run.threadId, wallMs: run.wallMs, rollout, ...metrics };
+  }
+
+  const completionMode = arm === "cpj-report" ? "report" : "inspect";
+  const startedAt = Date.now();
+  const launch = await runCodex({
+    name: `${name}-launch`,
+    prompt,
+    model,
+    effort,
+    directory,
+    env: { CODEX_PROCESS_JOBS_COMPLETION_MODE: completionMode },
+  });
+  const job = await waitForTreatmentJob(launch.threadId, startedAt, {
+    expectedName: treatmentLabel(arm, pair),
+    expectedArgv: commandArgv,
+  });
+  const wallMs = Date.now() - startedAt;
+  await delay(1_000);
+  const rollout = findRollout(launch.threadId);
+  const metrics = rolloutMetrics(rollout);
+  if (metrics.startCommandCalls !== 1) {
+    throw new Error(`${arm} called the process-jobs start command ${metrics.startCommandCalls} times.`);
+  }
+  if (completionMode === "report" && metrics.resultCommandCalls !== 0) {
+    throw new Error("CPJ report arm inspected the saved result; trial is invalid.");
+  }
+  if (completionMode === "report" && metrics.reportedMarker) {
+    throw new Error("CPJ report arm unexpectedly reported process output; trial is invalid.");
+  }
+  if (completionMode === "report" && !metrics.reportedExitZero) {
+    throw new Error("CPJ report arm did not acknowledge the terminal exit status.");
+  }
+  if (completionMode === "report" && !metrics.acknowledgedSavedResult) {
+    throw new Error("CPJ report arm did not acknowledge saved-result availability.");
+  }
+  if (completionMode === "inspect" && metrics.resultCommandCalls !== 1) {
+    throw new Error(`CPJ inspect arm called result ${metrics.resultCommandCalls} times.`);
+  }
+  if (completionMode === "inspect" && (!metrics.reportedMarker || !metrics.reportedExitZero)) {
+    throw new Error("CPJ inspect arm did not report the required terminal evidence.");
+  }
+  if (job.status !== "completed" || job.exitCode !== 0) {
+    throw new Error(`${arm} synthetic build ended as ${job.status} with exit code ${job.exitCode}.`);
+  }
+  return {
+    arm,
+    pair,
+    position: position + 1,
+    threadId: launch.threadId,
+    launchWallMs: launch.wallMs,
+    wallMs,
+    jobId: job.id,
+    jobStatus: job.status,
+    jobExitCode: job.exitCode,
+    jobOwnerSurface: job.ownerSurface,
+    notificationStatus: job.notification?.status ?? null,
+    rollout,
+    ...metrics,
+  };
+}
+
+const runs = [];
+for (let pair = 1; pair <= pairs; pair += 1) {
+  const rotation = (pair - 1) % ARMS.length;
+  const order = [...ARMS.slice(rotation), ...ARMS.slice(0, rotation)];
+  for (let position = 0; position < order.length; position += 1) {
+    runs.push(await runArm(order[position], pair, position));
+  }
+}
+
+const trials = Array.from({ length: pairs }, (_, index) => {
+  const pair = index + 1;
+  const pairRuns = Object.fromEntries(runs.filter((run) => run.pair === pair).map((run) => [run.arm, run]));
+  return {
+    pair,
+    order: runs.filter((run) => run.pair === pair).sort((a, b) => a.position - b.position).map((run) => run.arm),
+    arms: pairRuns,
+    comparisons: {
+      detachmentCost: compareRuns(pairRuns["cpj-report"], pairRuns.foreground),
+      proactivityCost: compareRuns(pairRuns["cpj-inspect"], pairRuns["cpj-report"]),
+      fullInspectCost: compareRuns(pairRuns["cpj-inspect"], pairRuns.foreground),
+    },
+  };
 });
-const treatmentJob = await waitForTreatmentJob(treatmentLaunch.threadId, treatmentStartedAt);
-const treatmentWallMs = Date.now() - treatmentStartedAt;
-await delay(1_000);
 
-const controlRollout = findRollout(controlRun.threadId);
-const treatmentRollout = findRollout(treatmentLaunch.threadId);
-const control = {
-  threadId: controlRun.threadId,
-  wallMs: controlRun.wallMs,
-  rollout: controlRollout,
-  ...rolloutMetrics(controlRollout),
-};
-const treatment = {
-  threadId: treatmentLaunch.threadId,
-  launchWallMs: treatmentLaunch.wallMs,
-  wallMs: treatmentWallMs,
-  jobId: treatmentJob.id,
-  jobStatus: treatmentJob.status,
-  notificationStatus: treatmentJob.notification?.status ?? null,
-  rollout: treatmentRollout,
-  ...rolloutMetrics(treatmentRollout),
-};
-const comparison = {
-  totalTokenSavings: control.totalTokens - treatment.totalTokens,
-  totalTokenSavingsPercent: percent(control.totalTokens - treatment.totalTokens, control.totalTokens),
-  uncachedPlusOutputSavings: control.uncachedPlusOutputTokens - treatment.uncachedPlusOutputTokens,
-  uncachedPlusOutputSavingsPercent: percent(
-    control.uncachedPlusOutputTokens - treatment.uncachedPlusOutputTokens,
-    control.uncachedPlusOutputTokens,
-  ),
-  modelInvocationReduction: control.modelInvocations - treatment.modelInvocations,
-  toolCallReduction: control.toolCalls - treatment.toolCalls,
+const byArm = Object.fromEntries(ARMS.map((arm) => [arm, aggregateRuns(runs.filter((run) => run.arm === arm))]));
+const comparisonNames = ["detachmentCost", "proactivityCost", "fullInspectCost"];
+const comparisons = Object.fromEntries(comparisonNames.map((name) => [
+  name,
+  aggregateComparisons(trials.map((trial) => trial.comparisons[name])),
+]));
+comparisons.neutralityScreening = {
+  sampleSize: pairs,
+  cliAndVscodeDefaultReport: {
+    observedMeanTotalAtOrBelowForeground: comparisons.detachmentCost.totalTokenCost.mean <= 0,
+    observedEveryPairTotalAtOrBelowForeground: comparisons.detachmentCost.totalTokenCost.max <= 0,
+  },
+  appAndRemoteDefaultInspect: {
+    observedMeanTotalAtOrBelowForeground: comparisons.fullInspectCost.totalTokenCost.mean <= 0,
+    observedEveryPairTotalAtOrBelowForeground: comparisons.fullInspectCost.totalTokenCost.max <= 0,
+  },
+  qualification: "These booleans describe only this sample; they are not a population-level token-neutrality claim.",
 };
 const summary = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   model,
   effort,
-  syntheticBuild: { command, durationMs, intervalMs },
-  control,
-  treatment,
-  comparison,
-  caveat: "One matched synthetic pair is a pilot, not a population estimate. Repeat pairs before claiming a stable percentage.",
+  executionSurface: "codex exec CLI harness with completion mode forced per CPJ arm",
+  syntheticBuild: { command, durationMs, intervalMs, outputMode },
+  pairs,
+  armOrder: ARMS,
+  trials,
+  aggregate: { byArm, comparisons },
+  caveats: [
+    "This is a repeated synthetic benchmark, not a population estimate.",
+    "Report-only measures minimal detachment cost but intentionally does not provide equivalent result interpretation.",
+    "The forced report and inspect modes represent the two completion instructions, not native App or remote surface execution.",
+    "Auto defaults to inspect on App/remote and report on CLI/VS Code, so public default neutrality requires both paths to pass broader validation.",
+    "Foreground execution remains conversationally unavailable while the process runs even when it is token-cheaper.",
+    "Raw rollout files can contain full task context and must remain private.",
+  ],
   rawDirectory: directory,
 };
 fs.writeFileSync(path.join(directory, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600, flag: "wx" });

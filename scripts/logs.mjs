@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -114,6 +115,58 @@ export function readLog(file, { full = false, maxBytes = DEFAULT_READ_BYTES } = 
     }
   } catch (error) {
     if (error?.code === "ENOENT") return "";
+    throw error;
+  }
+}
+
+function readGeneration(fd, size) {
+  // Hash a fixed-length prefix so the generation remains stable as an
+  // append-only file grows. Bounded logs cannot compact below 1 KiB, so a
+  // short file does not need a generation to distinguish normal appends.
+  if (size < 256) return null;
+  const prefix = Buffer.alloc(256);
+  fs.readSync(fd, prefix, 0, prefix.length, 0);
+  return crypto.createHash("sha256").update(prefix).digest("hex").slice(0, 16);
+}
+
+export function readLogSince(file, sinceByte, { maxBytes = DEFAULT_READ_BYTES, generation = null } = {}) {
+  const offset = Number(sinceByte);
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    throw new Error("Log cursor must be a non-negative safe integer.");
+  }
+  const limit = Math.max(1, Math.min(Number(maxBytes) || DEFAULT_READ_BYTES, MAX_MODEL_LOG_BYTES));
+  try {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) throw new Error(`Tracked log is not a regular file: ${file}`);
+      if (generation != null && !/^[a-f0-9]{16}$/.test(String(generation))) {
+        throw new Error("Log cursor generation must be 16 lowercase hexadecimal characters.");
+      }
+      const currentGeneration = readGeneration(fd, stat.size);
+      const compacted = offset > stat.size
+        || (generation != null && currentGeneration !== generation);
+      const requestedStart = compacted ? 0 : offset;
+      const available = Math.max(0, stat.size - requestedStart);
+      const length = Math.min(available, limit);
+      const startOffset = available > limit ? stat.size - length : requestedStart;
+      const buffer = Buffer.alloc(length);
+      if (length > 0) fs.readSync(fd, buffer, 0, length, startOffset);
+      return {
+        text: buffer.toString("utf8"),
+        startOffset,
+        nextOffset: stat.size,
+        generation: currentGeneration,
+        compacted,
+        truncated: available > limit,
+      };
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { text: "", startOffset: 0, nextOffset: 0, generation: null, compacted: offset > 0, truncated: false };
+    }
     throw error;
   }
 }

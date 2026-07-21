@@ -19,6 +19,12 @@ import {
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const INSTALLER = path.join(ROOT, "scripts", "install.mjs");
 
+test("package and source plugin versions match before install cachebusting", () => {
+  const packageMetadata = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  const pluginManifest = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
+  assert.equal(pluginManifest.version, packageMetadata.version);
+});
+
 function temporaryHome(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-install-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -128,7 +134,8 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.match(preview.stdout, /No changes made/);
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
   assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
-  assert.match(preview.stdout, /trust requires explicit approval in \/hooks after restart/);
+  assert.match(preview.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
+  assert.match(preview.stdout, /requires explicit approval in \/hooks after restart/);
   assert.equal(fs.existsSync(marketplaceFile), false);
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
@@ -148,6 +155,7 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.match(agentPolicy, /only an explicit request to keep this exact turn open and wait/i);
   assert.match(agentPolicy, /never .*imply that an exchange before completion can report the outcome/i);
   assert.match(applied.stdout, /installer never trusts hooks automatically/i);
+  assert.match(applied.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
   assert.match(applied.stdout, /explicit user approval in \/hooks/i);
   assert.match(applied.stdout, /Restart every open Codex client/);
   assert.match(applied.stdout, /Developer: Reload Window/);
@@ -184,5 +192,22 @@ test("apply refuses to replace the plugin while a tracked job is active", (t) =>
   const result = runInstaller(["--apply"], env);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Tracked process jobs are active/);
+  assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);
+});
+
+test("apply refuses symlinked configuration targets without replacing or changing them", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const target = path.join(home, "marketplace-target.json");
+  const marketplaceFile = path.join(home, ".agents", "plugins", "marketplace.json");
+  fs.mkdirSync(path.dirname(marketplaceFile), { recursive: true });
+  fs.writeFileSync(target, '{"name":"personal","plugins":[]}\n');
+  fs.symlinkSync(target, marketplaceFile);
+
+  const result = runInstaller(["--apply"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /not a regular file/i);
+  assert.equal(fs.lstatSync(marketplaceFile).isSymbolicLink(), true);
+  assert.equal(fs.readFileSync(target, "utf8"), '{"name":"personal","plugins":[]}\n');
   assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);
 });

@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { createJob, readJob, resolveJobLogs } from "../scripts/state.mjs";
-import { recordNotificationRelaySpawn } from "../scripts/worker.mjs";
+import { launchUserNotification, recordNotificationRelaySpawn } from "../scripts/worker.mjs";
 
 function createEnv(t) {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-worker-"));
@@ -52,4 +52,48 @@ test("worker records relay metadata without overwriting notifier-owned deliverin
   assert.equal(stored.notification.attempts, 1);
   assert.equal(stored.notification.relayPid, 23456);
   assert.match(stored.notification.relayStartedAt, /T/);
+});
+
+test("optional user notifications use argv-only platform commands and tolerate absence", () => {
+  const calls = [];
+  const fakeSpawn = (command, args, options) => {
+    calls.push({ command, args, options });
+    return { on() {}, unref() {} };
+  };
+  const job = {
+    id: "job-user-notify",
+    name: "build $(touch /tmp/must-not-run)",
+    status: "completed",
+    exitCode: 0,
+    notifyUser: true,
+  };
+  launchUserNotification(job, {}, fakeSpawn, "darwin");
+  launchUserNotification(job, {}, fakeSpawn, "linux");
+  assert.equal(calls[0].command, "osascript");
+  assert.equal(calls[0].options.shell, false);
+  assert.match(calls[0].args.at(-1), /\$\(touch/);
+  assert.equal(calls[1].command, "notify-send");
+  assert.equal(calls[1].options.shell, false);
+  assert.deepEqual(calls[1].args.slice(0, 4), ["--app-name", "Codex Process Jobs", "--", "Background job finished"]);
+  assert.doesNotThrow(() => launchUserNotification(job, {}, () => { throw new Error("ENOENT"); }, "linux"));
+  assert.equal(launchUserNotification({ ...job, notifyUser: false }, {}, fakeSpawn, "linux"), null);
+});
+
+test("user notification labels remove controls and stay within 512 UTF-8 bytes", () => {
+  const calls = [];
+  const fakeSpawn = (command, args) => {
+    calls.push({ command, args });
+    return { on() {}, unref() {} };
+  };
+  launchUserNotification({
+    id: "job-user-notify-bounded",
+    name: `${"😀".repeat(200)}\nsecond line`,
+    status: "failed",
+    exitCode: 2,
+    notifyUser: true,
+  }, {}, fakeSpawn, "linux");
+  const message = calls[0].args.at(-1);
+  const label = message.slice(0, message.indexOf(" (job-user-notify-bounded)"));
+  assert.ok(Buffer.byteLength(label, "utf8") <= 512);
+  assert.doesNotMatch(label, /[\n\r]/);
 });

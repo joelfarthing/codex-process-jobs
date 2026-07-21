@@ -41,6 +41,8 @@ Supported options before `--`:
 - `--goal-mode`
 - `--shell`
 - `--no-notify` to opt out of the owning-thread completion turn
+- `--notify-user` to request a best-effort OS notification for this job
+- `--no-notify-user` to override a durable OS-notification preference for this job
 - `--json`
 
 ## Safety and lifecycle
@@ -52,8 +54,9 @@ Supported options before `--`:
 - For an ordinary pending-notification launch, the response MUST state all four facts: the recognizable job label/id and that it is running in the background; completion will be recorded and a live notification may appear; after it finishes, recap the outcome as soon as the conversation can pick it up; the user can request status any time. Paraphrase naturally, but do not omit any fact. Example: “I've started that <job label> in the background as <job-id>. Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. You can ask me to check status any time.” The completion relay uses a separate transport, so do not promise an immediate live wake, imply that an exchange before completion can report the outcome, or guarantee the first post-terminal prompt while notification delivery is still in flight.
 - For a `--goal-mode` launch, say instead that the job is running under the active Goal, completion is recorded durably, automatic Goal continuation should pick up the terminal result, direct completion delivery remains an idle-thread fallback, and status is available on request. Do not imply that CPJ can suppress Goal's automatic `Continue` turns. On those continuations, work independently when possible; when result-gated, follow the status skill's one bounded-wait rule.
 - When notification is `disabled` or `unavailable`, explain the status/result fallback instead.
+- OS-level user notification is independent of the conversational completion relay. It is opt-in, best-effort, and may be unavailable in a headless Linux session even when conversational completion works.
 - Do not place secrets in argv or redirect secrets into tracked logs. The controller stores argv and cwd, but never persists the inherited environment.
 - Critical jobs refuse cancellation unless the user later gives explicit approval and `$cancel` is invoked with `--force`.
-- The notification relay resumes the owning persistent Codex thread through local app-server and starts a minimal synthetic completion turn containing sanitized job metadata only. It never embeds process output. After delivery settles, the bundled hook requires one short recap for every delivered completion on the first eligible ordinary non-status turn before handling the new request. Give that recap even if the synthetic assistant announcement already appears in model context, because context does not prove the assigning client rendered it. A possible one-time duplicate is intentional. Explicit status/result requests retrieve durable state directly.
+- The notification relay resumes the owning persistent Codex thread through guarded Desktop IPC or local app-server and starts a minimal synthetic completion turn containing sanitized job metadata only. It never embeds process output. Consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks can claim a terminal result at the next supported agent-loop boundary and require one short recap for every claimed completion. Give that recap even if a synthetic assistant announcement already appears in model context, because context does not prove the assigning client rendered it. A possible one-time duplicate is intentional. Explicit status/result requests retrieve durable state directly.
 
 For storage repair specifically, preserve the exact target device, mounted/unmounted state, and repair flags supplied by the user or current diagnostic evidence. Never infer a device node from name alone.

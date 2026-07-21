@@ -55,6 +55,12 @@ test("escalates from SIGTERM to SIGKILL and confirms identity disappearance", as
     pollMs: 1,
     validateIdentity: () => alive,
     killImpl: (pid, signal) => {
+      if (signal === 0) {
+        if (alive) return;
+        const error = new Error("gone");
+        error.code = "ESRCH";
+        throw error;
+      }
       assert.equal(pid, -123);
       signals.push(signal);
       if (signal === "SIGKILL") alive = false;
@@ -62,6 +68,65 @@ test("escalates from SIGTERM to SIGKILL and confirms identity disappearance", as
   });
   assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
   assert.deepEqual(result, { terminated: true, forced: true });
+});
+
+test("escalates against the validated process group after its leader exits", async () => {
+  let leaderAlive = true;
+  let groupAlive = true;
+  const signals = [];
+  const result = await terminateTrackedProcess(123, "identity", {
+    graceMs: 5,
+    pollMs: 1,
+    validateIdentity: () => leaderAlive,
+    killImpl: (pid, signal) => {
+      if (pid === 123 && signal === 0) {
+        if (leaderAlive) return;
+        const error = new Error("leader exited");
+        error.code = "ESRCH";
+        throw error;
+      }
+      assert.equal(pid, -123);
+      if (signal === 0) {
+        if (groupAlive) return;
+        const error = new Error("group exited");
+        error.code = "ESRCH";
+        throw error;
+      }
+      signals.push(signal);
+      if (signal === "SIGTERM") leaderAlive = false;
+      if (signal === "SIGKILL") groupAlive = false;
+    },
+  });
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+  assert.deepEqual(result, { terminated: true, forced: true });
+});
+
+test("does not signal the group after a different process reuses the leader PID", async () => {
+  let leaderMatches = true;
+  let replacementAlive = false;
+  const signals = [];
+  const result = await terminateTrackedProcess(123, "identity", {
+    graceMs: 5,
+    pollMs: 1,
+    validateIdentity: () => leaderMatches,
+    killImpl: (pid, signal) => {
+      if (pid === 123 && signal === 0) {
+        if (replacementAlive) return;
+        const error = new Error("pid is free");
+        error.code = "ESRCH";
+        throw error;
+      }
+      assert.equal(pid, -123);
+      if (signal === 0) return;
+      signals.push(signal);
+      if (signal === "SIGTERM") {
+        leaderMatches = false;
+        replacementAlive = true;
+      }
+    },
+  });
+  assert.deepEqual(signals, ["SIGTERM"]);
+  assert.deepEqual(result, { terminated: true, forced: false });
 });
 
 test("refuses to signal a PID whose identity changed", async () => {

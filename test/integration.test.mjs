@@ -204,7 +204,7 @@ test("result --peek reads bounded evidence without consuming completion fallback
   assert.deepEqual(stored.notification, completed.notification);
 });
 
-test("config command reads and writes the durable completion mode", (t) => {
+test("config command reads and writes durable completion and user-notification preferences", (t) => {
   const context = makeEnv(t);
   const initial = JSON.parse(runCli(["config", "--json"], context.env).stdout);
   assert.equal(initial.preferences.completionMode, "auto");
@@ -213,14 +213,19 @@ test("config command reads and writes the durable completion mode", (t) => {
     "config",
     "--completion-mode",
     "inspect",
+    "--notify-user",
+    "true",
     "--json",
   ], context.env).stdout);
   assert.equal(changed.preferences.completionMode, "inspect");
+  assert.equal(changed.preferences.notifyUser, true);
   assert.equal(fs.statSync(changed.file).mode & 0o777, 0o600);
 
   const reread = JSON.parse(runCli(["config", "--json"], context.env).stdout);
   assert.equal(reread.preferences.completionMode, "inspect");
+  assert.equal(reread.preferences.notifyUser, true);
   runCli(["config", "--completion-mode", "arbitrary"], context.env, { expectStatus: 1 });
+  runCli(["config", "--notify-user", "sometimes"], context.env, { expectStatus: 1 });
 });
 
 test("invalid owner thread ids fail closed to status-only notification", (t) => {
@@ -496,6 +501,38 @@ test("cancellation terminates descendants in the detached process group", (t) =>
   assert.equal(processExists(descendantPid), true);
 
   const cancelled = JSON.parse(runCli(["cancel", job.id, "--json"], context.env).stdout);
+  assert.equal(cancelled.job.status, "cancelled");
+  assert.equal(waitUntil(() => !processExists(descendantPid)), true);
+});
+
+test("cancellation kills a surviving descendant after the process-group leader exits", (t) => {
+  const context = makeEnv(t);
+  const descendantCode = [
+    "process.on('SIGTERM', () => {});",
+    "console.log(`ready ${process.pid}`);",
+    "setInterval(() => {}, 1000);",
+  ].join(" ");
+  const leaderCode = [
+    "const { spawn } = require('node:child_process');",
+    `spawn(process.execPath, ['-e', ${JSON.stringify(descendantCode)}], { stdio: ['ignore', 'inherit', 'inherit'] });`,
+    "process.on('SIGTERM', () => process.exit(0));",
+    "setInterval(() => {}, 1000);",
+  ].join(" ");
+  const job = startJson(["--", process.execPath, "-e", leaderCode], context);
+  waitJson(job.id, context.env, 200);
+
+  const stdoutPath = path.join(context.env.CODEX_HOME, "process-jobs", "logs", `${job.id}.stdout.log`);
+  assert.equal(waitUntil(() => fs.existsSync(stdoutPath) && /ready \d+/.test(fs.readFileSync(stdoutPath, "utf8"))), true);
+  const descendantPid = Number.parseInt(/ready (\d+)/.exec(fs.readFileSync(stdoutPath, "utf8"))?.[1], 10);
+  assert.ok(Number.isInteger(descendantPid) && descendantPid > 0);
+  t.after(() => {
+    try {
+      process.kill(descendantPid, "SIGKILL");
+    } catch {}
+  });
+
+  const cancelled = JSON.parse(runCli(["cancel", job.id, "--json"], context.env).stdout);
+  assert.equal(cancelled.cancellation.forced, true);
   assert.equal(cancelled.job.status, "cancelled");
   assert.equal(waitUntil(() => !processExists(descendantPid)), true);
 });

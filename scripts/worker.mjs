@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { isCliEntry } from "./cli-entry.mjs";
 import { createBoundedLogWriter, resolveMaxLogBytes } from "./logs.mjs";
 import { getProcessIdentity } from "./process-control.mjs";
 import {
@@ -47,6 +48,45 @@ function waitForClose(child) {
       else resolve({ code, signal });
     });
   });
+}
+
+export function launchUserNotification(job, env = process.env, spawnImpl = spawn, platform = process.platform) {
+  if (!job.notifyUser) return null;
+  const exitCode = Number.isInteger(job.exitCode) ? job.exitCode : "not reported";
+  const normalizedName = String(job.name ?? job.id).replace(/[\u0000-\u001f\u007f]/g, " ");
+  let name = normalizedName;
+  while (Buffer.byteLength(name, "utf8") > 512) name = name.slice(0, -1);
+  const message = `${name} (${job.id}) finished ${job.status}; exit code ${exitCode}.`;
+  let command;
+  let args;
+  if (platform === "darwin") {
+    command = "osascript";
+    args = [
+      "-e", "on run argv",
+      "-e", "display notification (item 1 of argv) with title \"Codex Process Jobs\"",
+      "-e", "end run",
+      "--", message,
+    ];
+  } else if (platform === "linux") {
+    command = "notify-send";
+    args = ["--app-name", "Codex Process Jobs", "--", "Background job finished", message];
+  } else {
+    return null;
+  }
+  try {
+    const child = spawnImpl(command, args, {
+      env,
+      detached: true,
+      shell: false,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.on?.("error", () => {});
+    child.unref?.();
+    return child;
+  } catch {
+    return null;
+  }
 }
 
 async function launchNotificationRelay(job, env) {
@@ -197,6 +237,7 @@ export async function runWorker(jobId, env = process.env) {
       },
       env
     );
+    launchUserNotification(terminal, env);
     await launchNotificationRelay(terminal, env);
     return terminal;
   } catch (error) {
@@ -218,6 +259,7 @@ export async function runWorker(jobId, env = process.env) {
       },
       env
     );
+    launchUserNotification(terminal, env);
     await launchNotificationRelay(terminal, env);
     return terminal;
   } finally {
@@ -230,7 +272,7 @@ async function main() {
   await runWorker(parseJobId(process.argv.slice(2)));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
     process.exitCode = 1;

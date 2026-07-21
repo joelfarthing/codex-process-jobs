@@ -20,8 +20,9 @@ Supported arguments:
 - `--timeout-ms <1..55000>`; defaults to 55 seconds.
 - `--poll-interval-ms <50..10000>`.
 - `--json` for structured output.
+- Incremental JSON checks may also pass per-stream `--stdout-since-byte`/`--stdout-since-generation` and `--stderr-since-byte`/`--stderr-since-generation` cursors. Reuse the returned cursor so later checks do not resend identical output.
 
-For a question such as "how's the build going?", run `status --name build` when the label is clear. If it is unclear, list recent jobs first. A specific-job response reads only the state record, log metadata, and at most 8 KiB per stream to show the last four non-empty lines. Do not attach to the process or load full logs for a routine status check.
+For a question such as "how's the build going?", run `status --name build` when the label is clear. If it is unclear, list recent jobs first. A specific-job response reads only the state record, log metadata, and at most 8 KiB per stream to show the last four non-empty lines. On repeated checks, use the previous JSON cursors to avoid resending the same lines. Do not attach to the process or load full logs for a routine status check.
 
 Never invoke this skill from the same Codex turn that launched the job. A higher-level task that depends on the result does not authorize same-turn monitoring; defer that work to the completion relay, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. Only an explicit user request to keep that exact launch turn open and wait for the process overrides the boundary. Under that override, make one bounded wait; inspect the bounded result in the same turn only if the job becomes terminal, otherwise report that it remains active and end the turn.
 

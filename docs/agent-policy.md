@@ -4,7 +4,7 @@ Codex can select the plugin automatically from the installed skill descriptions,
 
 This is a separate opt-in decision. An installing agent must ask whether the user wants the global policy after showing the read-only installation preview. It must not treat permission to install the plugin as permission to edit global agent instructions.
 
-Hook consent is also separate and always manual. The installer never writes hook trust. After restarting the client, the user must review and approve the installed hook's exact hash through `/hooks` before next-prompt fallback can run.
+Hook consent is also separate and always manual. The installer never writes hook trust. After restarting the client, the user must review and approve the installed `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source through `/hooks` before hook-boundary fallback can run.
 
 Preview installation without changing anything:
 
@@ -26,6 +26,6 @@ The installer inserts the contents of [`assets/agent-policy.md`](../assets/agent
 <!-- codex-process-jobs:end -->
 ```
 
-Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated personal instructions. It makes successful start a hard launch-turn release boundary: report the launch, do not monitor the job, and end the turn after any already-requested independent work. It also adds explicit Goal integration: pass `--goal-mode` only for a visibly active Goal, do independent work on automatic continuations, use one bounded wait when result-gated, then inspect terminal evidence and continue already-authorized in-scope work. Outside Goal mode, every pending-notification launch response preserves the standard four facts: background job label/id, durable completion with possible live presentation, later conversational recap, and status availability. The policy is opt-in; installation without `--with-agent-policy` never changes `AGENTS.md`.
+Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated personal instructions. It makes successful start a hard launch-turn release boundary: report the launch, do not monitor the job, and end the turn after any already-requested independent work. It also adds explicit Goal integration: pass `--goal-mode` only for a visibly active Goal, do independent work on automatic continuations, use one bounded wait when result-gated, then inspect terminal evidence and continue already-authorized in-scope work. Outside Goal mode, every pending-notification launch response preserves the standard four facts: background job label/id, durable completion with possible live presentation, later conversational recap, and status availability. Repeated JSON output checks reuse independent stdout/stderr cursor metadata instead of resending the same tail. The policy is opt-in; installation without `--with-agent-policy` never changes `AGENTS.md`.
 
 Repository-level or nested `AGENTS.md` files can override global guidance for their scope. If a project must never detach a particular command, state that exception close to the project.

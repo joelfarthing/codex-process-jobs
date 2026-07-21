@@ -164,8 +164,14 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
   if (job.shell != null && typeof job.shell !== "boolean") {
     throw new Error(`Invalid persisted shell flag for ${id}.`);
   }
+  if (job.critical != null && typeof job.critical !== "boolean") {
+    throw new Error(`Invalid persisted critical flag for ${id}.`);
+  }
   if (job.goalMode != null && typeof job.goalMode !== "boolean") {
     throw new Error(`Invalid persisted goal mode flag for ${id}.`);
+  }
+  if (job.notifyUser != null && typeof job.notifyUser !== "boolean") {
+    throw new Error(`Invalid persisted user notification flag for ${id}.`);
   }
   if (job.argv != null) {
     if (

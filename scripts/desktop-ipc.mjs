@@ -4,7 +4,9 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 
-const MAX_FRAME_BYTES = 256 * 1024 * 1024;
+import { resolveCodexHome } from "./state.mjs";
+
+const MAX_FRAME_BYTES = 1024 * 1024;
 const INITIALIZE_VERSION = 0;
 const START_TURN_VERSION = 1;
 
@@ -25,21 +27,42 @@ function encodeFrame(message) {
 }
 
 function attachFrameReader(socket, onMessage, onError) {
-  let buffer = Buffer.alloc(0);
+  const header = Buffer.allocUnsafe(4);
+  let headerLength = 0;
+  let body = null;
+  let bodyLength = 0;
+  let failed = false;
   const onData = (chunk) => {
+    if (failed) return;
     try {
-      buffer = Buffer.concat([buffer, chunk]);
-      while (buffer.length >= 4) {
-        const length = buffer.readUInt32LE(0);
-        if (length < 1 || length > MAX_FRAME_BYTES) {
-          throw new Error(`Invalid Desktop IPC frame length: ${length}.`);
+      let offset = 0;
+      while (offset < chunk.length) {
+        if (body == null) {
+          const headerBytes = Math.min(4 - headerLength, chunk.length - offset);
+          chunk.copy(header, headerLength, offset, offset + headerBytes);
+          headerLength += headerBytes;
+          offset += headerBytes;
+          if (headerLength < 4) continue;
+          const length = header.readUInt32LE(0);
+          if (length < 1 || length > MAX_FRAME_BYTES) {
+            throw new Error(`Invalid Desktop IPC frame length: ${length}.`);
+          }
+          body = Buffer.allocUnsafe(length);
+          bodyLength = 0;
         }
-        if (buffer.length < 4 + length) return;
-        const body = buffer.subarray(4, 4 + length).toString("utf8");
-        buffer = buffer.subarray(4 + length);
-        onMessage(JSON.parse(body));
+        const bodyBytes = Math.min(body.length - bodyLength, chunk.length - offset);
+        chunk.copy(body, bodyLength, offset, offset + bodyBytes);
+        bodyLength += bodyBytes;
+        offset += bodyBytes;
+        if (bodyLength < body.length) continue;
+        const message = JSON.parse(body.toString("utf8"));
+        body = null;
+        bodyLength = 0;
+        headerLength = 0;
+        onMessage(message);
       }
     } catch (error) {
+      failed = true;
       onError(error);
     }
   };
@@ -66,8 +89,7 @@ export function resolveDesktopIpcSocket(job, env = process.env) {
   if (job.ownerSurface !== "app") return null;
   const override = String(env.CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET ?? "").trim();
   if (!override && process.platform !== "darwin") return null;
-  const codexHome = env.CODEX_HOME || path.join(env.HOME ?? "", ".codex");
-  const socketPath = override || path.join(codexHome, "ipc", "ipc.sock");
+  const socketPath = override || path.join(resolveCodexHome(env), "ipc", "ipc.sock");
   try {
     validateOwnedPrivatePath(path.dirname(socketPath));
     validateOwnedPrivatePath(socketPath, { socket: true });

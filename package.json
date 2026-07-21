@@ -5,6 +5,11 @@
   "type": "module",
   "private": true,
   "license": "Apache-2.0",
+  "author": "Joel Farthing",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joelfarthing/codex-process-jobs.git"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -12,7 +17,7 @@
     "codex-process-jobs": "./scripts/job.mjs"
   },
   "scripts": {
-    "check": "node --check scripts/job.mjs && node --check scripts/worker.mjs && node --check scripts/notifier.mjs && node --check scripts/preferences.mjs && node --check scripts/desktop-ipc.mjs && node --check scripts/session.mjs && node --check scripts/install.mjs && node --check scripts/smoke.mjs && node --check hooks/unread-result-hook.mjs && node --test",
+    "check": "node --check scripts/job.mjs && node --check scripts/worker.mjs && node --check scripts/notifier.mjs && node --check scripts/preferences.mjs && node --check scripts/desktop-ipc.mjs && node --check scripts/session.mjs && node --check scripts/cli-entry.mjs && node --check scripts/install.mjs && node --check scripts/smoke.mjs && node --check hooks/unread-result-hook.mjs && node --test",
     "smoke": "node scripts/smoke.mjs",
     "test": "node --test"
   }

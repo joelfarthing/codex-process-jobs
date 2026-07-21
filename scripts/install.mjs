@@ -7,6 +7,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { isCliEntry } from "./cli-entry.mjs";
+
 export const PLUGIN_NAME = "codex-process-jobs";
 export const POLICY_BEGIN = "<!-- codex-process-jobs:begin -->";
 export const POLICY_END = "<!-- codex-process-jobs:end -->";
@@ -264,7 +266,7 @@ function planLines(plan, options) {
     `  plugin version: ${plan.installVersion}`,
     `  personal marketplace: ${plan.marketplaceFile}`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
-    "  completion hook: enable hooks and install the plugin hook; trust requires explicit approval in /hooks after restart",
+    "  completion hooks: enable hooks and install PostToolUse, Stop, and UserPromptSubmit definitions; each requires explicit approval in /hooks after restart",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
       : "  source safety: source checkout is separate from the runtime destination",
@@ -307,6 +309,22 @@ function atomicWrite(file, contents, mode = 0o600) {
 function restoreFile(file, original) {
   if (original == null) fs.rmSync(file, { force: true });
   else atomicWrite(file, original);
+}
+
+function validateMutableFile(file, label) {
+  let stat;
+  try {
+    stat = fs.lstatSync(file);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    fail(`Refusing to modify ${label} because it is not a regular file: ${file}`);
+  }
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    fail(`Refusing to modify ${label} because it is not owned by the current user: ${file}`);
+  }
 }
 
 function copyPlugin(plan) {
@@ -386,11 +404,15 @@ export async function applyInstall(plan, options, env = process.env) {
     fail("Tracked process jobs are active. Wait for them to finish, or review and pass --allow-active-jobs.");
   }
 
+  const configFile = path.join(plan.codexHome, "config.toml");
+  validateMutableFile(plan.marketplaceFile, "personal marketplace");
+  validateMutableFile(configFile, "Codex configuration");
+  if (options.withAgentPolicy) validateMutableFile(plan.agentFile, "global agent policy");
+
   const marketplaceOriginal = fs.existsSync(plan.marketplaceFile)
     ? fs.readFileSync(plan.marketplaceFile, "utf8")
     : null;
   const agentOriginal = fs.existsSync(plan.agentFile) ? fs.readFileSync(plan.agentFile, "utf8") : null;
-  const configFile = path.join(plan.codexHome, "config.toml");
   const configOriginal = fs.existsSync(configFile) ? fs.readFileSync(configFile, "utf8") : null;
   const marketplace = mergeMarketplace(marketplaceOriginal == null ? null : JSON.parse(marketplaceOriginal));
   const policyText = options.withAgentPolicy ? fs.readFileSync(plan.agentPolicyFile, "utf8") : null;
@@ -456,17 +478,17 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     `Installed ${result.selector} (${result.version}).`,
     "Restart every open Codex client before testing this install.",
     "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
-    `After restart, open /hooks, review the ${result.selector} UserPromptSubmit hook, and approve its exact hash. The installer never trusts hooks automatically.`,
+    `After restart, open /hooks, review the ${result.selector} PostToolUse, Stop, and UserPromptSubmit definitions and shared source, and approve their exact hashes. The installer never trusts hooks automatically.`,
     "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
     result.agentBackup ? `AGENTS.md backup: ${result.agentBackup}` : null,
     result.configBackup ? `Codex config backup: ${result.configBackup}` : null,
-    "Completion hook: installed but intentionally left for explicit user approval in /hooks.",
+    "Completion hooks: installed but intentionally left for explicit user approval in /hooks.",
   ].filter(Boolean).join("\n") + "\n");
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

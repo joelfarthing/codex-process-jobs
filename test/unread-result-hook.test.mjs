@@ -48,6 +48,16 @@ function runHook(env, payload) {
   });
 }
 
+function runHookInput(env, input) {
+  return spawnSync(process.execPath, [HOOK], {
+    cwd: ROOT,
+    env,
+    input,
+    encoding: "utf8",
+    timeout: 5000,
+  });
+}
+
 function runHookAsync(env, payload) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [HOOK], { cwd: ROOT, env });
@@ -97,6 +107,20 @@ test("next-prompt hook surfaces one same-thread unread completion once", (t) => 
   assert.equal(second.stdout, "");
 });
 
+test("hook accepts exactly 1 MiB of stdin and rejects the first excess byte", (t) => {
+  const env = createEnv(t);
+  const atLimit = Buffer.alloc(1024 * 1024, 0x20);
+  atLimit.write("{}");
+  const accepted = runHookInput(env, atLimit);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(accepted.stdout, "");
+
+  const oversized = Buffer.alloc(1024 * 1024 + 1, 0x78);
+  const rejected = runHookInput(env, oversized);
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /Hook input is too large/);
+});
+
 test("Goal continuation receives terminal result-consumption and continuation instructions", (t) => {
   const env = createEnv(t);
   writeJob(env, {
@@ -113,10 +137,95 @@ test("Goal continuation receives terminal result-consumption and continuation in
     prompt: "Continue",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /listed terminal jobs were launched in Goal mode/);
+  assert.match(result.stdout, /Goal-mode job IDs: job-hook-goal/);
   assert.match(result.stdout, /result <job-id> --peek/);
   assert.match(result.stdout, /continue its next already-authorized in-scope step/);
   assert.match(result.stdout, /new authority, a consequential choice, or expanded scope/);
+});
+
+test("PostToolUse injects a terminal completion into an active turn exactly once", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-post-tool",
+    ownerThreadId: "thread-hook-post-tool",
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "pending" },
+  });
+  const first = runHook(env, {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-post-tool",
+    tool_name: "Bash",
+  });
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /detected during the active turn after a tool call/i);
+  assert.match(first.stdout, /job-hook-post-tool/);
+  const second = runHook(env, {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-post-tool",
+    tool_name: "Bash",
+  });
+  assert.equal(second.stdout, "");
+});
+
+test("hook fallback honors proactive inspection mode without executing the next step", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-inspect",
+    ownerThreadId: "thread-hook-inspect",
+    ownerSurface: "app",
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "pending" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-inspect",
+    tool_name: "Bash",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-inspect/);
+  assert.match(result.stdout, /result <job-id> --peek/);
+  assert.match(result.stdout, /recommend the single next best step/);
+  assert.match(result.stdout, /Do not execute that next step/);
+});
+
+test("delivered-awareness recap does not inspect the result a second time", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-delivered-app",
+    ownerThreadId: "thread-hook-delivered-app",
+    ownerSurface: "app",
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "delivered", deliveredAt: "2026-07-20T12:00:00.000Z" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-delivered-app",
+    prompt: "continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Report-only job IDs: job-hook-delivered-app/);
+  assert.doesNotMatch(result.stdout, /result <job-id> --peek/);
+});
+
+test("Stop emits a one-time continuation for an unread terminal completion", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-stop",
+    ownerThreadId: "thread-hook-stop",
+    status: "failed",
+    exitCode: 2,
+    notification: { status: "failed" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "Stop",
+    session_id: "thread-hook-stop",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /one-time Stop-hook continuation/i);
+  assert.match(result.stdout, /job-hook-stop: failed \(exit 2\)/);
 });
 
 test("invalid persisted records cannot poison or inject into hook context", (t) => {
@@ -694,9 +803,12 @@ test("concurrent recap hooks claim a delivered multi-job batch exactly once per 
   };
   const results = await Promise.all(Array.from({ length: 6 }, () => runHookAsync(env, payload)));
   for (const result of results) assert.equal(result.status, 0, result.stderr);
-  const combined = results.map((result) => result.stdout).join("\n");
   for (const id of ids) {
-    assert.equal(combined.split(id).length - 1, 1, `${id} should appear in one hook output`);
+    assert.equal(
+      results.filter((result) => result.stdout.includes(id)).length,
+      1,
+      `${id} should appear in one hook output`,
+    );
     assert.match(readJob(env, id).notification.ordinaryPromptRecapInjectedAt, /T/);
   }
 

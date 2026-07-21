@@ -1,7 +1,7 @@
 # Completion Wake: VS Code and Cartesian Surface Research
 
-- Status: transport-independent eligible-turn recap implemented for every owning surface; true live refresh remains an upstream integration gap
-- Research date: 2026-07-10
+- Status: transport-independent post-tool, stop, and next-prompt pickup implemented; arbitrary-time live refresh remains an upstream integration gap
+- Research dates: 2026-07-10 through 2026-07-20
 
 ## Goal
 
@@ -16,12 +16,16 @@ The detached process and durable completion turn work. The remaining limitation 
 - Codex App and Codex CLI can sometimes display the synthetic completion turn live, but that presentation is not guaranteed.
 - A separate `codex app-server` process can append the same completion turn to a task opened in the Codex VS Code extension.
 - The VS Code extension's already-open panel does not receive that other app-server process's event stream. The turn is durable and becomes visible after a full window reload and task reopen.
-- After notifier delivery settles, the bundled prompt hook supplies sanitized completion state and requires a short recap on the assigning agent's first eligible ordinary non-status turn, even when the separate completion turn was successfully delivered. Explicit status/result requests retrieve that state directly instead.
+- Consent-gated hooks can supply sanitized completion state after a supported local tool call, at the turn's stop boundary, or on the assigning agent's next eligible ordinary non-status turn. Explicit status/result requests retrieve durable state directly instead.
 - The same stale-context behavior was observed when ChatGPT mobile drove Codex on a remote Linux host: the durable transcript contained the completion, but the agent handling the next request did not.
 - Local Codex App exposed both failure variants. In one test, a synthetic completion turn finished 16 seconds before the next unrelated turn yet was absent from assigning-agent context. In a later test, the hidden completion was present in model context but absent from the rendered and exported conversation, proving that context presence is not evidence of user-visible presentation.
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
-The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, one mandatory recap instruction on the assigning agent's first eligible ordinary non-status turn after delivery settles, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits. Because the plugin cannot prove whether a synthetic turn rendered, a live completion may be recapped once.
+The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, opportunistic pickup at supported agent-loop boundaries, one mandatory later-turn recap fallback, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits. Because the plugin cannot prove whether a synthetic turn rendered, a live completion may be recapped once.
+
+## 2026-07-20 supported hook-boundary upgrade
+
+The official Codex hook system in `codex-cli 0.144.5` exposes turn-scoped `PostToolUse` and `Stop` events in addition to `UserPromptSubmit`. CPJ now registers the same sanitized, compare-and-set hook for all three. `PostToolUse` approximates Claude Code's mid-turn task notification after supported local tool calls, and `Stop` can continue a stopping turn once so the completion reaches the final response. These events do not repair the VS Code renderer's separate-transport refresh gap, but they often let the assigning agent see completion before another user message. They remain explicit-consent hooks and are not an arbitrary-time interrupt during pure reasoning or hosted-tool work.
 
 ## 2026-07-14 launch-turn hostage incident
 

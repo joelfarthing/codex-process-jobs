@@ -160,6 +160,34 @@ The managed block is idempotent, upgrades an older CPJ managed block in place, a
 
 Codex App, the local VS Code extension, and Codex CLI share the installation on one host. If VS Code or ChatGPT mobile drives Codex on another execution host through Remote SSH, remote tasks, a Dev Container, WSL, or another bridge, install the plugin in that execution environment too. On Linux, run the same preview/apply flow under the account that runs Codex.
 
+## Updating
+
+Codex Process Jobs does not update itself or execute code fetched from GitHub. A clone of the default `main` branch receives the latest code at clone or pull time; a tagged release or downloaded release archive remains fixed at that release. Existing installations are local runtime snapshots and continue using the installed version until the user deliberately refreshes them.
+
+Updating the source checkout alone is not enough. From the existing checkout, pull the reviewed source and rerun the same two-phase installer with the same explicit agent-policy choice used for that host:
+
+```bash
+cd /path/to/codex-process-jobs
+git pull --ff-only
+node scripts/install.mjs --agent-policy none
+# Review the displayed plan.
+node scripts/install.mjs --apply --agent-policy none
+```
+
+Replace `none` with `global`, or use `--agent-policy project --project-root /absolute/path/to/project`, only when that is the policy scope you want. The installer blocks while tracked jobs are active unless the user separately reviews them and chooses `--allow-active-jobs`.
+
+An applied update refreshes the host's snapshot in `~/plugins/codex-process-jobs` and its personal-marketplace installation. It preserves validated older cache generations so already-open tasks can keep resolving the exact skills they originally catalogued; new tasks use the refreshed generation after the client reload. Updating one execution host does not update another.
+
+After every applied update:
+
+1. Restart Codex App and Codex CLI; in VS Code, run **Developer: Reload Window**.
+2. Open `/hooks`, review any changed CPJ hook definitions and shared source, and approve their new exact hashes.
+3. Start a fresh Codex task for new-version testing.
+
+If the original source checkout no longer exists, clone a fresh copy somewhere other than `~/plugins/codex-process-jobs`, then use the normal preview/apply installation flow. To delegate the update safely, tell Codex:
+
+> Update my existing `joelfarthing/codex-process-jobs` installation. Find or refresh its source checkout outside the installed runtime destination, run the installer's read-only preview, describe every local change, and confirm whether I want the global, project, or no-`AGENTS.md` policy scope. Do not apply the update until I approve that preview and scope.
+
 ## Commands
 
 The bundled skills expose the controller through the plugin namespace after installation:

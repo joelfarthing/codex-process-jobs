@@ -19,6 +19,7 @@
   "interface": {
     "displayName": "Codex Process Jobs",
     "shortDescription": "Durable detached process jobs for Codex",
+    "composerIcon": "./assets/icon.png",
     "longDescription": "Launch long-running local commands as tracked detached process groups, inspect bounded output, wait for completion, retrieve results, and cancel safely on macOS or Linux.",
     "developerName": "Joel Farthing",
     "category": "Coding",

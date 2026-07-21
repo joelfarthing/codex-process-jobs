@@ -52,7 +52,7 @@ Codex Process Jobs is primarily a quality-of-life tool: it releases the conversa
 | The job uses `--no-notify` and is retrieved later on demand | Minimal automatic overhead | CPJ does not generate an automatic completion turn. |
 | An active Goal already produces repeated continuations | Workload-dependent | Goal continuation behavior can dominate CPJ's own cost. |
 
-“Roughly neutral” must be measured like-for-like. If the desired outcome includes inspecting and interpreting the result, both CPJ and the foreground baseline must include that inspection; otherwise the comparison unfairly charges CPJ for useful work omitted from the baseline.
+For comparable estimates, include the same desired outcome in each path. When users expect the result to be inspected and interpreted, benchmark that step in both CPJ and foreground runs.
 
 The plugin also has small fixed context cost from its skill descriptions and, when selected, the compact optional `AGENTS.md` policy. Full skill instructions load progressively only when used, and prompt caching may reduce practical input cost, but the overhead is not literally zero.
 

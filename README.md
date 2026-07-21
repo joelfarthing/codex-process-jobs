@@ -36,6 +36,28 @@ Goal mode integrates with an explicitly active Codex Goal without reading privat
 
 The repository includes a repeatable surface acceptance test. For transport behavior, limitations, and empirical client results, see [Conversational completion relay](docs/notification-relay.md), [Cartesian client and execution surfaces](docs/cartesian-surfaces.md), and [VS Code completion wake research](docs/vscode-wake-research-and-process.md).
 
+## Usage and token cost
+
+Codex Process Jobs is primarily a quality-of-life tool: it releases the conversation while an ordinary local process runs. It does not promise token savings for every workload. The detached OS process itself consumes no model tokens while it runs; Codex usage comes from the launch, optional status requests, and completion or result turns.
+
+| Situation | Likely relative usage | Why |
+|---|---:|---|
+| Codex would repeatedly poll and narrate progress | Lower | One detached launch and one completion can replace several status turns. |
+| Several compatible jobs finish together | Lower or roughly neutral | Completion batching amortizes one sanitized turn across multiple jobs. |
+| Foreground execution would block once and return without polling | Slightly higher | CPJ adds launch instructions, durable bookkeeping, and a completion turn. |
+| A short command did not need detachment | Higher | Fixed CPJ overhead provides little benefit; run the command normally. |
+| Completion mode is `report` | Lowest CPJ overhead | Codex reports terminal state without inspecting saved output. |
+| Completion mode is `inspect`, or proactive `auto` applies | Higher than `report` | Codex reads bounded output and interprets it. Compare this with a foreground workflow that also inspects the result. |
+| The user repeatedly requests status | Higher | Each conversational status check still consumes an ordinary model turn. |
+| The job uses `--no-notify` and is retrieved later on demand | Minimal automatic overhead | CPJ does not generate an automatic completion turn. |
+| An active Goal already produces repeated continuations | Workload-dependent | Goal continuation behavior can dominate CPJ's own cost. |
+
+“Roughly neutral” must be measured like-for-like. If the desired outcome includes inspecting and interpreting the result, both CPJ and the foreground baseline must include that inspection; otherwise the comparison unfairly charges CPJ for useful work omitted from the baseline.
+
+The plugin also has small fixed context cost from its skill descriptions and, when selected, the compact optional `AGENTS.md` policy. Full skill instructions load progressively only when used, and prompt caching may reduce practical input cost, but the overhead is not literally zero.
+
+The included [three-arm token benchmark](benchmarks/token-savings/README.md) measures foreground execution, report-only completion, and inspected completion separately. It is a reproducible methodology—not evidence of a universal savings percentage or a blanket token-neutral guarantee.
+
 ## Requirements
 
 - macOS or Linux

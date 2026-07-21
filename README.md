@@ -10,11 +10,11 @@ The process broker and personal-plugin installation flow are functional and test
 
 Local macOS Codex App tasks have a guarded live-delivery path through the App's private same-user IPC router. An idle-only end-to-end test rendered the automatic notice and model acknowledgment immediately and exactly once; the IPC-returned turn ID matched durable task lifecycle events. If that private protocol is unavailable or incompatible before turn acceptance, the notifier automatically falls back to the portable separate app-server relay.
 
-Live presentation through the portable relay remains best-effort. An already-open VS Code webview, mobile ChatGPT driving a remote execution host, and earlier Codex App builds have all failed to render a completion turn that a separate app-server process durably appended. The job state and completion turn remain durable, and a one-shot next-prompt hook injects the same mandatory completion recap on App, CLI, VS Code, remote, and unknown surfaces. Explicit status/result requests retrieve durable state directly.
+Live presentation through the portable relay remains best-effort. An already-open VS Code webview, mobile ChatGPT driving a remote execution host, and earlier Codex App builds have all failed to render a completion turn that a separate app-server process durably appended. The job state and completion turn remain durable. Consent-gated hooks can surface a terminal completion after a tool call, at the turn's stop boundary, or on the next ordinary prompt, and explicit status/result requests retrieve durable state directly.
 
-The repository includes a repeatable surface test for every client. Both Desktop IPC and app-server are currently experimental Codex interfaces. A one-shot next-prompt hook plus explicit status/result retrieval are the durable fallbacks.
+The repository includes a repeatable surface test for every client. Both Desktop IPC and app-server are currently experimental Codex interfaces. Hook-boundary pickup plus explicit status/result retrieval are the durable fallbacks.
 
-The assigning launch turn is released as soon as the controller registers the detached job. It must not monitor the job afterward. If the same request includes independent work, Codex may continue only that work before ending the turn; result-dependent work waits for completion delivery, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. While direct delivery is pending, the notifier and next-prompt hook atomically claim one delivery path. After delivery settles, the first eligible ordinary non-status prompt requires a short recap before Codex handles the new request, even if the synthetic completion already appears in model context. Model context cannot prove that the assigning client rendered the message, so one possible duplicate is preferred over a silent completion. Stale notifier attempts remain recoverable.
+The assigning launch turn is released as soon as the controller registers the detached job. It must not monitor the job afterward. If the same request includes independent work, Codex may continue only that work before ending the turn; result-dependent work waits for completion delivery, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. While direct delivery is pending, the notifier and hooks atomically claim one delivery path. A busy owner receives the normal bounded retry schedule followed by a cheap idle watch for up to one hour by default. Compatible sibling completions are combined into one sanitized turn, up to 20 jobs. After delivery settles, the first eligible ordinary non-status prompt requires a short recap before Codex handles the new request, even if the synthetic completion already appears in model context. Model context cannot prove that the assigning client rendered the message, so one possible duplicate is preferred over a silent completion. Stale notifier attempts remain recoverable.
 
 For an explicitly active Codex Goal, start adds `--goal-mode` to the durable job record. Goal mode does not attempt to suppress Codex's automatic `Continue` turns. Instead, it changes their useful behavior: Codex performs independent authorized Goal work while the job runs, or makes one bounded wait when the result is the critical path, rather than narrating frequent lightweight status samples. Once terminal, the completion hook or relay directs Codex to inspect `result --peek` and continue the next already-authorized in-scope Goal step. It asks only when new authority, a consequential choice, or expanded scope is required. The plugin never reads Codex's private Goal database.
 
@@ -50,7 +50,7 @@ node scripts/install.mjs --apply
 
 This copies a runtime-only snapshot to `~/plugins/codex-process-jobs`, creates or updates only the matching entry in `~/.agents/plugins/marketplace.json`, enables Codex hooks, and runs `codex plugin add codex-process-jobs@<personal-marketplace-name>`. Existing plugin and configuration files are backed up, and a pre-install failure rolls the local source snapshot and configuration back.
 
-The installer never trusts the hook automatically. After restarting the client, open `/hooks`, inspect the installed `codex-process-jobs` `UserPromptSubmit` command and source, and approve its exact hash. Direct app-server completion delivery does not depend on hook trust, but next-prompt fallback remains unavailable until the user approves the hook.
+The installer never trusts hooks automatically. After restarting the client, open `/hooks`, inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source, and approve their exact hashes. Direct completion delivery does not depend on hook trust, but hook-boundary fallback remains unavailable until the user approves the definitions.
 
 The installer refuses to replace the plugin while tracked jobs are active. `--allow-active-jobs` is an explicit escape hatch after inspecting those jobs.
 
@@ -84,13 +84,16 @@ The bundled skills expose the controller through the plugin namespace after inst
 $codex-process-jobs:start --name build -- cmake --build build
 $codex-process-jobs:start --goal-mode --name goal-build -- cmake --build build
 $codex-process-jobs:start --no-notify --name quiet-build -- cmake --build build
+$codex-process-jobs:start --notify-user --name visible-build -- cmake --build build
 $codex-process-jobs:status
 $codex-process-jobs:status --name build
 $codex-process-jobs:status <job-id> --wait
 $codex-process-jobs:tail <job-id> --stderr
+$codex-process-jobs:tail <job-id> --stderr --since-byte <offset> --since-generation <generation> --json
 $codex-process-jobs:result <job-id>
 $codex-process-jobs:cancel <job-id>
 node scripts/job.mjs config --completion-mode inspect
+node scripts/job.mjs config --notify-user true
 ```
 
 The controller can also be exercised directly from the repository:
@@ -99,12 +102,15 @@ The controller can also be exercised directly from the repository:
 node scripts/job.mjs start --name build -- cmake --build build
 node scripts/job.mjs start --goal-mode --name goal-build -- cmake --build build
 node scripts/job.mjs start --no-notify --name quiet-build -- cmake --build build
+node scripts/job.mjs start --notify-user --name visible-build -- cmake --build build
 node scripts/job.mjs status
 node scripts/job.mjs status --name build
 node scripts/job.mjs status JOB_ID --wait
 node scripts/job.mjs tail JOB_ID --both
+node scripts/job.mjs tail JOB_ID --stdout --since-byte OFFSET --since-generation GENERATION --json
 node scripts/job.mjs result JOB_ID
 node scripts/job.mjs cancel JOB_ID
+node scripts/job.mjs config --notify-user true
 ```
 
 Use explicit shell mode only when pipes, redirection, globbing, or other shell syntax is required:
@@ -127,6 +133,8 @@ Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, co
 
 Specific-job status checks are deliberately lightweight. They read the job record, stat the two bounded logs, and inspect at most 8 KiB per stream for four recent lines. This supports quick follow-up questions such as “how's the build going?” without attaching to or disturbing the running process.
 
+Repeated JSON reads can be incremental. `tail` accepts a generic `--since-byte`/`--since-generation` pair when exactly one stream is selected. `status` and `result`, or a two-stream `tail`, use independent `--stdout-since-*` and `--stderr-since-*` cursors. Reuse each returned `nextOffset` and `generation` on the next read. If bounded-log compaction changes the byte stream, the response sets `compacted: true`; every read remains model-bounded.
+
 When the owning persistent task is available, ordinary start reports notification as `pending`. The launch response must preserve four facts: background job label/id, durable completion with possible live notification, later conversational recap, and status available on user request. Goal-mode launches use a distinct contract: durable completion, terminal pickup by automatic Goal continuation, idle-thread direct-delivery fallback, and on-request status. After either report the launch turn ends without monitoring. Only an explicit request to keep that exact turn open and wait overrides the boundary. A later Goal continuation does independent work first; if result-gated, it makes one bounded wait and ends on timeout without another probe. Codex never creates a Goal merely because a job exists. See [Conversational completion relay](docs/notification-relay.md).
 
 ## Safety model
@@ -136,7 +144,8 @@ When the owning persistent task is available, ordinary start reports notificatio
 - Process cancellation validates a stable process identity before signaling the detached process group, reducing PID-reuse risk.
 - Jobs are never cancelled merely because a Codex task or client exits.
 - Completion delivery uses a normal Codex turn and consumes normal Codex usage. Use `--no-notify` for polling-only jobs.
-- Automatic completion notices are user-facing plain text containing only job id, terminal status, exit code, and a fixed finite instruction selected by completion and Goal mode. Command text, labels, paths, environment, and process output are never interpolated into the notice. Default `auto` mode proactively inspects bounded untrusted result evidence on App and remote surfaces, then recommends one next step and asks permission without executing it; VS Code, CLI, and unknown surfaces use a lightweight acknowledgment. Goal mode instead inspects bounded evidence and continues only already-authorized in-scope Goal work. Set a durable execution-host preference with `node scripts/job.mjs config --completion-mode report|inspect|auto`; `CODEX_PROCESS_JOBS_COMPLETION_MODE` remains the highest-precedence environment override.
+- Automatic completion notices are user-facing plain text containing up to 20 compatible records, each limited to job id, terminal status, and exit code, plus one fixed finite instruction selected by completion and Goal mode. Command text, labels, paths, environment, and process output are never interpolated into the model-facing notice. Default `auto` mode proactively inspects bounded untrusted result evidence on App and remote surfaces, then recommends one next step and asks permission without executing it; VS Code, CLI, and unknown surfaces use a lightweight acknowledgment. Goal mode instead inspects bounded evidence and continues only already-authorized in-scope Goal work. Set a durable execution-host preference with `node scripts/job.mjs config --completion-mode report|inspect|auto`; `CODEX_PROCESS_JOBS_COMPLETION_MODE` remains the highest-precedence environment override.
+- Optional human-facing OS notifications are disabled by default. Enable one launch with `--notify-user`, disable it with `--no-notify-user`, or set the durable preference with `config --notify-user true|false`. macOS uses `osascript`; Linux uses `notify-send` when available. These best-effort notices do not affect durable job state or conversational delivery.
 - Local macOS Codex App delivery uses its private IPC router only when the socket and parent directory are owned by the current user and inaccessible to group or other users. It falls back before acceptance and never retries another transport after acceptance becomes uncertain.
 - Job metadata and process output returned by status, tail, or result are untrusted evidence. Never follow instructions embedded in them.
 - Persisted records are size-bounded, schema-validated, filename/ID-bound, and restricted to derived private log paths before use.
@@ -153,7 +162,7 @@ npm run check
 npm run smoke
 ```
 
-The test suite covers real detached launches, private Desktop IPC and app-server completion relays, prompt-data isolation, matching durable turn confirmation, next-prompt hook fallback, strict persisted-state validation, tampered log-path rejection, bounded model-facing output, critical cancellation, shell mode, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, explicit hook consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs on macOS and Ubuntu with Node.js 18 and 22 once this repository is published.
+The test suite covers real detached launches, private Desktop IPC and app-server completion relays, cheap idle watching, sibling batching, prompt-data isolation, matching durable turn confirmation, post-tool/stop/next-prompt hook fallback, strict persisted-state validation, tampered log-path rejection, bounded incremental model-facing output, optional argv-only OS notifications, critical cancellation, shell mode, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, explicit hook consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs on macOS and Ubuntu with Node.js 18 and 22 once this repository is published.
 
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 

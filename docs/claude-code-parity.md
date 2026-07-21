@@ -1,26 +1,27 @@
 # Claude Code parity: prioritized gaps and implementation notes
 
-- Status: design note; none of the items below are implemented
+- Status: implementation record; all five proposed upgrades are implemented on `codex/claude-parity-upgrades`
 - Baseline: review branch `review/publication-hardening` (post publication-hardening pass)
-- Audience: an implementing agent working on this repository
+- Implemented against: `codex-cli 0.144.5`, 2026-07-20
+- Audience: maintainers reviewing the Claude Code parity rationale and regression contract
 
 ## Reference model
 
 Claude Code's harness owns background-task wake-up: a backgrounded command runs detached, and when it exits the harness re-invokes the agent with a task notification — mid-turn if a turn is active, otherwise at the next opportunity. Notification is free, guaranteed, and requires no model discipline, so the model never polls. Incremental output tools return only bytes produced since the previous read.
 
-Codex exposes no equivalent primitive. This plugin synthesizes one from a durable completion turn (costs a real Codex turn, requires the owning thread idle), a consent-gated `UserPromptSubmit` hook, and prompt-contract discipline against polling. The remaining differences are latency and token-efficiency, not correctness. The items below close what can be closed from a plugin.
+Codex exposes no equivalent single primitive. This plugin synthesizes one from a durable completion turn (costs a real Codex turn and requires the owning thread idle), consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks, and prompt-contract discipline against polling. The remaining differences are arbitrary-time wake guarantees, latency, and usage cost. The items below close what can be closed from a plugin.
 
 ## Constraints every item must preserve
 
 These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the existing tests. Do not weaken them while implementing:
 
-1. Automatic prompts admit only a validated job ID, terminal-status enum, integer exit code, and a fixed mode-selected instruction. Never interpolate names, commands, paths, errors, or process output.
+1. Automatic prompts admit at most 20 compatible records, each containing only a validated job ID, terminal-status enum, and integer exit code, plus one fixed mode-selected instruction. Never interpolate names, commands, paths, errors, or process output.
 2. Notification presentation is claimed atomically under the per-job state lock; worker, notifier, and hook never overwrite a competitor's claim.
 3. Hook execution requires explicit `/hooks` consent; nothing may depend on the hook being trusted.
 4. All reads of process output are bounded; persisted records remain strict-schema, size-bounded, filename-bound, no-follow.
 5. Malformed or unexpected state fails closed.
 
-## 1. Extend notifier patience with a cheap idle-watch (highest value)
+## 1. Extend notifier patience with a cheap idle-watch — implemented
 
 **Gap.** The retry schedule in [notifier.mjs](../scripts/notifier.mjs) (12 attempts, `5s × attempt` capped at 30s) exhausts in under five minutes. A job that finishes while the owning thread is inside a long turn — the primary use case — currently degrades to hook-on-next-prompt delivery. In Claude Code the notification simply waits for the agent.
 
@@ -30,7 +31,9 @@ These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the exi
 
 **Tests.** Extend [notifier.test.mjs](../test/notifier.test.mjs): (a) rollout stays busy past the normal attempt budget, then appends `task_complete`; delivery succeeds through the mock codex and records `delivered`; (b) hook claims `fallback_notified` mid-watch; watcher exits without delivering; (c) ceiling expiry records `failed` and leaves hook fallback eligible. Use the existing mock-codex and rollout fixtures; drive timings with the env knobs, not real minutes.
 
-## 2. Incremental output reads
+**Implementation.** After the normal attempt budget ends on an idle-retryable error, `waitForOwnerIdleWatch` leaves every claimed record `pending` and reads only the owning task lifecycle. The defaults are one hour and a five-second poll; both are bounded environment overrides. Hook claim, result consumption, suppression, or another delivery claim ends the watch without delivery. Ceiling expiry marks only still-pending batch members `failed`. All three proposed race tests are present.
+
+## 2. Incremental output reads — implemented with compaction generations
 
 **Gap.** `tail` and `status` re-send the same trailing bytes on every call. Claude Code's `BashOutput`/`TaskOutput` return only bytes since the previous read, which is the main token saver for repeated progress checks across turns.
 
@@ -40,7 +43,9 @@ These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the exi
 
 **Tests.** Extend [logs.test.mjs](../test/logs.test.mjs) and the CLI tests: sequential reads return disjoint byte ranges; a stale offset after forced compaction returns the tail with `compacted: true`; `nextOffset` round-trips; all reads stay within the model-facing caps.
 
-## 3. Batch sibling completions into one turn
+**Implementation.** `tail`, `status`, and `result` expose stateless JSON cursors independently for stdout and stderr. Alongside `nextOffset`, each cursor carries a 16-hex-character generation fingerprint of the bounded log prefix. This is stricter than the original offset-only sketch: a capped log can compact and rewrite while retaining the same byte length, which an offset comparison alone cannot detect. A generation mismatch sets `compacted: true` and returns bounded replacement evidence. Generic `--since-byte` remains convenient for a single selected `tail` stream; two-stream reads require explicit `--stdout-since-*` and `--stderr-since-*` arguments so one stream's offset can never skip bytes in the other.
+
+## 3. Batch sibling completions into one turn — implemented
 
 **Gap.** Five jobs finishing together currently produce five synthetic turns and five recap obligations. The hook already batches up to 20 records per prompt; the notifier does not batch at all.
 
@@ -48,13 +53,17 @@ These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the exi
 
 **Tests.** Multi-job batch delivers exactly one `turn/start` on the mock codex; the prompt contains all claimed IDs and no names/output; every claimed record ends `delivered` with the same `turnId`; a concurrent hook claim on one sibling excludes only that sibling; failure releases all claims.
 
-## 4. Investigate Codex hook events beyond `UserPromptSubmit`
+**Implementation.** A notifier seed claims up to 19 additional terminal `pending` siblings with the same owner and the same Goal/completion instruction key. Each record has its own lock and records a shared ephemeral batch ID only while delivering. Successful members receive the same durable turn ID; failure or retry returns only still-owned members to the appropriate state. A hook-won sibling is excluded without invalidating the rest of the batch.
+
+## 4. Codex hook events beyond `UserPromptSubmit` — investigated and implemented
 
 **Gap.** The plugin has no mid-turn awareness: a job that finishes while the launch turn is still doing independent work cannot surface until the turn ends. Claude Code's equivalent of a post-tool-use injection is how its task notifications reach the model mid-turn.
 
 **Action.** Investigation first, not implementation. Determine whether the installed Codex hook system supports additional events (post-tool-use, turn-end, or task-lifecycle events). If yes: register the existing hook script for that event in [hooks.json](../hooks/hooks.json) behind the same consent flow, reusing the relay-environment guard (`CODEX_PROCESS_JOBS_NOTIFICATION_RELAY`) and the existing claim CAS so a mid-turn injection and a next-prompt injection can never both fire for one job. If no: record the finding here with the Codex version inspected, as the designated upgrade path. Do not emulate mid-turn delivery through the app-server; the optimistic-duplicate result in [notification-relay.md](notification-relay.md) already ruled that out.
 
-## 5. Optional OS-level user notification
+**Finding and implementation.** The current [official Codex hooks documentation](https://learn.chatgpt.com/docs/hooks.md) and installed `codex-cli 0.144.5` expose turn-scoped `PostToolUse` and `Stop` events. `PostToolUse` can return model feedback after supported local tool calls; `Stop` can return a continuation prompt. The plugin registers its existing bounded hook script for both events and retains `UserPromptSubmit` as the later-turn fallback. All three use the notification-relay environment guard and the same per-job claim CAS. An undelivered fallback honors the configured finite completion mode, while an already-delivered awareness recap remains report-only to avoid a second result inspection. Hook trust remains explicit through `/hooks`, and no behavior depends on consent being granted. This closes tool-boundary and turn-end latency, not arbitrary-time injection during pure reasoning or unsupported hosted-tool execution.
+
+## 5. Optional OS-level user notification — implemented
 
 **Gap.** Claude Code shows a desktop notification when background work finishes. The human currently learns of completion only through the conversation.
 
@@ -62,9 +71,11 @@ These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the exi
 
 **Tests.** Preference round-trip including rejection of non-boolean values; worker invokes the platform notifier with expected argv (injectable spawn, mirroring the process-control test style); absence of the binary does not affect job state or exit status.
 
+**Implementation.** `start --notify-user` and `--no-notify-user` override the strict, private `notifyUser` preference managed by `config --notify-user true|false`; the default is false and older version-1 preference files remain compatible. Terminal state is persisted before the worker launches an unref'd notification command with `shell: false`. The human-facing label has control characters normalized and is capped at 512 UTF-8 bytes. `osascript` and `notify-send` failure is silent and cannot alter process or relay state.
+
 ## Structurally unfillable — do not attempt
 
-- **A free, guaranteed wake.** Delivery always costs a Codex turn and requires an idle owning thread. Only an upstream refresh API fixes this; see [vscode-wake-research-and-process.md](vscode-wake-research-and-process.md).
-- **Mid-turn injection via app-server or Desktop IPC.** Controlled testing produced optimistic duplicates; the settled-idle guard stays.
+- **A free, guaranteed arbitrary-time wake.** Direct delivery costs a Codex turn and requires an idle owning thread. Hook pickup occurs only at supported boundaries and requires explicit trust. Only an upstream task-notification primitive fully closes this gap; see [vscode-wake-research-and-process.md](vscode-wake-research-and-process.md).
+- **Arbitrary mid-turn injection via app-server or Desktop IPC.** Controlled testing produced optimistic duplicates; the settled-idle guard stays. `PostToolUse` is the supported boundary-based approximation.
 - **Polling resistance as a tool contract.** Codex must be instructed not to poll; the launch-turn contract test pins the wording that earned passing acceptance runs. Keep guarding it.
 - **The 55-second wait ceiling.** Codex tool-timeout bound; one bounded wait per continuation remains the right approximation of event-driven waiting.

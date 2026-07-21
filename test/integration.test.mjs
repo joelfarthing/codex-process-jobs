@@ -204,7 +204,7 @@ test("result --peek reads bounded evidence without consuming completion fallback
   assert.deepEqual(stored.notification, completed.notification);
 });
 
-test("config command reads and writes the durable completion mode", (t) => {
+test("config command reads and writes durable completion and user-notification preferences", (t) => {
   const context = makeEnv(t);
   const initial = JSON.parse(runCli(["config", "--json"], context.env).stdout);
   assert.equal(initial.preferences.completionMode, "auto");
@@ -213,14 +213,19 @@ test("config command reads and writes the durable completion mode", (t) => {
     "config",
     "--completion-mode",
     "inspect",
+    "--notify-user",
+    "true",
     "--json",
   ], context.env).stdout);
   assert.equal(changed.preferences.completionMode, "inspect");
+  assert.equal(changed.preferences.notifyUser, true);
   assert.equal(fs.statSync(changed.file).mode & 0o777, 0o600);
 
   const reread = JSON.parse(runCli(["config", "--json"], context.env).stdout);
   assert.equal(reread.preferences.completionMode, "inspect");
+  assert.equal(reread.preferences.notifyUser, true);
   runCli(["config", "--completion-mode", "arbitrary"], context.env, { expectStatus: 1 });
+  runCli(["config", "--notify-user", "sometimes"], context.env, { expectStatus: 1 });
 });
 
 test("invalid owner thread ids fail closed to status-only notification", (t) => {

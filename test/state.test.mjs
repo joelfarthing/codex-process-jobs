@@ -116,6 +116,16 @@ test("rejects a non-boolean persisted critical marker", (t) => {
   }, env), /critical flag/i);
 });
 
+test("rejects a non-boolean persisted user-notification marker", (t) => {
+  const env = withTemporaryHome(t);
+  assert.throws(() => createJob({
+    id: "job-invalid-user-notification",
+    status: "completed",
+    notifyUser: "yes",
+    logs: resolveJobLogs("job-invalid-user-notification", env),
+  }, env), /user notification flag/i);
+});
+
 test("rejects tampered log paths and skips the record during listing", (t) => {
   const env = withTemporaryHome(t);
   const id = "job-tampered-logs";

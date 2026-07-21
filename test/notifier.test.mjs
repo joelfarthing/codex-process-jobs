@@ -141,6 +141,12 @@ test("notification prompt contains only sanitized state, never job name or outpu
   assert.doesNotMatch(prompt, /ignore prior instructions/);
 });
 
+test("notification prompt omits a missing exit code instead of adding mutable text", () => {
+  const prompt = buildNotificationPrompt(terminalJob({ status: "failed", exitCode: null }));
+  assert.match(prompt, /job-notify-001 finished with status failed\./);
+  assert.doesNotMatch(prompt, /exit code|not reported/);
+});
+
 test("App and remote notices inspect results while hidden-prone surfaces only report", () => {
   for (const surface of ["app", "remote"]) {
     const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
@@ -358,6 +364,169 @@ test("notifier persists delivered thread and turn metadata", async (t) => {
   assert.equal(stored.notification.turnId, "turn-notify-001");
   assert.equal(stored.notification.transport, "app-server");
   assert.match(stored.notification.deliveredAt, /T/);
+});
+
+test("notifier batches compatible sibling completions into one shared turn", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-batch-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const promptFile = path.join(root, "prompt.txt");
+  const codex = createMockCodex(t, root);
+  const env = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    MOCK_NOTIFY_PROMPT: promptFile,
+  };
+  for (const [id, name] of [["job-batch-one", "secret first name"], ["job-batch-two", "secret second name"]]) {
+    createJob(terminalJob({ id, name, logs: resolveJobLogs(id, env) }), env);
+  }
+  await runNotifier("job-batch-one", env);
+  const one = readJob("job-batch-one", env);
+  const two = readJob("job-batch-two", env);
+  assert.equal(one.notification.status, "delivered");
+  assert.equal(two.notification.status, "delivered");
+  assert.equal(one.notification.turnId, two.notification.turnId);
+  const prompt = fs.readFileSync(promptFile, "utf8");
+  assert.match(prompt, /job-batch-one/);
+  assert.match(prompt, /job-batch-two/);
+  assert.doesNotMatch(prompt, /secret first name|secret second name/);
+  assert.match(prompt, /^Background jobs finished$/m);
+});
+
+test("batch claim excludes a sibling already claimed by the hook", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-batch-exclude-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const promptFile = path.join(root, "prompt.txt");
+  const codex = createMockCodex(t, root);
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    MOCK_NOTIFY_PROMPT: promptFile,
+  };
+  createJob(terminalJob({ id: "job-batch-root", logs: resolveJobLogs("job-batch-root", env) }), env);
+  createJob(terminalJob({
+    id: "job-batch-hook-won",
+    logs: resolveJobLogs("job-batch-hook-won", env),
+    notification: { status: "fallback_notified", hookNotifiedAt: "2026-07-20T12:00:00.000Z" },
+  }), env);
+  await runNotifier("job-batch-root", env);
+  const prompt = fs.readFileSync(promptFile, "utf8");
+  assert.match(prompt, /job-batch-root/);
+  assert.doesNotMatch(prompt, /job-batch-hook-won/);
+  assert.equal(readJob("job-batch-hook-won", env).notification.status, "fallback_notified");
+});
+
+test("failed batch delivery releases every claimed sibling", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-batch-fail-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-active");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "const readline = require('node:readline');",
+    "const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });",
+    "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+    "lines.on('line', (line) => {",
+    " const message = JSON.parse(line);",
+    " if (message.id === 1) send({ id: 1, result: {} });",
+    " else if (message.id === 2) send({ id: 2, result: { thread: { id: message.params.threadId, status: { type: 'active' } } } });",
+    "});",
+  ].join("\n") + "\n", { mode: 0o755 });
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+    CODEX_PROCESS_JOBS_NOTIFY_MAX_ATTEMPTS: "1",
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+  };
+  for (const id of ["job-batch-fail-one", "job-batch-fail-two"]) {
+    createJob(terminalJob({ id, logs: resolveJobLogs(id, env) }), env);
+  }
+  await runNotifier("job-batch-fail-one", env);
+  assert.equal(readJob("job-batch-fail-one", env).notification.status, "failed");
+  assert.equal(readJob("job-batch-fail-two", env).notification.status, "failed");
+});
+
+test("idle watch delivers after a long active turn reaches task_complete", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-idle-watch-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const promptFile = path.join(root, "prompt.txt");
+  const codex = createMockCodex(t, root);
+  const threadId = "thread-notify-001";
+  const sessionDir = path.join(codexHome, "sessions", "2026", "07", "20");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  const rollout = path.join(sessionDir, `rollout-idle-watch-${threadId}.jsonl`);
+  fs.writeFileSync(rollout, `${JSON.stringify({ type: "event_msg", payload: { type: "task_started", turn_id: "turn-busy" } })}\n`);
+  const env = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+    CODEX_PROCESS_JOBS_NOTIFY_MAX_ATTEMPTS: "1",
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_MS: "1000",
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_POLL_MS: "5",
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_SETTLE_MS: "5",
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    MOCK_NOTIFY_PROMPT: promptFile,
+  };
+  const id = "job-idle-watch-success";
+  createJob(terminalJob({ id, ownerThreadId: threadId, logs: resolveJobLogs(id, env) }), env);
+  const notifying = runNotifier(id, env);
+  const deadline = Date.now() + 1000;
+  while (!readJob(id, env).notification?.idleWatchStartedAt && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  fs.appendFileSync(rollout, `${JSON.stringify({ type: "event_msg", payload: { type: "task_complete", turn_id: "turn-busy" } })}\n`);
+  await notifying;
+  assert.equal(readJob(id, env).notification.status, "delivered");
+});
+
+test("idle watch yields to a hook claim and expires to failed when no idle boundary arrives", async (t) => {
+  const makeBusy = (root, id) => {
+    const codexHome = path.join(root, "codex-home");
+    const threadId = "thread-notify-001";
+    const sessionDir = path.join(codexHome, "sessions", "2026", "07", "20");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionDir, `rollout-busy-${threadId}.jsonl`), `${JSON.stringify({ type: "event_msg", payload: { type: "task_started", turn_id: "turn-busy" } })}\n`);
+    const env = {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CODEX_PROCESS_JOBS_NOTIFY_MAX_ATTEMPTS: "1",
+      CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_MS: "80",
+      CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_POLL_MS: "5",
+    };
+    createJob(terminalJob({ id, ownerThreadId: threadId, logs: resolveJobLogs(id, env) }), env);
+    return env;
+  };
+
+  const claimedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-idle-claim-"));
+  const expiryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-idle-expiry-"));
+  t.after(() => {
+    fs.rmSync(claimedRoot, { recursive: true, force: true });
+    fs.rmSync(expiryRoot, { recursive: true, force: true });
+  });
+  const claimedEnv = makeBusy(claimedRoot, "job-idle-hook-claim");
+  const notifying = runNotifier("job-idle-hook-claim", claimedEnv);
+  const deadline = Date.now() + 1000;
+  while (!readJob("job-idle-hook-claim", claimedEnv).notification?.idleWatchStartedAt && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  await updateJob("job-idle-hook-claim", (current) => ({
+    ...current,
+    notification: { ...(current.notification ?? {}), status: "fallback_notified", hookNotifiedAt: new Date().toISOString() },
+  }), claimedEnv);
+  await notifying;
+  assert.equal(readJob("job-idle-hook-claim", claimedEnv).notification.status, "fallback_notified");
+
+  const expiryEnv = makeBusy(expiryRoot, "job-idle-expiry");
+  await runNotifier("job-idle-expiry", expiryEnv);
+  assert.equal(readJob("job-idle-expiry", expiryEnv).notification.status, "failed");
 });
 
 test("notifier does not deliver after next-prompt fallback already informed the task", async (t) => {

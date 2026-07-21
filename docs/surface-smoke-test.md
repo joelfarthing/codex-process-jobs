@@ -1,6 +1,6 @@
 # Codex surface smoke test
 
-Run `npm run smoke` first to verify the process runtime in isolated temporary state. After every install or update, restart the Codex client before testing. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After restart, open `/hooks`, inspect the installed `codex-process-jobs` `UserPromptSubmit` command and source, and approve its exact hash. A new task inside a client that was already running during installation can retain stale plugin or hook state.
+Run `npm run smoke` first to verify the process runtime in isolated temporary state. After every install or update, restart the Codex client before testing. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After restart, open `/hooks`, inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source, and approve their exact hashes. A new task inside a client that was already running during installation can retain stale plugin or hook state.
 
 After that restart, start a fresh persistent task in each installed Codex surface and paste this prompt:
 
@@ -16,11 +16,16 @@ Pass criteria:
 4. The separate completion turn is durably recorded. In default `auto` mode on local macOS Codex App, the user-friendly automatic notice and the agent's bounded result summary, single recommended next step, and permission question should render live exactly once; the agent must not execute that step. The job should record `notification.transport: desktop-ipc`, while the non-consuming inspection leaves `resultViewedAt` unset. Other clients may use `app-server`, where live rendering remains best-effort. VS Code, CLI, and unknown surfaces retain the lightweight acknowledgment unless completion mode is explicitly overridden.
 5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. On the first eligible unrelated non-status prompt after delivery settles, the assigning agent briefly recaps the completion before answering, even if a synthetic completion is already present in model context. A live-rendered synthetic message may therefore be repeated once. In Codex App, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only completion is a failure. A second eligible unrelated prompt must not repeat the job.
 6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code `0`, and `notification.presentation: durable-refresh-required`. After direct completion, it also reports `notification.transport: desktop-ipc` or `app-server`.
+7. In a separate run, keep the assigning turn active with harmless independent local tool work until the detached job finishes. The approved `PostToolUse` hook should surface it after a supported tool boundary; if completion occurs at finalization instead, the approved `Stop` hook should continue once to include the recap. Neither path may create a duplicate direct turn or expose process output in hook context.
 7. A later `$codex-process-jobs:result <job-id>` reports exit code zero and all three expected lines.
 
 For every client, verify the owning task with a fresh transcript load as well as the current view. For the Codex VS Code extension, run **Developer: Reload Window** when necessary before comparing. Record live rendering separately from durable relay and eligible-turn recap behavior.
 
 Also ask “how's the build going?” during a longer smoke job. The agent should use one lightweight status read and return recent output without attaching to the process.
+
+For a token-efficiency check, request two JSON reads of one stream. Reuse the first response's `nextOffset` and `generation`; the second response should contain only newly appended bytes. Test stdout and stderr independently. If a deliberately tiny log cap forces compaction, the next response should set `compacted: true` rather than silently treating the rewritten bytes as continuous.
+
+Optional OS notification is a separate smoke. Enable it for one harmless launch with `--notify-user`; confirm a local macOS notification appears when the App has notification permission, or a Linux notification appears when a graphical session and `notify-send` are available. Failure to display must not change terminal job state or conversational delivery.
 
 Test Codex App, Codex VS Code extension, and Codex CLI on the same host after one installation. For VS Code Remote SSH, Dev Containers, WSL, or another remote extension host, install and test the plugin in that host environment as well.
 

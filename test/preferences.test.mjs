@@ -18,12 +18,18 @@ function createEnv(t) {
 
 test("completion preferences default to auto and persist privately", (t) => {
   const env = createEnv(t);
-  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "auto" });
+  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "auto", notifyUser: false });
   assert.deepEqual(writePreferences({ completionMode: "inspect" }, env), {
     schemaVersion: 1,
     completionMode: "inspect",
+    notifyUser: false,
   });
-  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "inspect" });
+  assert.deepEqual(writePreferences({ notifyUser: true }, env), {
+    schemaVersion: 1,
+    completionMode: "inspect",
+    notifyUser: true,
+  });
+  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "inspect", notifyUser: true });
   assert.equal(fs.statSync(resolvePreferencesFile(env)).mode & 0o777, 0o600);
 });
 
@@ -52,4 +58,16 @@ test("completion preferences reject unknown keys and unsafe files", (t) => {
   fs.rmSync(file);
   fs.writeFileSync(file, "x".repeat(16 * 1024 + 1), { mode: 0o600 });
   assert.throws(() => readPreferences(env), /exceed 16384 bytes/);
+});
+
+test("completion preferences reject a non-boolean user notification setting", (t) => {
+  const env = createEnv(t);
+  writePreferences({ completionMode: "report" }, env);
+  const file = resolvePreferencesFile(env);
+  fs.writeFileSync(file, JSON.stringify({
+    schemaVersion: 1,
+    completionMode: "report",
+    notifyUser: "yes",
+  }), { mode: 0o600 });
+  assert.throws(() => readPreferences(env), /Invalid notifyUser/);
 });

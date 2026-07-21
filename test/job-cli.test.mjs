@@ -84,6 +84,58 @@ test("CLI entry detection tolerates spaces and symlinked launch paths and fails 
   assert.equal(isCliEntry(moduleUrl, undefined), false);
 });
 
+test("tail JSON exposes reusable incremental cursors", (t) => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-tail-cursor-"));
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+  const cli = path.join(ROOT, "scripts", "job.mjs");
+  const env = { CODEX_HOME: codexHome, CODEX_PROCESS_JOBS_DISABLE_NOTIFY: "1" };
+  const started = JSON.parse(runCli(cli, [
+    "start", "--json", "--name", "cursor", "--",
+    process.execPath, "-e", "process.stdout.write('one\\ntwo\\n')",
+  ], env).stdout);
+  runCli(cli, [
+    "status", started.job.id, "--wait", "--timeout-ms", "8000",
+    "--poll-interval-ms", "50", "--json",
+  ], env);
+  const first = JSON.parse(runCli(cli, [
+    "tail", started.job.id, "--stdout", "--json",
+  ], env).stdout);
+  assert.equal(first.stdout.text, "one\ntwo\n");
+  assert.equal(first.stdout.nextOffset, 8);
+  const second = JSON.parse(runCli(cli, [
+    "tail", started.job.id, "--stdout", "--since-byte", String(first.stdout.nextOffset), "--json",
+  ], env).stdout);
+  assert.equal(second.stdout.text, "");
+  assert.equal(second.stdout.nextOffset, first.stdout.nextOffset);
+});
+
+test("incremental cursors remain independent across stdout and stderr", (t) => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-stream-cursors-"));
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+  const cli = path.join(ROOT, "scripts", "job.mjs");
+  const env = { CODEX_HOME: codexHome, CODEX_PROCESS_JOBS_DISABLE_NOTIFY: "1" };
+  const started = JSON.parse(runCli(cli, [
+    "start", "--json", "--name", "stream-cursors", "--",
+    process.execPath, "-e", "process.stdout.write('stdout-long\\n'); process.stderr.write('err\\n')",
+  ], env).stdout);
+  runCli(cli, [
+    "status", started.job.id, "--wait", "--timeout-ms", "8000",
+    "--poll-interval-ms", "50", "--json",
+  ], env);
+  const first = JSON.parse(runCli(cli, [
+    "result", started.job.id,
+    "--stdout-since-byte", "0", "--stderr-since-byte", "0", "--peek", "--json",
+  ], env).stdout);
+  assert.equal(first.stdout, "stdout-long\n");
+  assert.equal(first.stderr, "err\n");
+  assert.equal(first.cursors.stdout.nextOffset, 12);
+  assert.equal(first.cursors.stderr.nextOffset, 4);
+  assert.throws(
+    () => runCli(cli, ["tail", started.job.id, "--both", "--since-byte", "0", "--json"], env),
+    /shared cursor is ambiguous/
+  );
+});
+
 test("a start rejected by record validation leaves no orphaned log files", (t) => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-badstart-"));
   t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));

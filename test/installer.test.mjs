@@ -128,7 +128,8 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.match(preview.stdout, /No changes made/);
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
   assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
-  assert.match(preview.stdout, /trust requires explicit approval in \/hooks after restart/);
+  assert.match(preview.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
+  assert.match(preview.stdout, /requires explicit approval in \/hooks after restart/);
   assert.equal(fs.existsSync(marketplaceFile), false);
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
@@ -148,6 +149,7 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.match(agentPolicy, /only an explicit request to keep this exact turn open and wait/i);
   assert.match(agentPolicy, /never .*imply that an exchange before completion can report the outcome/i);
   assert.match(applied.stdout, /installer never trusts hooks automatically/i);
+  assert.match(applied.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
   assert.match(applied.stdout, /explicit user approval in \/hooks/i);
   assert.match(applied.stdout, /Restart every open Codex client/);
   assert.match(applied.stdout, /Developer: Reload Window/);

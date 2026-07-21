@@ -266,7 +266,7 @@ function planLines(plan, options) {
     `  plugin version: ${plan.installVersion}`,
     `  personal marketplace: ${plan.marketplaceFile}`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
-    "  completion hook: enable hooks and install the plugin hook; trust requires explicit approval in /hooks after restart",
+    "  completion hooks: enable hooks and install PostToolUse, Stop, and UserPromptSubmit definitions; each requires explicit approval in /hooks after restart",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
       : "  source safety: source checkout is separate from the runtime destination",
@@ -458,13 +458,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     `Installed ${result.selector} (${result.version}).`,
     "Restart every open Codex client before testing this install.",
     "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
-    `After restart, open /hooks, review the ${result.selector} UserPromptSubmit hook, and approve its exact hash. The installer never trusts hooks automatically.`,
+    `After restart, open /hooks, review the ${result.selector} PostToolUse, Stop, and UserPromptSubmit definitions and shared source, and approve their exact hashes. The installer never trusts hooks automatically.`,
     "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
     result.agentBackup ? `AGENTS.md backup: ${result.agentBackup}` : null,
     result.configBackup ? `Codex config backup: ${result.configBackup}` : null,
-    "Completion hook: installed but intentionally left for explicit user approval in /hooks.",
+    "Completion hooks: installed but intentionally left for explicit user approval in /hooks.",
   ].filter(Boolean).join("\n") + "\n");
 }
 

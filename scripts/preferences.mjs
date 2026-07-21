@@ -7,7 +7,7 @@ import { ensureStateDirs, resolveStateRoot } from "./state.mjs";
 export const PREFERENCES_SCHEMA_VERSION = 1;
 export const COMPLETION_MODES = new Set(["auto", "report", "inspect"]);
 const MAX_PREFERENCES_BYTES = 16 * 1024;
-const PREFERENCE_KEYS = new Set(["schemaVersion", "completionMode"]);
+const PREFERENCE_KEYS = new Set(["schemaVersion", "completionMode", "notifyUser"]);
 
 export function resolvePreferencesFile(env = process.env) {
   return path.join(resolveStateRoot(env), "config.json");
@@ -17,6 +17,7 @@ function defaultPreferences() {
   return {
     schemaVersion: PREFERENCES_SCHEMA_VERSION,
     completionMode: "auto",
+    notifyUser: false,
   };
 }
 
@@ -35,9 +36,13 @@ function validatePreferences(value, file) {
   if (!COMPLETION_MODES.has(value.completionMode)) {
     throw new Error(`Invalid completionMode in ${file}.`);
   }
+  if (value.notifyUser != null && typeof value.notifyUser !== "boolean") {
+    throw new Error(`Invalid notifyUser in ${file}.`);
+  }
   return {
     schemaVersion: PREFERENCES_SCHEMA_VERSION,
     completionMode: value.completionMode,
+    notifyUser: value.notifyUser ?? false,
   };
 }
 
@@ -74,16 +79,20 @@ export function readPreferences(env = process.env) {
   return validatePreferences(parsed, file);
 }
 
-export function writePreferences({ completionMode }, env = process.env) {
-  if (!COMPLETION_MODES.has(completionMode)) {
-    throw new Error(`completion mode must be one of: ${[...COMPLETION_MODES].join(", ")}`);
-  }
+export function writePreferences({ completionMode = null, notifyUser = null }, env = process.env) {
   ensureStateDirs(env);
   const file = resolvePreferencesFile(env);
-  if (fs.existsSync(file)) readPreferences(env);
+  const current = fs.existsSync(file) ? readPreferences(env) : defaultPreferences();
+  const nextCompletionMode = completionMode ?? current.completionMode;
+  const nextNotifyUser = notifyUser ?? current.notifyUser;
+  if (!COMPLETION_MODES.has(nextCompletionMode)) {
+    throw new Error(`completion mode must be one of: ${[...COMPLETION_MODES].join(", ")}`);
+  }
+  if (typeof nextNotifyUser !== "boolean") throw new Error("notifyUser must be a boolean.");
   const preferences = {
     schemaVersion: PREFERENCES_SCHEMA_VERSION,
-    completionMode,
+    completionMode: nextCompletionMode,
+    notifyUser: nextNotifyUser,
   };
   const temporary = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
   try {

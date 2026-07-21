@@ -8,7 +8,7 @@ The runtime tracks process identity, status, bounded stdout/stderr, exit status,
 
 ## Before and after
 
-Without a detached process harness, Codex can spend a sequence of agent turns polling a build and narrating tiny progress changes instead of releasing the conversation for useful work. This real openPangu CUDA build moved from 190/256 to 199/256 across five progress-only turns:
+Without a detached process harness, Codex can spend a sequence of agent turns polling a build and narrating tiny progress changes instead of releasing the conversation for useful work. This real CUDA build moved from 190/256 to 199/256 across five progress-only turns:
 
 ![Before Codex Process Jobs: five successive Codex turns narrate small CUDA build progress changes.](docs/assets/codex-process-jobs-before.png)
 
@@ -16,7 +16,15 @@ With Codex Process Jobs, the assigning turn registers the ordinary OS process an
 
 ![After Codex Process Jobs: one detached launch followed by one completion notice and inspected result.](docs/assets/codex-process-jobs-after.png)
 
-Both screenshots are from Codex App. The before image is a real openPangu build; the after image uses a harmless synthetic CMake-style process so the demonstration is reproducible and changes no project files.
+Both screenshots are from Codex App. The before image is a real CUDA build; the after image uses a harmless synthetic CMake-style process so the demonstration is reproducible and changes no project files.
+
+## Quick start with Codex
+
+Tell Codex:
+
+> Install `joelfarthing/codex-process-jobs` from GitHub. Run the installer's read-only preview first and describe every local change. Then ask whether I want the optional `AGENTS.md` policy globally, in one project, or not at all. Do not apply the installation until I approve the preview and policy scope.
+
+Codex should clone the repository outside `~/plugins/codex-process-jobs`, follow the two-phase installation below, and leave hook trust for your explicit review in `/hooks`.
 
 ## Status
 

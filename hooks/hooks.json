@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node \"$PLUGIN_ROOT/hooks/unread-result-hook.mjs\"",
-            "statusMessage": "Checking for completed process jobs"
+            "statusMessage": "Checking process job boundaries"
           }
         ]
       }
@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "node \"$PLUGIN_ROOT/hooks/unread-result-hook.mjs\"",
-            "statusMessage": "Checking for completed process jobs"
+            "statusMessage": "Checking process job boundaries"
           }
         ]
       }
@@ -30,7 +30,7 @@
           {
             "type": "command",
             "command": "node \"$PLUGIN_ROOT/hooks/unread-result-hook.mjs\"",
-            "statusMessage": "Checking for completed process jobs"
+            "statusMessage": "Checking process job boundaries"
           }
         ]
       }

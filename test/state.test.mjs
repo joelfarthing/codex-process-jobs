@@ -96,6 +96,35 @@ test("accepts only known persisted notification transports", (t) => {
   assert.equal(created.notification.transport, "desktop-ipc");
 });
 
+test("validates persisted launch-boundary claim metadata", (t) => {
+  const env = withTemporaryHome(t);
+  assert.throws(() => createJob({
+    id: "job-invalid-launch-time",
+    status: "completed",
+    notification: { status: "pending", launchBoundaryInjectedAt: "not-a-time" },
+    logs: resolveJobLogs("job-invalid-launch-time", env),
+  }, env), /launch-boundary timestamp/i);
+
+  assert.throws(() => createJob({
+    id: "job-invalid-launch-turn",
+    status: "completed",
+    notification: { status: "pending", launchBoundaryTurnId: "invalid turn id" },
+    logs: resolveJobLogs("job-invalid-launch-turn", env),
+  }, env), /launch-boundary turn id/i);
+
+  const created = createJob({
+    id: "job-valid-launch-marker",
+    status: "completed",
+    notification: {
+      status: "pending",
+      launchBoundaryInjectedAt: "2026-07-21T12:00:00.000Z",
+      launchBoundaryTurnId: "turn-valid-launch-marker",
+    },
+    logs: resolveJobLogs("job-valid-launch-marker", env),
+  }, env);
+  assert.equal(created.notification.launchBoundaryTurnId, "turn-valid-launch-marker");
+});
+
 test("rejects a non-boolean persisted Goal-mode marker", (t) => {
   const env = withTemporaryHome(t);
   assert.throws(() => createJob({

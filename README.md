@@ -44,18 +44,18 @@ git clone https://github.com/joelfarthing/codex-process-jobs.git
 cd codex-process-jobs
 ```
 
-The installer is deliberately two-phase: its default mode only shows the source, destination, marketplace, optional agent policy, Codex CLI, source-path safety, client refresh requirement, and active-job check.
+The installer is deliberately two-phase: its default mode only shows the source, destination, marketplace, agent-policy choice, Codex CLI, source-path safety, client refresh requirement, and active-job check.
 
-When Codex performs the installation, it must show and describe this preview, then explicitly ask whether the user wants the optional managed policy in global `~/.codex/AGENTS.md`. A request to install the plugin does not imply consent to change global agent instructions.
+When Codex performs the installation, it must show and describe this preview, then explicitly ask the user to choose one policy scope: `global`, `project`, or `none`. A request to install the plugin does not imply consent to change any agent instructions.
 
 ```bash
 node scripts/install.mjs
 ```
 
-After reviewing that plan, apply it:
+After reviewing that plan, apply it with the explicit policy choice. The least invasive choice is:
 
 ```bash
-node scripts/install.mjs --apply
+node scripts/install.mjs --apply --agent-policy none
 ```
 
 `--apply` performs only the changes shown in the preview:
@@ -64,7 +64,7 @@ node scripts/install.mjs --apply
 - creates or updates only the matching entry in `~/.agents/plugins/marketplace.json`;
 - enables the Codex hooks feature and installs the plugin's hook definitions, without trusting them;
 - runs `codex plugin add codex-process-jobs@<personal-marketplace-name>`; and
-- changes global `~/.codex/AGENTS.md` only when the separately previewed `--with-agent-policy` option was selected.
+- changes exactly one `AGENTS.md` only when separately previewed `--agent-policy global` or `--agent-policy project --project-root <path>` was selected; `--agent-policy none` leaves all agent instructions untouched.
 
 Existing plugin and configuration files are backed up, and a pre-install failure rolls the local source snapshot and configuration back.
 
@@ -76,19 +76,23 @@ Restart every open Codex client after installation or update. In VS Code, run **
 
 ### Encourage automatic use
 
-Skill descriptions make Codex route explicit requests such as “background this build” or “keep working while this runs” to the plugin. For a stronger personal default across Codex App, VS Code, CLI, and mobile-driven remote tasks, preview the optional global agent policy on each execution host:
+Skill descriptions make Codex route explicit requests such as “background this build” or “keep working while this runs” to the plugin even with no `AGENTS.md` policy. After a successful CPJ start, the approved `PostToolUse` hook also supplies a one-time hard-release reminder so the assigning agent does not independently poll the new job.
+
+The optional managed policy is a compact high-priority routing rule; detailed safety and lifecycle guidance stays in the selected skills and loads only when needed. Choose one of three scopes during preview:
 
 ```bash
-node scripts/install.mjs --with-agent-policy
+node scripts/install.mjs --agent-policy global
+node scripts/install.mjs --agent-policy project --project-root /absolute/path/to/project
+node scripts/install.mjs --agent-policy none
 ```
 
-Then apply it only after reviewing the target `~/.codex/AGENTS.md` path:
+Then apply the same reviewed choice, for example:
 
 ```bash
-node scripts/install.mjs --apply --with-agent-policy
+node scripts/install.mjs --apply --agent-policy global
 ```
 
-The managed block is idempotent and preserves unrelated instructions. See [Agent adoption policy](docs/agent-policy.md).
+The managed block is idempotent, upgrades an older CPJ managed block in place, and preserves unrelated instructions. The deprecated `--with-agent-policy` alias still maps to `global`, but new installations should use the explicit scope. See [Agent adoption policy](docs/agent-policy.md).
 
 ### Host and surface scope
 
@@ -147,7 +151,7 @@ node scripts/job.mjs start --critical --name usb-repair -- repair-command --exac
 
 Critical jobs refuse cancellation unless `--force` is explicitly supplied. `--force` bypasses the guard but still sends SIGTERM first, waits five seconds, and uses SIGKILL only if required.
 
-Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, confirmation, and other prompt requirements before launch. Commands must remain in the foreground until their work is complete; daemonized work or a request handed off to an external service requires that service's own status mechanism.
+Detached jobs receive no interactive stdin. Resolve password, `sudo`, Polkit, confirmation, and other prompt requirements before launch. Commands must remain in the foreground until finite work is complete; persistent servers/watchers, daemonized work, or a request handed off to an external service require another lifecycle mechanism.
 
 Specific-job status checks are deliberately lightweight. They read the job record, stat the two bounded logs, and inspect at most 8 KiB per stream for four recent lines. This supports quick follow-up questions such as “how's the build going?” without attaching to or disturbing the running process.
 
@@ -181,7 +185,7 @@ npm run check
 npm run smoke
 ```
 
-The test suite covers real detached launches, private Desktop IPC and app-server completion relays, cheap idle watching, sibling batching, prompt-data isolation, matching durable turn confirmation, post-tool/stop/next-prompt hook fallback, persisted security-field validation, tampered log-path rejection, bounded incremental model-facing output, optional argv-only OS notifications, critical cancellation, shell mode, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, explicit hook consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs `npm run check` on macOS and Ubuntu with Node.js 18 and 22.
+The test suite covers real detached launches, private Desktop IPC and app-server completion relays, cheap idle watching, sibling batching, prompt-data isolation, matching durable turn confirmation, structured post-tool/stop/next-prompt hook output, one-shot launch-boundary reinforcement, persisted security-field validation, tampered log-path rejection, bounded incremental model-facing output, optional argv-only OS notifications, critical cancellation, shell mode, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, explicit global/project/none policy consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs `npm run check` on macOS and Ubuntu with Node.js 18 and 22.
 
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 

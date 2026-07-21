@@ -29,10 +29,12 @@ test("model-facing launch contracts require release without same-turn monitoring
   assert.match(statusSkill, /make exactly one bounded `status <job-id> --wait` call/i);
   assert.match(statusSkill, /continue the next already-authorized in-scope Goal step/i);
   assert.match(statusSkill, /inspect the bounded result in the same turn only if the job becomes terminal/i);
-  assert.match(agentPolicy, /successful detached start is a hard release boundary/i);
-  assert.match(agentPolicy, /durable job state and the completion relay provide persistence/i);
-  assert.match(agentPolicy, /never create a Goal merely because a job exists/i);
-  assert.match(agentPolicy, /pass `--goal-mode`/i);
+  assert.match(agentPolicy, /successful start is a hard turn boundary/i);
+  assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
+  assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
+  assert.match(agentPolicy, /follow the selected Codex Process Jobs skills/i);
+  assert.match(agentPolicy, /persistent servers or watchers/i);
+  assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140);
 });
 
 test("surface smoke prompt does not coach the release behavior it evaluates", () => {

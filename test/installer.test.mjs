@@ -122,14 +122,14 @@ test("detects when the source checkout is also the runtime destination", async (
   );
 });
 
-test("preview is read-only and apply installs into an isolated home", (t) => {
+test("global-policy preview is read-only and apply installs into an isolated home", (t) => {
   const home = temporaryHome(t);
   const env = installEnv(t, home);
   const marketplaceFile = path.join(home, ".agents", "plugins", "marketplace.json");
   const destination = path.join(home, "plugins", "codex-process-jobs");
   const agentFile = path.join(home, ".codex", "AGENTS.md");
 
-  const preview = runInstaller(["--with-agent-policy"], env);
+  const preview = runInstaller(["--agent-policy", "global"], env);
   assert.equal(preview.status, 0, preview.stderr);
   assert.match(preview.stdout, /No changes made/);
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
@@ -140,20 +140,18 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
 
-  const applied = runInstaller(["--apply", "--with-agent-policy"], env);
+  const applied = runInstaller(["--apply", "--agent-policy", "global"], env);
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`);
   assert.equal(JSON.parse(fs.readFileSync(path.join(destination, ".codex-plugin", "plugin.json"), "utf8")).name, "codex-process-jobs");
   assert.equal(JSON.parse(fs.readFileSync(marketplaceFile, "utf8")).plugins.length, 1);
   const agentPolicy = fs.readFileSync(agentFile, "utf8");
   assert.match(agentPolicy, /\$codex-process-jobs:start/);
-  assert.match(agentPolicy, /separate transport/);
-  assert.match(agentPolicy, /never promise an immediate live wake/);
-  assert.match(agentPolicy, /after the process finishes, recap the outcome as soon as an ordinary exchange can pick it up/i);
-  assert.match(agentPolicy, /launch response must state all four facts without omission/i);
-  assert.match(agentPolicy, /successful detached start is a hard release boundary/i);
-  assert.match(agentPolicy, /do not call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`/i);
-  assert.match(agentPolicy, /only an explicit request to keep this exact turn open and wait/i);
-  assert.match(agentPolicy, /never .*imply that an exchange before completion can report the outcome/i);
+  assert.match(agentPolicy, /persistent servers or watchers/i);
+  assert.match(agentPolicy, /successful start is a hard turn boundary/i);
+  assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
+  assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
+  assert.match(agentPolicy, /follow the selected Codex Process Jobs skills/i);
+  assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140, "managed policy should stay compact");
   assert.match(applied.stdout, /installer never trusts hooks automatically/i);
   assert.match(applied.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
   assert.match(applied.stdout, /explicit user approval in \/hooks/i);
@@ -168,14 +166,67 @@ test("preview is read-only and apply installs into an isolated home", (t) => {
   assert.equal(calls.some((args) => args.includes("config/batchWrite")), false);
 });
 
-test("default preview tells an installing agent to ask about the optional global policy", (t) => {
+test("default preview requires an explicit global, project, or none policy choice", (t) => {
   const home = temporaryHome(t);
   const env = installEnv(t, home);
   const preview = runInstaller([], env);
   assert.equal(preview.status, 0, preview.stderr);
-  assert.match(preview.stdout, /global agent policy: not selected/i);
-  assert.match(preview.stdout, /ask the user whether they want the optional global AGENTS\.md policy/i);
+  assert.match(preview.stdout, /agent policy: not selected; choose global, project, or none/i);
+  assert.match(preview.stdout, /ask the user to choose global AGENTS\.md, one project AGENTS\.md, or no AGENTS\.md policy/i);
   assert.equal(fs.existsSync(path.join(home, ".codex", "AGENTS.md")), false);
+});
+
+test("apply refuses to infer an AGENTS.md policy choice", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const result = runInstaller(["--apply"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /requires an explicit --agent-policy global, project, or none choice/i);
+  assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);
+});
+
+test("project policy modifies only the selected project AGENTS.md", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const projectRoot = path.join(home, "project");
+  const projectAgentFile = path.join(projectRoot, "AGENTS.md");
+  const globalAgentFile = path.join(home, ".codex", "AGENTS.md");
+  fs.mkdirSync(projectRoot);
+  fs.writeFileSync(projectAgentFile, "# Project rules\n");
+
+  const preview = runInstaller(["--agent-policy", "project", "--project-root", projectRoot], env);
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(preview.stdout, /agent policy: project; update .*\/project\/AGENTS\.md/);
+  assert.equal(fs.readFileSync(projectAgentFile, "utf8"), "# Project rules\n");
+
+  const applied = runInstaller([
+    "--apply", "--agent-policy", "project", "--project-root", projectRoot,
+  ], env);
+  assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`);
+  assert.match(fs.readFileSync(projectAgentFile, "utf8"), /^# Project rules[\s\S]*codex-process-jobs:begin/);
+  assert.equal(fs.statSync(projectAgentFile).mode & 0o777, 0o644);
+  assert.equal(fs.existsSync(globalAgentFile), false);
+});
+
+test("none policy installs without changing any AGENTS.md", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const globalAgentFile = path.join(home, ".codex", "AGENTS.md");
+  fs.mkdirSync(path.dirname(globalAgentFile), { recursive: true });
+  fs.writeFileSync(globalAgentFile, "# Keep me unchanged\n");
+
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(fs.readFileSync(globalAgentFile, "utf8"), "# Keep me unchanged\n");
+  assert.match(result.stdout, /no AGENTS\.md was changed/i);
+});
+
+test("deprecated --with-agent-policy alias still selects global policy", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const preview = runInstaller(["--with-agent-policy"], env);
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(preview.stdout, /agent policy: global; update/i);
 });
 
 test("apply refuses to replace the plugin while a tracked job is active", (t) => {
@@ -189,7 +240,7 @@ test("apply refuses to replace the plugin while a tracked job is active", (t) =>
     status: "running",
   }));
 
-  const result = runInstaller(["--apply"], env);
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Tracked process jobs are active/);
   assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);
@@ -204,7 +255,7 @@ test("apply refuses symlinked configuration targets without replacing or changin
   fs.writeFileSync(target, '{"name":"personal","plugins":[]}\n');
   fs.symlinkSync(target, marketplaceFile);
 
-  const result = runInstaller(["--apply"], env);
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /not a regular file/i);
   assert.equal(fs.lstatSync(marketplaceFile).isSymbolicLink(), true);

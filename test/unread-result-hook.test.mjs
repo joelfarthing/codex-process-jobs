@@ -158,6 +158,8 @@ test("PostToolUse injects a terminal completion into an active turn exactly once
     tool_name: "Bash",
   });
   assert.equal(first.status, 0, first.stderr);
+  const hookOutput = JSON.parse(first.stdout);
+  assert.equal(hookOutput.hookSpecificOutput.hookEventName, "PostToolUse");
   assert.match(first.stdout, /detected during the active turn after a tool call/i);
   assert.match(first.stdout, /job-hook-post-tool/);
   const second = runHook(env, {
@@ -166,6 +168,124 @@ test("PostToolUse injects a terminal completion into an active turn exactly once
     tool_name: "Bash",
   });
   assert.equal(second.stdout, "");
+});
+
+test("PostToolUse reinforces a successful CPJ start as a one-time hard release boundary", (t) => {
+  const env = createEnv(t);
+  const createdAt = new Date().toISOString();
+  writeJob(env, {
+    id: "job-hook-launch",
+    ownerThreadId: "thread-hook-launch",
+    status: "running",
+    phase: "running",
+    cwd: ROOT,
+    argv: ["sleep", "75"],
+    shell: false,
+    createdAt,
+    updatedAt: createdAt,
+    notification: { status: "pending" },
+  });
+  const payload = {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-launch",
+    turn_id: "turn-hook-launch",
+    tool_name: "Bash",
+    tool_input: {
+      command: `node "${path.join(ROOT, "scripts", "job.mjs")}" start --json -- sleep 75`,
+    },
+    tool_response: {
+      output: JSON.stringify({ job: { id: "job-hook-launch", status: "running" } }),
+    },
+  };
+
+  const first = runHook(env, payload);
+  assert.equal(first.status, 0, first.stderr);
+  const hookOutput = JSON.parse(first.stdout);
+  const context = hookOutput.hookSpecificOutput.additionalContext;
+  assert.equal(hookOutput.hookSpecificOutput.hookEventName, "PostToolUse");
+  assert.match(context, /job-hook-launch was successfully detached/i);
+  assert.match(context, /hard release boundary/i);
+  assert.match(context, /without calling status, tail, result, --wait, write_stdin, sleep, ps/i);
+  assert.match(context, /only an explicit user request to keep this exact turn open and wait/i);
+  assert.doesNotMatch(context, /sleep 75/);
+  const stored = readJob(env, "job-hook-launch");
+  assert.equal(stored.notification.launchBoundaryTurnId, "turn-hook-launch");
+  assert.ok(Number.isFinite(Date.parse(stored.notification.launchBoundaryInjectedAt)));
+
+  const second = runHook(env, payload);
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(second.stdout, "");
+});
+
+test("PostToolUse launch reinforcement rejects unrelated commands and cross-thread records", (t) => {
+  const env = createEnv(t);
+  const createdAt = new Date().toISOString();
+  writeJob(env, {
+    id: "job-hook-not-launch",
+    ownerThreadId: "thread-hook-owner",
+    status: "running",
+    phase: "running",
+    cwd: ROOT,
+    argv: ["sleep", "75"],
+    shell: false,
+    createdAt,
+    updatedAt: createdAt,
+    notification: { status: "pending" },
+  });
+  const response = { output: JSON.stringify({ job: { id: "job-hook-not-launch" } }) };
+
+  const unrelated = runHook(env, {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-owner",
+    tool_name: "Bash",
+    tool_input: { command: "printf harmless" },
+    tool_response: response,
+  });
+  assert.equal(unrelated.status, 0, unrelated.stderr);
+  assert.equal(unrelated.stdout, "");
+
+  const crossThread = runHook(env, {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-other",
+    tool_name: "Bash",
+    tool_input: {
+      command: `node "${path.join(ROOT, "scripts", "job.mjs")}" start --json -- sleep 75`,
+    },
+    tool_response: response,
+  });
+  assert.equal(crossThread.status, 0, crossThread.stderr);
+  assert.equal(crossThread.stdout, "");
+  assert.equal(readJob(env, "job-hook-not-launch").notification.launchBoundaryInjectedAt, undefined);
+});
+
+test("PostToolUse prefers terminal-result handling when a detached job finishes immediately", (t) => {
+  const env = createEnv(t);
+  const createdAt = new Date().toISOString();
+  writeJob(env, {
+    id: "job-hook-fast-finish",
+    ownerThreadId: "thread-hook-fast-finish",
+    ownerSurface: "app",
+    status: "completed",
+    phase: "completed",
+    exitCode: 0,
+    createdAt,
+    updatedAt: createdAt,
+    notification: { status: "pending" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-fast-finish",
+    tool_name: "Bash",
+    tool_input: {
+      command: `node "${path.join(ROOT, "scripts", "job.mjs")}" start --json -- true`,
+    },
+    tool_response: { output: JSON.stringify({ job: { id: "job-hook-fast-finish" } }) },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+  assert.match(context, /Proactive-inspection job IDs: job-hook-fast-finish/);
+  assert.doesNotMatch(context, /hard release boundary/i);
+  assert.equal(readJob(env, "job-hook-fast-finish").notification.launchBoundaryInjectedAt, undefined);
 });
 
 test("hook fallback honors proactive inspection mode without executing the next step", (t) => {
@@ -224,6 +344,8 @@ test("Stop emits a one-time continuation for an unread terminal completion", (t)
     session_id: "thread-hook-stop",
   });
   assert.equal(result.status, 0, result.stderr);
+  const hookOutput = JSON.parse(result.stdout);
+  assert.equal(hookOutput.decision, "block");
   assert.match(result.stdout, /one-time Stop-hook continuation/i);
   assert.match(result.stdout, /job-hook-stop: failed \(exit 2\)/);
 });

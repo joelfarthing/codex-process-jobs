@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { isCliEntry } from "../scripts/cli-entry.mjs";
 import { completionMode } from "../scripts/notifier.mjs";
-import { TERMINAL_STATUSES, listJobs, nowIso, updateJob } from "../scripts/state.mjs";
+import { TERMINAL_STATUSES, listJobs, nowIso, tryReadJob, updateJob } from "../scripts/state.mjs";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const MAX_JOBS = 20;
 const DELIVERY_STARTUP_GRACE_MS = 5_000;
 const DELIVERY_STALE_MS = 11 * 60_000;
+const LAUNCH_MATCH_WINDOW_MS = 5 * 60_000;
+const MAX_RESPONSE_JOB_IDS = 8;
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const JOB_CONTROLLER = path.join(PLUGIN_ROOT, "scripts", "job.mjs");
 
 async function readInput() {
   const input = Buffer.allocUnsafe(MAX_INPUT_BYTES);
@@ -37,6 +44,87 @@ function isSyntheticNotificationPrompt(prompt) {
       text.startsWith("<process_job_notification>")
       && text.endsWith("</process_job_notification>")
     );
+}
+
+function isControllerStartCommand(input) {
+  if (String(input.tool_name ?? "") !== "Bash") return false;
+  const command = input.tool_input?.command;
+  if (typeof command !== "string" || !command.includes(JOB_CONTROLLER)) return false;
+  const suffix = command.slice(command.indexOf(JOB_CONTROLLER) + JOB_CONTROLLER.length);
+  return /^["']?\s+start(?:\s|$)/.test(suffix);
+}
+
+function responseJobIds(toolResponse) {
+  let text;
+  try {
+    text = typeof toolResponse === "string" ? toolResponse : JSON.stringify(toolResponse);
+  } catch {
+    return [];
+  }
+  return [...new Set(String(text ?? "").match(/\bjob-[a-z0-9][a-z0-9-]{2,76}\b/g) ?? [])]
+    .slice(0, MAX_RESPONSE_JOB_IDS);
+}
+
+function launchMatches(job, sessionId, timestamp) {
+  if (
+    job.ownerThreadId !== sessionId
+    || TERMINAL_STATUSES.has(job.status)
+    || job.notification?.launchBoundaryInjectedAt
+  ) return false;
+  const createdAt = Date.parse(job.createdAt ?? "");
+  const hookAt = Date.parse(timestamp);
+  return Number.isFinite(createdAt)
+    && Number.isFinite(hookAt)
+    && Math.abs(hookAt - createdAt) <= LAUNCH_MATCH_WINDOW_MS;
+}
+
+export async function claimLaunchBoundary(
+  input,
+  sessionId,
+  timestamp,
+  { read = tryReadJob, update = updateJob, onError = () => {} } = {},
+) {
+  if (String(input.hook_event_name ?? "") !== "PostToolUse" || !isControllerStartCommand(input)) {
+    return null;
+  }
+  const turnId = typeof input.turn_id === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(input.turn_id)
+    ? input.turn_id
+    : null;
+  for (const jobId of responseJobIds(input.tool_response)) {
+    let claimed = false;
+    try {
+      const candidate = read(jobId);
+      if (!candidate || !launchMatches(candidate, sessionId, timestamp)) continue;
+      const updated = await update(jobId, (current) => {
+        if (!launchMatches(current, sessionId, timestamp)) return current;
+        claimed = true;
+        return {
+          ...current,
+          notification: {
+            ...(current.notification ?? {}),
+            launchBoundaryInjectedAt: timestamp,
+            ...(turnId ? { launchBoundaryTurnId: turnId } : {}),
+          },
+        };
+      });
+      if (claimed) return updated;
+    } catch (error) {
+      onError(jobId, error);
+    }
+  }
+  return null;
+}
+
+function buildLaunchBoundaryContext(job) {
+  return [
+    `Codex Process Jobs launch boundary: ${job.id} was successfully detached.`,
+    "Treat this successful start as a hard release boundary. Report the launch using the start skill's conversational contract, then end this turn without calling status, tail, result, --wait, write_stdin, sleep, ps, or another monitoring or process probe.",
+    job.goalMode
+      ? "This job belongs to an active Goal; durable Goal continuation can pick up dependent work later, but it does not authorize monitoring from this launch turn."
+      : "Resume result-dependent work through completion delivery or a later user-initiated turn.",
+    "If the same request contains independent work, do only that independent work before ending. Only an explicit user request to keep this exact turn open and wait overrides this boundary, and that override permits one bounded wait.",
+    "This context contains only validated plugin state and no process output.",
+  ].join("\n");
 }
 
 function processIsAlive(pid) {
@@ -182,6 +270,24 @@ export async function claimCandidates(
   return claimed;
 }
 
+function writeHookContext(eventName, context) {
+  if (!context) return;
+  if (eventName === "PostToolUse") {
+    process.stdout.write(`${JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: context,
+      },
+    })}\n`);
+    return;
+  }
+  if (eventName === "Stop") {
+    process.stdout.write(`${JSON.stringify({ decision: "block", reason: context })}\n`);
+    return;
+  }
+  process.stdout.write(`${context}\n`);
+}
+
 async function main() {
   const input = await readInput();
   const eventName = String(input.hook_event_name ?? "UserPromptSubmit");
@@ -193,19 +299,27 @@ async function main() {
     || (eventName === "UserPromptSubmit" && isSyntheticNotificationPrompt(input.prompt))
     || (eventName === "UserPromptSubmit" && isExplicitJobRequest(input.prompt))
   ) return;
+  const timestamp = nowIso();
+  const launchJob = await claimLaunchBoundary(input, sessionId, timestamp, {
+    onError(jobId, error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`Could not claim launch boundary for ${jobId}: ${message}\n`);
+    },
+  });
   const candidates = listJobs()
     .filter((job) => fallbackKind(job, sessionId))
     .slice(0, MAX_JOBS);
-  if (candidates.length === 0) return;
-
-  const timestamp = nowIso();
   const claimed = await claimCandidates(candidates, sessionId, timestamp, {
     onError(candidate, error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`Could not claim recap for ${candidate.id}: ${message}\n`);
     },
   });
-  if (claimed.length > 0) process.stdout.write(`${buildContext(claimed, eventName, process.env)}\n`);
+  const contexts = [
+    launchJob ? buildLaunchBoundaryContext(launchJob) : null,
+    claimed.length > 0 ? buildContext(claimed, eventName, process.env) : null,
+  ].filter(Boolean);
+  writeHookContext(eventName, contexts.join("\n\n"));
 }
 
 if (isCliEntry(import.meta.url)) {

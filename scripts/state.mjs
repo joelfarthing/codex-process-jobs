@@ -226,6 +226,25 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
     ) {
       throw new Error(`Invalid persisted notification attempts for ${id}.`);
     }
+    if (
+      job.notification.launchBoundaryInjectedAt != null
+      && (
+        typeof job.notification.launchBoundaryInjectedAt !== "string"
+        || job.notification.launchBoundaryInjectedAt.length > 64
+        || !Number.isFinite(Date.parse(job.notification.launchBoundaryInjectedAt))
+      )
+    ) {
+      throw new Error(`Invalid persisted launch-boundary timestamp for ${id}.`);
+    }
+    if (
+      job.notification.launchBoundaryTurnId != null
+      && (
+        typeof job.notification.launchBoundaryTurnId !== "string"
+        || !/^[A-Za-z0-9_-]{1,160}$/.test(job.notification.launchBoundaryTurnId)
+      )
+    ) {
+      throw new Error(`Invalid persisted launch-boundary turn id for ${id}.`);
+    }
   }
   if (!isObject(job.logs)) throw new Error(`Persisted job ${id} has no valid log paths.`);
   const expectedLogs = resolveJobLogs(id, env);

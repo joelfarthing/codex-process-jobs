@@ -28,6 +28,7 @@ const INSTALL_ENTRIES = [
   "SECURITY.md",
 ];
 const ACTIVE_STATUSES = new Set(["queued", "starting", "running", "cancelling"]);
+const AGENT_POLICY_MODES = new Set(["global", "project", "none"]);
 
 function fail(message) {
   throw new Error(message);
@@ -36,11 +37,14 @@ function fail(message) {
 function usage() {
   return [
     "Usage:",
-    "  node scripts/install.mjs [--with-agent-policy]",
-    "  node scripts/install.mjs --apply [--with-agent-policy] [--allow-active-jobs]",
+    "  node scripts/install.mjs [--agent-policy <global|project|none>] [--project-root <path>]",
+    "  node scripts/install.mjs --apply --agent-policy <global|project|none> [--project-root <path>] [--allow-active-jobs]",
     "",
     "The default is a read-only preview. --apply performs the displayed changes.",
-    "--with-agent-policy installs an idempotent managed block in ~/.codex/AGENTS.md.",
+    "--agent-policy global installs an idempotent managed block in ~/.codex/AGENTS.md.",
+    "--agent-policy project installs it in <project-root>/AGENTS.md.",
+    "--agent-policy none leaves every AGENTS.md unchanged.",
+    "--with-agent-policy remains a deprecated alias for --agent-policy global.",
     "--allow-active-jobs overrides the safety stop when tracked jobs are active.",
   ].join("\n");
 }
@@ -48,16 +52,47 @@ function usage() {
 export function parseArgs(argv) {
   const options = {
     apply: false,
-    withAgentPolicy: false,
+    agentPolicyMode: null,
+    projectRoot: null,
     allowActiveJobs: false,
     help: false,
   };
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
     if (arg === "--apply") options.apply = true;
-    else if (arg === "--with-agent-policy") options.withAgentPolicy = true;
+    else if (arg === "--agent-policy") {
+      const value = String(argv[++index] ?? "").trim().toLowerCase();
+      if (!AGENT_POLICY_MODES.has(value)) {
+        fail("--agent-policy must be one of: global, project, none.");
+      }
+      if (options.agentPolicyMode && options.agentPolicyMode !== value) {
+        fail("Choose exactly one --agent-policy mode.");
+      }
+      options.agentPolicyMode = value;
+    }
+    else if (arg === "--project-root") {
+      const value = String(argv[++index] ?? "").trim();
+      if (!value) fail("--project-root requires a path.");
+      if (options.projectRoot && options.projectRoot !== value) {
+        fail("Specify --project-root only once.");
+      }
+      options.projectRoot = value;
+    }
+    else if (arg === "--with-agent-policy") {
+      if (options.agentPolicyMode && options.agentPolicyMode !== "global") {
+        fail("--with-agent-policy conflicts with the selected --agent-policy mode.");
+      }
+      options.agentPolicyMode = "global";
+    }
     else if (arg === "--allow-active-jobs") options.allowActiveJobs = true;
     else if (arg === "--help" || arg === "-h") options.help = true;
     else fail(`Unknown installer option: ${arg}`);
+  }
+  if (options.agentPolicyMode === "project" && !options.projectRoot) {
+    fail("--agent-policy project requires --project-root <path>.");
+  }
+  if (options.agentPolicyMode !== "project" && options.projectRoot) {
+    fail("--project-root is valid only with --agent-policy project.");
   }
   return options;
 }
@@ -179,7 +214,7 @@ export function upsertAgentPolicy(existing, policyText) {
   const begin = current.indexOf(POLICY_BEGIN);
   const end = current.indexOf(POLICY_END);
   if ((begin >= 0) !== (end >= 0) || (begin >= 0 && end < begin)) {
-    fail("Existing ~/.codex/AGENTS.md has an incomplete codex-process-jobs managed block.");
+    fail("Existing AGENTS.md has an incomplete codex-process-jobs managed block.");
   }
 
   const block = wrapPolicy(policyText);
@@ -249,6 +284,7 @@ export function resolveInstallPlan({ env = process.env, now = new Date(), source
     sourceDestinationConflict: sourceConflictsWithDestination(root, destination),
     marketplaceFile: path.join(home, ".agents", "plugins", "marketplace.json"),
     agentFile: path.join(codexHome, "AGENTS.md"),
+    globalAgentFile: path.join(codexHome, "AGENTS.md"),
     agentPolicyFile: path.join(root, "assets", "agent-policy.md"),
     sourceVersion: manifest.version,
     installVersion: withCodexCachebuster(manifest.version, timestamp),
@@ -258,7 +294,42 @@ export function resolveInstallPlan({ env = process.env, now = new Date(), source
   };
 }
 
+function resolveProjectRoot(projectRoot) {
+  const requested = path.resolve(projectRoot);
+  let resolved;
+  try {
+    resolved = fs.realpathSync.native(requested);
+  } catch (error) {
+    if (error?.code === "ENOENT") fail(`Project root does not exist: ${requested}`);
+    throw error;
+  }
+  const stat = fs.lstatSync(resolved);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    fail(`Project root is not a real directory: ${requested}`);
+  }
+  return resolved;
+}
+
+export function resolveAgentPolicySelection(plan, options) {
+  const mode = options.agentPolicyMode ?? null;
+  if (mode == null) return { mode: null, target: null, projectRoot: null };
+  if (!AGENT_POLICY_MODES.has(mode)) fail(`Invalid agent-policy mode: ${String(mode)}.`);
+  if (mode === "none") return { mode, target: null, projectRoot: null };
+  if (mode === "global") {
+    return { mode, target: plan.globalAgentFile ?? plan.agentFile, projectRoot: null };
+  }
+  if (!options.projectRoot) fail("--agent-policy project requires --project-root <path>.");
+  const projectRoot = resolveProjectRoot(options.projectRoot);
+  return { mode, target: path.join(projectRoot, "AGENTS.md"), projectRoot };
+}
+
 function planLines(plan, options) {
+  const policy = resolveAgentPolicySelection(plan, options);
+  let policyLine;
+  if (policy.mode === "global") policyLine = `global; update ${policy.target}`;
+  else if (policy.mode === "project") policyLine = `project; update ${policy.target}`;
+  else if (policy.mode === "none") policyLine = "none; leave every AGENTS.md unchanged";
+  else policyLine = "not selected; choose global, project, or none before apply";
   const lines = [
     "Codex Process Jobs installation preview",
     `  source: ${plan.sourceRoot}`,
@@ -271,7 +342,7 @@ function planLines(plan, options) {
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
       : "  source safety: source checkout is separate from the runtime destination",
     "  client refresh: restart open Codex clients after apply; VS Code requires Developer: Reload Window",
-    `  global agent policy: ${options.withAgentPolicy ? `selected; update ${plan.agentFile}` : "not selected; ask the user whether to include the optional managed policy before apply"}`,
+    `  agent policy: ${policyLine}`,
     `  active tracked jobs: ${plan.activeJobs.length}`,
   ];
   for (const job of plan.activeJobs) {
@@ -280,11 +351,13 @@ function planLines(plan, options) {
   if (!options.apply) {
     lines.push(
       "",
-      options.withAgentPolicy
-        ? "Optional global agent policy selected for the apply step."
-        : "Installing agent: ask the user whether they want the optional global AGENTS.md policy before applying.",
+      policy.mode
+        ? `Agent-policy choice selected for the apply step: ${policy.mode}.`
+        : "Installing agent: ask the user to choose global AGENTS.md, one project AGENTS.md, or no AGENTS.md policy.",
       "No changes made. Re-run with --apply after reviewing this plan."
     );
+  } else if (!policy.mode) {
+    lines.push("", "Apply is blocked until --agent-policy global, project, or none is explicit.");
   }
   return lines;
 }
@@ -306,9 +379,18 @@ function atomicWrite(file, contents, mode = 0o600) {
   }
 }
 
-function restoreFile(file, original) {
+function restoreFile(file, original, mode = 0o600) {
   if (original == null) fs.rmSync(file, { force: true });
-  else atomicWrite(file, original);
+  else atomicWrite(file, original, mode);
+}
+
+function existingFileMode(file, fallback) {
+  try {
+    return fs.statSync(file).mode & 0o777;
+  } catch (error) {
+    if (error?.code === "ENOENT") return fallback;
+    throw error;
+  }
 }
 
 function validateMutableFile(file, label) {
@@ -400,6 +482,10 @@ export async function applyInstall(plan, options, env = process.env) {
     );
   }
   if (!plan.codex.available) fail("Codex CLI is not available on PATH.");
+  const policy = resolveAgentPolicySelection(plan, options);
+  if (!policy.mode) {
+    fail("Apply requires an explicit --agent-policy global, project, or none choice.");
+  }
   if (plan.activeJobs.length > 0 && !options.allowActiveJobs) {
     fail("Tracked process jobs are active. Wait for them to finish, or review and pass --allow-active-jobs.");
   }
@@ -407,18 +493,23 @@ export async function applyInstall(plan, options, env = process.env) {
   const configFile = path.join(plan.codexHome, "config.toml");
   validateMutableFile(plan.marketplaceFile, "personal marketplace");
   validateMutableFile(configFile, "Codex configuration");
-  if (options.withAgentPolicy) validateMutableFile(plan.agentFile, "global agent policy");
+  if (policy.target) validateMutableFile(policy.target, `${policy.mode} agent policy`);
 
   const marketplaceOriginal = fs.existsSync(plan.marketplaceFile)
     ? fs.readFileSync(plan.marketplaceFile, "utf8")
     : null;
-  const agentOriginal = fs.existsSync(plan.agentFile) ? fs.readFileSync(plan.agentFile, "utf8") : null;
+  const agentOriginal = policy.target && fs.existsSync(policy.target)
+    ? fs.readFileSync(policy.target, "utf8")
+    : null;
+  const agentMode = policy.target
+    ? existingFileMode(policy.target, policy.mode === "project" ? 0o644 : 0o600)
+    : null;
   const configOriginal = fs.existsSync(configFile) ? fs.readFileSync(configFile, "utf8") : null;
   const marketplace = mergeMarketplace(marketplaceOriginal == null ? null : JSON.parse(marketplaceOriginal));
-  const policyText = options.withAgentPolicy ? fs.readFileSync(plan.agentPolicyFile, "utf8") : null;
+  const policyText = policy.target ? fs.readFileSync(plan.agentPolicyFile, "utf8") : null;
   const marketplaceBackup = marketplaceOriginal == null ? null : uniqueBackupPath(plan.marketplaceFile, plan.timestamp);
-  const agentBackup = options.withAgentPolicy && agentOriginal != null
-    ? uniqueBackupPath(plan.agentFile, plan.timestamp)
+  const agentBackup = policy.target && agentOriginal != null
+    ? uniqueBackupPath(policy.target, plan.timestamp)
     : null;
   const configBackup = configOriginal != null ? uniqueBackupPath(configFile, plan.timestamp) : null;
 
@@ -432,9 +523,9 @@ export async function applyInstall(plan, options, env = process.env) {
     atomicWrite(plan.marketplaceFile, `${JSON.stringify(marketplace, null, 2)}\n`);
     marketplaceChanged = true;
 
-    if (options.withAgentPolicy) {
-      if (agentBackup) fs.copyFileSync(plan.agentFile, agentBackup);
-      atomicWrite(plan.agentFile, upsertAgentPolicy(agentOriginal, policyText));
+    if (policy.target) {
+      if (agentBackup) fs.copyFileSync(policy.target, agentBackup);
+      atomicWrite(policy.target, upsertAgentPolicy(agentOriginal, policyText), agentMode);
       agentChanged = true;
     }
 
@@ -449,12 +540,13 @@ export async function applyInstall(plan, options, env = process.env) {
       destinationBackup,
       marketplaceFile: plan.marketplaceFile,
       marketplaceBackup,
-      agentFile: options.withAgentPolicy ? plan.agentFile : null,
+      agentPolicyMode: policy.mode,
+      agentFile: policy.target,
       agentBackup,
       configBackup,
     };
   } catch (error) {
-    if (agentChanged) restoreFile(plan.agentFile, agentOriginal);
+    if (agentChanged) restoreFile(policy.target, agentOriginal, agentMode);
     if (marketplaceChanged) restoreFile(plan.marketplaceFile, marketplaceOriginal);
     if (configMayHaveChanged) restoreFile(configFile, configOriginal);
     if (fs.existsSync(plan.destination)) fs.rmSync(plan.destination, { recursive: true, force: true });
@@ -484,6 +576,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
     result.agentBackup ? `AGENTS.md backup: ${result.agentBackup}` : null,
     result.configBackup ? `Codex config backup: ${result.configBackup}` : null,
+    result.agentPolicyMode === "none" ? "AGENTS.md policy: none selected; no AGENTS.md was changed." : null,
     "Completion hooks: installed but intentionally left for explicit user approval in /hooks.",
   ].filter(Boolean).join("\n") + "\n");
 }

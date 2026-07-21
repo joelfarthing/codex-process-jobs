@@ -1,5 +1,8 @@
 # Codex Process Jobs
 
+[![CI](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/ci.yml/badge.svg)](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/ci.yml)
+[![HOL Plugin Scanner](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml/badge.svg)](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml)
+
 > **Community beta:** This is an independent project, not an official OpenAI plugin. Detached job state is durable, while automatic conversational completion uses consent-gated hooks and experimental local Codex transports on a best-effort basis.
 
 Codex Process Jobs is a dependency-free Codex plugin for launching ordinary macOS or Linux commands as durable detached process jobs. It is intended for work such as CMake builds, long test suites, inference A/B runs, data processing, and repair utilities that should not monopolize an active Codex turn.
@@ -35,6 +38,32 @@ A successful start releases the assigning turn immediately. Completion state is 
 Goal mode integrates with an explicitly active Codex Goal without reading private Goal state: automatic continuations do independent authorized work while the job runs, wait once when result-gated, and inspect terminal evidence before continuing an already-authorized next step.
 
 The repository includes a repeatable surface acceptance test. For transport behavior, limitations, and empirical client results, see [Conversational completion relay](docs/notification-relay.md), [Cartesian client and execution surfaces](docs/cartesian-surfaces.md), and [VS Code completion wake research](docs/vscode-wake-research-and-process.md).
+
+## Validation and compatibility
+
+The July 21, 2026 publication-hardening run used [HOL Guard `plugin-scanner` 2.0.1116](https://github.com/hashgraph-online/hol-guard) under supported Python 3.13 and produced:
+
+- `public-marketplace` policy: **PASS**;
+- score: **97/100 — A, Excellent**;
+- critical, high, medium, and low findings: **zero**;
+- HOL runtime verification: **PASS**;
+- Cisco skill scanner: completed against all five bundled skills with the balanced policy and advisory-only findings; and
+- Codex plugin validation plus the full local suite: **PASS**, including 149/149 tests.
+
+The remaining scanner notices are informational schema differences: HOL currently treats six absent optional interface URL/asset fields as invalid, while its own runtime verifier and the Codex validator accept the manifest; Cisco recommends a per-skill license field, while Codex skill authoring permits only `name` and `description` frontmatter. The repository and plugin manifest declare Apache-2.0.
+
+A [SHA-pinned HOL scanner workflow](.github/workflows/hol-plugin-scanner.yml) repeats the public gate on pull requests and `main`, requires a score of at least 80, and fails on any high-or-critical finding. It runs with read-only repository permissions, uploads no SARIF, uses no submission credential, and makes no automatic marketplace submission. The ordinary [CI matrix](.github/workflows/ci.yml) uses the committed lockfile and runs on macOS and Ubuntu with Node.js 18 and 22. Passing these automated checks is reproducible project evidence, not certification, endorsement, or marketplace acceptance by OpenAI, HOL, or Cisco.
+
+| Layer | Supported or tested scope |
+|---|---|
+| Execution host | macOS and Linux |
+| Runtime | Node.js 18 or newer; no runtime npm dependencies |
+| Codex surfaces | Codex App, Codex CLI, and the Codex VS Code extension |
+| Remote clients | ChatGPT mobile driving Codex on a separately installed remote execution host |
+| Remote development | Remote SSH, Dev Containers, WSL, and similar bridges when CPJ is installed inside the actual macOS or Linux execution environment |
+| Native Windows | Not currently supported; use a supported remote or WSL execution host |
+
+Client behavior can change independently of the plugin. Durable job state, explicit status, and bounded result retrieval are the compatibility baseline; automatic conversational pickup remains transport- and client-dependent as described in the linked relay documentation.
 
 ## Usage and token cost
 

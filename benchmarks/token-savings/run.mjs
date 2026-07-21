@@ -6,6 +6,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { assistantEvidence } from "./evidence.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SYNTHETIC_BUILD = path.join(ROOT, "benchmarks", "token-savings", "synthetic-build.mjs");
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "cancel_failed"]);
@@ -149,6 +151,7 @@ function rolloutMetrics(file) {
   }
   if (!latest) throw new Error(`No token usage found in ${file}.`);
   const uncachedInputTokens = latest.input_tokens - (latest.cached_input_tokens ?? 0);
+  const evidence = assistantEvidence(assistantText);
   return {
     totalTokens: latest.total_tokens,
     inputTokens: latest.input_tokens,
@@ -165,13 +168,7 @@ function rolloutMetrics(file) {
     toolResultBytes,
     startCommandCalls,
     resultCommandCalls,
-    reportedMarker: assistantText.some(
-      (text) => /CPJ_BENCHMARK_RESULT[\s\S]{0,80}steps=\d+ checksum=[a-f0-9]{64}/.test(text),
-    ),
-    reportedExitZero: assistantText.some((text) => /exit (?:status|code)[^0-9-]{0,16}0\b/i.test(text)),
-    acknowledgedSavedResult: assistantText.some(
-      (text) => /saved[- ]result|result (?:is )?(?:ready|available)/i.test(text),
-    ),
+    ...evidence,
   };
 }
 
@@ -228,6 +225,28 @@ async function runCodex({ name, prompt, model, effort, directory, env = {} }) {
   }
   if (!threadId) throw new Error(`${name} Luna run returned no thread id.`);
   return { threadId, outputFile, errorFile, wallMs: Date.now() - startedAt };
+}
+
+function readCompletedExecThread(file) {
+  let threadId = null;
+  let completed = false;
+  let failure = null;
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event.type === "thread.started" && typeof event.thread_id === "string") threadId = event.thread_id;
+    if (event.type === "turn.completed") completed = true;
+    if (event.type === "turn.failed") failure = event.error ?? event;
+  }
+  if (!threadId || !completed || failure) {
+    throw new Error(`Cannot resume incomplete Codex exec artifact ${file}: ${JSON.stringify(failure)}`);
+  }
+  return threadId;
 }
 
 async function waitForTreatmentJob(
@@ -332,11 +351,14 @@ const intervalMs = positiveInteger(option(process.argv, "--interval-ms"), 1_000,
 const pairs = positiveInteger(option(process.argv, "--pairs"), 3, "--pairs");
 const outputMode = option(process.argv, "--output-mode", "compact");
 if (!["compact", "verbose"].includes(outputMode)) throw new Error("--output-mode must be compact or verbose.");
-const directory = path.resolve(option(
-  process.argv,
-  "--output",
-  path.join(os.tmpdir(), `codex-process-jobs-token-benchmark-${safeTimestamp()}`),
-));
+const resumeDirectory = option(process.argv, "--resume");
+const outputDirectory = option(process.argv, "--output");
+if (resumeDirectory && outputDirectory) throw new Error("Use either --resume or --output, not both.");
+const directory = path.resolve(
+  resumeDirectory
+    ?? outputDirectory
+    ?? path.join(os.tmpdir(), `codex-process-jobs-token-benchmark-${safeTimestamp()}`),
+);
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
 
 const commandArgv = [
@@ -377,10 +399,105 @@ function buildPrompt(arm, pair) {
   ].join("\n");
 }
 
+function validateArm(arm, metrics, job = null) {
+  const expectedStartCalls = arm === "foreground" ? 0 : 1;
+  if (metrics.startCommandCalls !== expectedStartCalls) {
+    throw new Error(`${arm} called the process-jobs start command ${metrics.startCommandCalls} times.`);
+  }
+  if (arm === "foreground") {
+    if (!metrics.reportedMarker || !metrics.reportedExitZero) {
+      throw new Error("Foreground arm did not report the required terminal evidence.");
+    }
+    return;
+  }
+  const completionMode = arm === "cpj-report" ? "report" : "inspect";
+  if (completionMode === "report" && metrics.resultCommandCalls !== 0) {
+    throw new Error("CPJ report arm inspected the saved result; trial is invalid.");
+  }
+  if (completionMode === "report" && metrics.reportedMarker) {
+    throw new Error("CPJ report arm unexpectedly reported process output; trial is invalid.");
+  }
+  if (completionMode === "report" && !metrics.reportedExitZero) {
+    throw new Error("CPJ report arm did not acknowledge the terminal exit status.");
+  }
+  if (completionMode === "report" && !metrics.acknowledgedSavedResult) {
+    throw new Error("CPJ report arm did not acknowledge saved-result availability.");
+  }
+  if (completionMode === "inspect" && metrics.resultCommandCalls !== 1) {
+    throw new Error(`CPJ inspect arm called result ${metrics.resultCommandCalls} times.`);
+  }
+  if (completionMode === "inspect" && (!metrics.reportedMarker || !metrics.reportedExitZero)) {
+    throw new Error("CPJ inspect arm did not report the required terminal evidence.");
+  }
+  if (!job || job.status !== "completed" || job.exitCode !== 0 || job.notification?.status !== "delivered") {
+    throw new Error(`${arm} synthetic build ended as ${job.status} with exit code ${job.exitCode}.`);
+  }
+}
+
+function findCompletedTreatmentJob(threadId, arm, pair) {
+  const matches = readJobRecords().filter((job) => job.ownerThreadId === threadId);
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one resumed ${arm} job for ${threadId}; found ${matches.length}.`);
+  }
+  const [job] = matches;
+  if (job.name !== treatmentLabel(arm, pair) || JSON.stringify(job.argv) !== JSON.stringify(commandArgv)) {
+    throw new Error(`Resumed ${arm} job does not match the expected label and argv.`);
+  }
+  return job;
+}
+
+function loadResumableArm(arm, pair, position, name) {
+  const execName = arm === "foreground" ? name : `${name}-launch`;
+  const outputFile = path.join(directory, `${execName}.jsonl`);
+  if (!fs.existsSync(outputFile)) return null;
+  const threadId = readCompletedExecThread(outputFile);
+  const rollout = findRollout(threadId);
+  const metrics = rolloutMetrics(rollout);
+  if (arm === "foreground") {
+    const unexpectedJobs = readJobRecords().filter((job) => job.ownerThreadId === threadId);
+    if (unexpectedJobs.length > 0) {
+      throw new Error(`Resumed foreground arm detached ${unexpectedJobs.length} process job(s).`);
+    }
+    validateArm(arm, metrics);
+    return { arm, pair, position: position + 1, resumed: true, threadId, wallMs: null, rollout, ...metrics };
+  }
+  const job = findCompletedTreatmentJob(threadId, arm, pair);
+  validateArm(arm, metrics, job);
+  return {
+    arm,
+    pair,
+    position: position + 1,
+    resumed: true,
+    threadId,
+    launchWallMs: null,
+    wallMs: null,
+    jobId: job.id,
+    jobStatus: job.status,
+    jobExitCode: job.exitCode,
+    jobOwnerSurface: job.ownerSurface,
+    notificationStatus: job.notification?.status ?? null,
+    rollout,
+    ...metrics,
+  };
+}
+
 async function runArm(arm, pair, position) {
   const name = `pair-${String(pair).padStart(2, "0")}-${String(position + 1).padStart(2, "0")}-${arm}`;
   const prompt = buildPrompt(arm, pair);
-  fs.writeFileSync(path.join(directory, `${name}.prompt.txt`), `${prompt}\n`, { mode: 0o600, flag: "wx" });
+  const promptFile = path.join(directory, `${name}.prompt.txt`);
+  const expectedPrompt = `${prompt}\n`;
+  if (fs.existsSync(promptFile)) {
+    if (!resumeDirectory || fs.readFileSync(promptFile, "utf8") !== expectedPrompt) {
+      throw new Error(`Existing prompt does not match this benchmark configuration: ${promptFile}`);
+    }
+  } else {
+    fs.writeFileSync(promptFile, expectedPrompt, { mode: 0o600, flag: "wx" });
+  }
+  if (resumeDirectory) {
+    const resumed = loadResumableArm(arm, pair, position, name);
+    if (resumed) return resumed;
+  }
+
   if (arm === "foreground") {
     const jobsBefore = new Set(readJobRecords().map((job) => job.id));
     const run = await runCodex({ name, prompt, model, effort, directory });
@@ -392,11 +509,17 @@ async function runArm(arm, pair, position) {
     }
     const rollout = findRollout(run.threadId);
     const metrics = rolloutMetrics(rollout);
-    if (metrics.startCommandCalls !== 0) throw new Error("Foreground arm called the process-jobs start command.");
-    if (!metrics.reportedMarker || !metrics.reportedExitZero) {
-      throw new Error("Foreground arm did not report the required terminal evidence.");
-    }
-    return { arm, pair, position: position + 1, threadId: run.threadId, wallMs: run.wallMs, rollout, ...metrics };
+    validateArm(arm, metrics);
+    return {
+      arm,
+      pair,
+      position: position + 1,
+      resumed: false,
+      threadId: run.threadId,
+      wallMs: run.wallMs,
+      rollout,
+      ...metrics,
+    };
   }
 
   const completionMode = arm === "cpj-report" ? "report" : "inspect";
@@ -417,34 +540,12 @@ async function runArm(arm, pair, position) {
   await delay(1_000);
   const rollout = findRollout(launch.threadId);
   const metrics = rolloutMetrics(rollout);
-  if (metrics.startCommandCalls !== 1) {
-    throw new Error(`${arm} called the process-jobs start command ${metrics.startCommandCalls} times.`);
-  }
-  if (completionMode === "report" && metrics.resultCommandCalls !== 0) {
-    throw new Error("CPJ report arm inspected the saved result; trial is invalid.");
-  }
-  if (completionMode === "report" && metrics.reportedMarker) {
-    throw new Error("CPJ report arm unexpectedly reported process output; trial is invalid.");
-  }
-  if (completionMode === "report" && !metrics.reportedExitZero) {
-    throw new Error("CPJ report arm did not acknowledge the terminal exit status.");
-  }
-  if (completionMode === "report" && !metrics.acknowledgedSavedResult) {
-    throw new Error("CPJ report arm did not acknowledge saved-result availability.");
-  }
-  if (completionMode === "inspect" && metrics.resultCommandCalls !== 1) {
-    throw new Error(`CPJ inspect arm called result ${metrics.resultCommandCalls} times.`);
-  }
-  if (completionMode === "inspect" && (!metrics.reportedMarker || !metrics.reportedExitZero)) {
-    throw new Error("CPJ inspect arm did not report the required terminal evidence.");
-  }
-  if (job.status !== "completed" || job.exitCode !== 0) {
-    throw new Error(`${arm} synthetic build ended as ${job.status} with exit code ${job.exitCode}.`);
-  }
+  validateArm(arm, metrics, job);
   return {
     arm,
     pair,
     position: position + 1,
+    resumed: false,
     threadId: launch.threadId,
     launchWallMs: launch.wallMs,
     wallMs,
@@ -506,6 +607,7 @@ const summary = {
   model,
   effort,
   executionSurface: "codex exec CLI harness with completion mode forced per CPJ arm",
+  resumedFrom: resumeDirectory ? directory : null,
   syntheticBuild: { command, durationMs, intervalMs, outputMode },
   pairs,
   armOrder: ARMS,

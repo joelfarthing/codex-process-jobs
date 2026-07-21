@@ -22,6 +22,8 @@ node benchmarks/token-savings/run.mjs \
   --output-mode compact
 ```
 
+If an arm is interrupted by capacity, transport failure, or a benchmark-validator false negative, rerun with the identical arguments plus `--resume <previous-output-directory>`. The harness revalidates and reuses completed arm rollouts, then runs only missing arms; it refuses configuration, label, argv, or behavioral mismatches.
+
 `compact` emits only two progress records plus the final marker and is the primary fairness run. `verbose` emits every synthetic compilation step and measures how proactive inspection behaves with realistic build output.
 
 Multiple pairs are still a benchmark sample rather than a population estimate. The generated neutrality booleans are explicitly screening observations for that sample. The honest publication claim should distinguish total tokens, uncached input plus output, and the larger quality-of-life result: CPJ releases the conversation while the ordinary process is still running.

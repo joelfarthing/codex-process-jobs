@@ -63,16 +63,17 @@ node scripts/install.mjs --apply --agent-policy none
 - copies a runtime-only snapshot to `~/plugins/codex-process-jobs`;
 - creates or updates only the matching entry in `~/.agents/plugins/marketplace.json`;
 - enables the Codex hooks feature and installs the plugin's hook definitions, without trusting them;
-- runs `codex plugin add codex-process-jobs@<personal-marketplace-name>`; and
+- runs `codex plugin add codex-process-jobs@<personal-marketplace-name>`;
+- preserves validated prior versioned CPJ cache generations so already-open tasks keep resolving the exact skill paths they catalogued; and
 - changes exactly one `AGENTS.md` only when separately previewed `--agent-policy global` or `--agent-policy project --project-root <path>` was selected; `--agent-policy none` leaves all agent instructions untouched.
 
-Existing plugin and configuration files are backed up, and a pre-install failure rolls the local source snapshot and configuration back.
+Existing plugin and configuration files are backed up, and an install failure rolls the local source snapshot, configuration, and prior CPJ cache generations back. Preserved generations are exact snapshots, not aliases to newer code, so their hook and skill contents remain consistent with what an open task originally loaded. They are small and are not pruned automatically; users may remove obsolete generations after every task that references them has ended.
 
 The installer never trusts hooks automatically. After restarting the client, open `/hooks`, inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source, and approve their exact hashes. Direct completion delivery does not depend on hook trust, but hook-boundary fallback remains unavailable until the user approves the definitions.
 
 The installer refuses to replace the plugin while tracked jobs are active. `--allow-active-jobs` is an explicit escape hatch after inspecting those jobs.
 
-Restart every open Codex client after installation or update. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After the restart, approve the reviewed hook in `/hooks`, then start a fresh task so the client picks up the new plugin snapshot and hook registry. Starting a new task without restarting the client is not sufficient after a hot reinstall.
+Restart every open Codex client after installation or update. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After the restart, approve the reviewed hook in `/hooks`, then start a fresh task so the client picks up the new plugin snapshot and hook registry. Starting a new task without restarting the client is not sufficient after a hot reinstall. Already-open tasks may continue using their preserved prior generation; they do not silently switch to the new implementation.
 
 ### Encourage automatic use
 

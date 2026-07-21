@@ -39,8 +39,22 @@ function installEnv(t, home) {
   fs.writeFileSync(mock, [
     "#!/usr/bin/env node",
     "const fs = require('node:fs');",
-    "fs.appendFileSync(process.env.MOCK_CODEX_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n');",
-    "if (process.argv[2] === '--version') { console.log('codex-cli test'); process.exit(0); }",
+    "const path = require('node:path');",
+    "const args = process.argv.slice(2);",
+    "fs.appendFileSync(process.env.MOCK_CODEX_CALLS, JSON.stringify(args) + '\\n');",
+    "if (args[0] === '--version') { console.log('codex-cli test'); process.exit(0); }",
+    "if (args[0] === 'plugin' && args[1] === 'add' && process.env.MOCK_CODEX_REPLACE_CACHE === '1') {",
+    "  const source = path.join(process.env.HOME, 'plugins', 'codex-process-jobs');",
+    "  const manifest = JSON.parse(fs.readFileSync(path.join(source, '.codex-plugin', 'plugin.json'), 'utf8'));",
+    "  const cacheRoot = path.join(process.env.CODEX_HOME, 'plugins', 'cache', 'personal', 'codex-process-jobs');",
+    "  fs.rmSync(cacheRoot, { recursive: true, force: true });",
+    "  fs.mkdirSync(cacheRoot, { recursive: true });",
+    "  fs.cpSync(source, path.join(cacheRoot, manifest.version), { recursive: true });",
+    "  if (process.env.MOCK_CODEX_FAIL_PLUGIN_ADD === '1') {",
+    "    process.stderr.write('simulated plugin add failure\\n');",
+    "    process.exit(9);",
+    "  }",
+    "}",
     "console.log(JSON.stringify({ ok: true }));",
   ].join("\n") + "\n", { mode: 0o755 });
   return {
@@ -51,6 +65,22 @@ function installEnv(t, home) {
     MOCK_CODEX_CALLS: calls,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
   };
+}
+
+function cacheRoot(home) {
+  return path.join(home, ".codex", "plugins", "cache", "personal", "codex-process-jobs");
+}
+
+function seedCacheGeneration(home, version, marker = version) {
+  const generation = path.join(cacheRoot(home), version);
+  fs.mkdirSync(path.join(generation, ".codex-plugin"), { recursive: true });
+  fs.mkdirSync(path.join(generation, "skills", "start"), { recursive: true });
+  fs.writeFileSync(path.join(generation, ".codex-plugin", "plugin.json"), `${JSON.stringify({
+    name: "codex-process-jobs",
+    version,
+  }, null, 2)}\n`);
+  fs.writeFileSync(path.join(generation, "skills", "start", "SKILL.md"), `${marker}\n`);
+  return generation;
 }
 
 function runInstaller(args, env) {
@@ -219,6 +249,90 @@ test("none policy installs without changing any AGENTS.md", (t) => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.equal(fs.readFileSync(globalAgentFile, "utf8"), "# Keep me unchanged\n");
   assert.match(result.stdout, /no AGENTS\.md was changed/i);
+});
+
+test("preserves every validated prior cache generation when Codex refreshes its cache", (t) => {
+  const home = temporaryHome(t);
+  const env = {
+    ...installEnv(t, home),
+    MOCK_CODEX_REPLACE_CACHE: "1",
+  };
+  const firstVersion = "0.1.0+codex.local-20260720-010101";
+  const secondVersion = "0.1.0+codex.local-20260720-020202";
+  const first = seedCacheGeneration(home, firstVersion, "first historical skill");
+  const second = seedCacheGeneration(home, secondVersion, "second historical skill");
+
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const installedManifest = JSON.parse(fs.readFileSync(
+    path.join(home, "plugins", "codex-process-jobs", ".codex-plugin", "plugin.json"),
+    "utf8"
+  ));
+  assert.equal(
+    fs.readFileSync(path.join(first, "skills", "start", "SKILL.md"), "utf8"),
+    "first historical skill\n"
+  );
+  assert.equal(
+    fs.readFileSync(path.join(second, "skills", "start", "SKILL.md"), "utf8"),
+    "second historical skill\n"
+  );
+  assert.equal(
+    fs.existsSync(path.join(cacheRoot(home), installedManifest.version, "skills", "start", "SKILL.md")),
+    true
+  );
+  assert.ok(result.stdout.includes(`Prior cache generations retained for open tasks: ${firstVersion}, ${secondVersion}`));
+  assert.ok(result.stdout.includes(`Cache generations restored after refresh: ${firstVersion}, ${secondVersion}`));
+});
+
+test("restores prior cache generations and removes the failed new generation on rollback", (t) => {
+  const home = temporaryHome(t);
+  const env = {
+    ...installEnv(t, home),
+    MOCK_CODEX_REPLACE_CACHE: "1",
+    MOCK_CODEX_FAIL_PLUGIN_ADD: "1",
+  };
+  const oldVersion = "0.1.0+codex.local-20260719-030303";
+  const oldGeneration = seedCacheGeneration(home, oldVersion, "rollback survivor");
+
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /simulated plugin add failure/);
+  assert.equal(
+    fs.readFileSync(path.join(oldGeneration, "skills", "start", "SKILL.md"), "utf8"),
+    "rollback survivor\n"
+  );
+  assert.deepEqual(fs.readdirSync(cacheRoot(home)), [oldVersion]);
+});
+
+test("refuses malformed cache generations before making install changes", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const directoryVersion = "0.1.0+codex.local-20260718-040404";
+  const generation = seedCacheGeneration(home, directoryVersion);
+  fs.writeFileSync(path.join(generation, ".codex-plugin", "plugin.json"), `${JSON.stringify({
+    name: "codex-process-jobs",
+    version: "0.1.0+codex.local-wrong",
+  })}\n`);
+
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /does not match manifest version/);
+  assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);
+  assert.equal(fs.existsSync(generation), true);
+});
+
+test("refuses symlinks anywhere inside a cache generation", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const version = "0.1.0+codex.local-20260718-050505";
+  const generation = seedCacheGeneration(home, version);
+  fs.symlinkSync(path.join(generation, "skills", "start", "SKILL.md"), path.join(generation, "linked-skill"));
+
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Refusing symlinked plugin cache content/);
+  assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);
+  assert.equal(fs.lstatSync(path.join(generation, "linked-skill")).isSymbolicLink(), true);
 });
 
 test("deprecated --with-agent-policy alias still selects global policy", (t) => {

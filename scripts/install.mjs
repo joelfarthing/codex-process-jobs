@@ -117,6 +117,146 @@ function validateManifest(manifest, file) {
   return manifest;
 }
 
+function validatePathComponent(value, label) {
+  const component = String(value ?? "");
+  if (!component || component === "." || component === ".." || path.basename(component) !== component) {
+    fail(`Invalid ${label}: ${component || "(empty)"}.`);
+  }
+  return component;
+}
+
+function validateOwnedNode(file, label, expectedType = null) {
+  const stat = fs.lstatSync(file);
+  if (stat.isSymbolicLink()) fail(`Refusing symlinked ${label}: ${file}`);
+  if (expectedType === "directory" && !stat.isDirectory()) {
+    fail(`Expected ${label} to be a directory: ${file}`);
+  }
+  if (expectedType === "file" && !stat.isFile()) {
+    fail(`Expected ${label} to be a regular file: ${file}`);
+  }
+  if (!stat.isDirectory() && !stat.isFile()) {
+    fail(`Refusing non-file ${label}: ${file}`);
+  }
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    fail(`Refusing ${label} not owned by the current user: ${file}`);
+  }
+  return stat;
+}
+
+function validateOwnedTree(root, label) {
+  const pending = [root];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const stat = validateOwnedNode(current, label);
+    if (!stat.isDirectory()) continue;
+    for (const entry of fs.readdirSync(current)) pending.push(path.join(current, entry));
+  }
+}
+
+function pluginCacheRoot(codexHome, marketplaceName) {
+  const marketplace = validatePathComponent(marketplaceName, "marketplace name");
+  return path.join(codexHome, "plugins", "cache", marketplace, PLUGIN_NAME);
+}
+
+function validateCacheGeneration(generation, expectedVersion) {
+  validatePathComponent(expectedVersion, "cache generation version");
+  validateOwnedTree(generation, "plugin cache content");
+  const manifestFile = path.join(generation, ".codex-plugin", "plugin.json");
+  validateOwnedNode(manifestFile, "plugin cache manifest", "file");
+  const manifest = validateManifest(readJson(manifestFile, "plugin cache manifest"), manifestFile);
+  if (manifest.version !== expectedVersion) {
+    fail(
+      `Plugin cache directory ${generation} does not match manifest version ${manifest.version}.`
+    );
+  }
+  return manifest;
+}
+
+function snapshotPluginCache(codexHome, marketplaceName) {
+  const cacheRoot = pluginCacheRoot(codexHome, marketplaceName);
+  if (!fs.existsSync(cacheRoot)) return { cacheRoot, temporaryRoot: null, versions: [] };
+  validateOwnedNode(cacheRoot, "plugin cache root", "directory");
+
+  const entries = fs.readdirSync(cacheRoot, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), `${PLUGIN_NAME}-cache-`));
+  fs.chmodSync(temporaryRoot, 0o700);
+  const versions = [];
+  try {
+    for (const entry of entries) {
+      const version = validatePathComponent(entry.name, "cache generation version");
+      const generation = path.join(cacheRoot, version);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        fail(`Refusing unexpected plugin cache entry: ${generation}`);
+      }
+      validateCacheGeneration(generation, version);
+      fs.cpSync(generation, path.join(temporaryRoot, version), {
+        recursive: true,
+        preserveTimestamps: true,
+        dereference: false,
+        verbatimSymlinks: true,
+      });
+      versions.push(version);
+    }
+    return { cacheRoot, temporaryRoot, versions };
+  } catch (error) {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function restorePluginCache(snapshot) {
+  if (!snapshot || snapshot.versions.length === 0) return [];
+  if (fs.existsSync(snapshot.cacheRoot)) {
+    validateOwnedNode(snapshot.cacheRoot, "plugin cache root", "directory");
+  } else {
+    fs.mkdirSync(snapshot.cacheRoot, { recursive: true, mode: 0o700 });
+  }
+
+  const restored = [];
+  for (const version of snapshot.versions) {
+    const target = path.join(snapshot.cacheRoot, version);
+    if (fs.existsSync(target)) {
+      validateCacheGeneration(target, version);
+      continue;
+    }
+    const source = path.join(snapshot.temporaryRoot, version);
+    validateCacheGeneration(source, version);
+    const stage = path.join(
+      snapshot.cacheRoot,
+      `.restore-${process.pid}-${crypto.randomBytes(3).toString("hex")}`
+    );
+    try {
+      fs.cpSync(source, stage, {
+        recursive: true,
+        preserveTimestamps: true,
+        dereference: false,
+        verbatimSymlinks: true,
+      });
+      fs.renameSync(stage, target);
+      restored.push(version);
+    } catch (error) {
+      fs.rmSync(stage, { recursive: true, force: true });
+      throw error;
+    }
+  }
+  return restored;
+}
+
+function removeNewCacheGeneration(snapshot, version) {
+  if (!snapshot || snapshot.versions.includes(version)) return;
+  const target = path.join(snapshot.cacheRoot, validatePathComponent(version, "plugin version"));
+  if (!fs.existsSync(target)) return;
+  validateCacheGeneration(target, version);
+  fs.rmSync(target, { recursive: true, force: true });
+}
+
+function cleanupPluginCacheSnapshot(snapshot) {
+  if (snapshot?.temporaryRoot) {
+    fs.rmSync(snapshot.temporaryRoot, { recursive: true, force: true });
+  }
+}
+
 function resolveHome(env) {
   return path.resolve(env.CODEX_PROCESS_JOBS_INSTALL_HOME || env.HOME || os.homedir());
 }
@@ -338,6 +478,7 @@ function planLines(plan, options) {
     `  personal marketplace: ${plan.marketplaceFile}`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
     "  completion hooks: enable hooks and install PostToolUse, Stop, and UserPromptSubmit definitions; each requires explicit approval in /hooks after restart",
+    "  open-task compatibility: preserve validated prior CPJ cache generations across plugin refresh",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
       : "  source safety: source checkout is separate from the runtime destination",
@@ -512,11 +653,13 @@ export async function applyInstall(plan, options, env = process.env) {
     ? uniqueBackupPath(policy.target, plan.timestamp)
     : null;
   const configBackup = configOriginal != null ? uniqueBackupPath(configFile, plan.timestamp) : null;
+  const cacheSnapshot = snapshotPluginCache(plan.codexHome, marketplace.name);
 
   let destinationBackup = null;
   let marketplaceChanged = false;
   let agentChanged = false;
   let configMayHaveChanged = false;
+  let pluginAddAttempted = false;
   try {
     destinationBackup = copyPlugin(plan);
     if (marketplaceBackup) fs.copyFileSync(plan.marketplaceFile, marketplaceBackup);
@@ -532,7 +675,9 @@ export async function applyInstall(plan, options, env = process.env) {
     configMayHaveChanged = true;
     if (configBackup) fs.copyFileSync(configFile, configBackup);
     ensureHooksEnabled(env);
+    pluginAddAttempted = true;
     const installed = runCodexPluginAdd(marketplace.name, env);
+    const restoredCacheVersions = restorePluginCache(cacheSnapshot);
     return {
       selector: installed.selector,
       version: plan.installVersion,
@@ -544,14 +689,32 @@ export async function applyInstall(plan, options, env = process.env) {
       agentFile: policy.target,
       agentBackup,
       configBackup,
+      preservedCacheVersions: cacheSnapshot.versions,
+      restoredCacheVersions,
     };
   } catch (error) {
+    let cacheRollbackError = null;
+    try {
+      if (pluginAddAttempted) removeNewCacheGeneration(cacheSnapshot, plan.installVersion);
+      restorePluginCache(cacheSnapshot);
+    } catch (rollbackError) {
+      cacheRollbackError = rollbackError;
+    }
     if (agentChanged) restoreFile(policy.target, agentOriginal, agentMode);
     if (marketplaceChanged) restoreFile(plan.marketplaceFile, marketplaceOriginal);
     if (configMayHaveChanged) restoreFile(configFile, configOriginal);
     if (fs.existsSync(plan.destination)) fs.rmSync(plan.destination, { recursive: true, force: true });
     if (destinationBackup && fs.existsSync(destinationBackup)) fs.renameSync(destinationBackup, plan.destination);
+    if (cacheRollbackError) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)} `
+        + `Plugin cache rollback also failed: ${cacheRollbackError.message}`,
+        { cause: error }
+      );
+    }
     throw error;
+  } finally {
+    cleanupPluginCacheSnapshot(cacheSnapshot);
   }
 }
 
@@ -576,6 +739,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
     result.agentBackup ? `AGENTS.md backup: ${result.agentBackup}` : null,
     result.configBackup ? `Codex config backup: ${result.configBackup}` : null,
+    result.preservedCacheVersions.length > 0
+      ? `Prior cache generations retained for open tasks: ${result.preservedCacheVersions.join(", ")}`
+      : "Prior cache generations retained for open tasks: none found.",
+    result.restoredCacheVersions.length > 0
+      ? `Cache generations restored after refresh: ${result.restoredCacheVersions.join(", ")}`
+      : null,
     result.agentPolicyMode === "none" ? "AGENTS.md policy: none selected; no AGENTS.md was changed." : null,
     "Completion hooks: installed but intentionally left for explicit user approval in /hooks.",
   ].filter(Boolean).join("\n") + "\n");

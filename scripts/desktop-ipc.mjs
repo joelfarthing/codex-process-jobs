@@ -156,9 +156,29 @@ function sendRequest(socket, clientId, method, params, version, timeoutMs) {
   });
 }
 
+function desktopTurnInput(input) {
+  const items = typeof input === "string" ? [{ type: "text", text: input }] : input;
+  if (!Array.isArray(items) || items.length === 0) {
+    throw desktopIpcError("Desktop IPC notification input must be a non-empty array.");
+  }
+  return items.map((item) => {
+    if (item?.type === "text" && typeof item.text === "string") {
+      return { type: "text", text: item.text, text_elements: [] };
+    }
+    if (
+      item?.type === "skill"
+      && typeof item.name === "string"
+      && typeof item.path === "string"
+    ) {
+      return { type: "skill", name: item.name, path: item.path };
+    }
+    throw desktopIpcError("Desktop IPC notification input contains an unsupported item.");
+  });
+}
+
 export async function startDesktopNotificationTurn(
   job,
-  prompt,
+  input,
   threadId,
   timeoutMs,
   env = process.env,
@@ -210,7 +230,7 @@ export async function startDesktopNotificationTurn(
       {
         conversationId: threadId,
         turnStartParams: {
-          input: [{ type: "text", text: prompt, text_elements: [] }],
+          input: desktopTurnInput(input),
         },
       },
       START_TURN_VERSION,

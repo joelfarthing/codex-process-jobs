@@ -8,6 +8,7 @@ import test from "node:test";
 import { resolveDesktopIpcSocket, startDesktopNotificationTurn } from "../scripts/desktop-ipc.mjs";
 import { writePreferences } from "../scripts/preferences.mjs";
 import {
+  buildNotificationInput,
   buildNotificationPrompt,
   deliverNotificationTurn,
   readLatestTaskLifecycle,
@@ -31,6 +32,7 @@ function createMockCodex(t, root) {
     "  else if (message.id === 2) send({ id: 2, result: { thread: { id: message.params.threadId, status: { type: 'idle' } } } });",
     "  else if (message.id === 3) {",
     "    fs.writeFileSync(process.env.MOCK_NOTIFY_PROMPT, message.params.input[0].text);",
+    "    if (process.env.MOCK_NOTIFY_INPUT) fs.writeFileSync(process.env.MOCK_NOTIFY_INPUT, JSON.stringify(message.params.input));",
     "    send({ id: 3, result: { turn: { id: 'turn-notify-001', status: 'inProgress' } } });",
     "    setTimeout(() => send({ method: 'turn/completed', params: { threadId: message.params.threadId, turn: { id: 'turn-notify-001', status: 'completed' } } }), 10);",
     "  }",
@@ -71,6 +73,7 @@ async function createMockDesktopRouter(t, rollout, promptFile) {
           }));
         } else if (message.method === "thread-follower-start-turn") {
           fs.writeFileSync(promptFile, message.params.turnStartParams.input[0].text);
+          fs.writeFileSync(`${promptFile}.input.json`, JSON.stringify(message.params.turnStartParams.input));
           fs.appendFileSync(rollout, `${JSON.stringify({
             timestamp: "2026-07-10T12:01:00Z",
             type: "event_msg",
@@ -161,6 +164,28 @@ test("App and remote notices inspect results while hidden-prone surfaces only re
     assert.match(prompt, /Briefly acknowledge/);
     assert.doesNotMatch(prompt, /--peek|recommend the single next best step/);
   }
+});
+
+test("proactive notification input preloads the fixed result skill without exposing output", () => {
+  for (const job of [
+    terminalJob({ ownerSurface: "app" }),
+    terminalJob({ ownerSurface: "vscode", goalMode: true }),
+  ]) {
+    const input = buildNotificationInput(job, { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
+    assert.equal(input.length, 2);
+    assert.equal(input[0].type, "text");
+    assert.equal(input[1].type, "skill");
+    assert.equal(input[1].name, "codex-process-jobs:result");
+    assert.match(input[1].path, /\/skills\/result\/SKILL\.md$/);
+    assert.equal(fs.lstatSync(input[1].path).isFile(), true);
+    assert.doesNotMatch(JSON.stringify(input), /malicious|untrusted process output|ignore prior instructions/);
+  }
+
+  const report = buildNotificationInput(
+    terminalJob({ ownerSurface: "cli" }),
+    { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" },
+  );
+  assert.deepEqual(report.map((item) => item.type), ["text"]);
 });
 
 test("Goal-mode notice consumes the bounded result and continues authorized Goal work", () => {
@@ -315,13 +340,15 @@ test("app-server relay resumes the owner and completes a synthetic turn", async 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notify-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const promptFile = path.join(root, "prompt.txt");
+  const inputFile = path.join(root, "input.json");
   const codex = createMockCodex(t, root);
-  const result = await deliverNotificationTurn(terminalJob(), {
+  const result = await deliverNotificationTurn(terminalJob({ ownerSurface: "remote" }), {
     ...process.env,
     CODEX_PROCESS_JOBS_CODEX_BIN: codex,
     CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
     CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
     MOCK_NOTIFY_PROMPT: promptFile,
+    MOCK_NOTIFY_INPUT: inputFile,
   });
   assert.deepEqual(result, {
     threadId: "thread-notify-001",
@@ -330,6 +357,10 @@ test("app-server relay resumes the owner and completes a synthetic turn", async 
     transport: "app-server",
   });
   assert.match(fs.readFileSync(promptFile, "utf8"), /Background job finished/);
+  const input = JSON.parse(fs.readFileSync(inputFile, "utf8"));
+  assert.deepEqual(input.map((item) => item.type), ["text", "skill"]);
+  assert.equal(input[1].name, "codex-process-jobs:result");
+  assert.match(input[1].path, /\/skills\/result\/SKILL\.md$/);
 });
 
 test("app-server relay ignores an interleaved completion from the same thread", async (t) => {
@@ -445,6 +476,11 @@ test("Codex App relay uses private Desktop IPC and confirms the matching durable
   assert.match(prompt, /^Background job finished$/m);
   assert.match(prompt, /^Codex Process Jobs notice: No process output is included\.$/m);
   assert.doesNotMatch(prompt, /malicious|untrusted process output|ignore prior instructions/);
+  const input = JSON.parse(fs.readFileSync(`${promptFile}.input.json`, "utf8"));
+  assert.deepEqual(input.map((item) => item.type), ["text", "skill"]);
+  assert.deepEqual(input[0].text_elements, []);
+  assert.equal(input[1].name, "codex-process-jobs:result");
+  assert.match(input[1].path, /\/skills\/result\/SKILL\.md$/);
 });
 
 test("notifier persists delivered thread and turn metadata", async (t) => {

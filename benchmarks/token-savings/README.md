@@ -12,6 +12,8 @@ The runner uses `codex exec`, then forces the report or inspect instruction for 
 
 The harness reports total tokens, cached and uncached input, output tokens, model invocations, tool calls, and end-to-end wall time from Codex rollout records. Raw JSONL stays in a private temporary directory because it can contain full task context. Only reviewed aggregate results should be committed or published.
 
+The inspect arm also enforces the optimized completion shape: the direct relay structurally preloads CPJ's existing `result` skill, so the model must not spend a separate invocation reading `skills/result/SKILL.md`. A valid inspect trial performs exactly one bounded result command and uses at most five total model invocations while still reporting equivalent terminal evidence.
+
 ```bash
 node benchmarks/token-savings/run.mjs \
   --model gpt-5.6-luna \

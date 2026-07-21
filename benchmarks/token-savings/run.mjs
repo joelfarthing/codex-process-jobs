@@ -106,6 +106,7 @@ function rolloutMetrics(file) {
   const assistantText = [];
   let startCommandCalls = 0;
   let resultCommandCalls = 0;
+  let resultSkillReadCalls = 0;
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) continue;
     let event;
@@ -134,6 +135,7 @@ function rolloutMetrics(file) {
       const argumentsText = typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments);
       if (/job\.mjs[\s\S]{0,2000}\bstart\b/.test(argumentsText)) startCommandCalls += 1;
       if (/job\.mjs[\s\S]{0,2000}\bresult\b/.test(argumentsText)) resultCommandCalls += 1;
+      if (/skills[\\/]result[\\/]SKILL\.md/.test(argumentsText)) resultSkillReadCalls += 1;
     }
     if (
       event?.type === "response_item"
@@ -168,6 +170,7 @@ function rolloutMetrics(file) {
     toolResultBytes,
     startCommandCalls,
     resultCommandCalls,
+    resultSkillReadCalls,
     ...evidence,
   };
 }
@@ -425,6 +428,12 @@ function validateArm(arm, metrics, job = null) {
   }
   if (completionMode === "inspect" && metrics.resultCommandCalls !== 1) {
     throw new Error(`CPJ inspect arm called result ${metrics.resultCommandCalls} times.`);
+  }
+  if (completionMode === "inspect" && metrics.resultSkillReadCalls !== 0) {
+    throw new Error(`CPJ inspect arm redundantly read the preloaded result skill ${metrics.resultSkillReadCalls} times.`);
+  }
+  if (completionMode === "inspect" && metrics.modelInvocations > 5) {
+    throw new Error(`CPJ inspect arm used ${metrics.modelInvocations} model invocations; expected at most 5.`);
   }
   if (completionMode === "inspect" && (!metrics.reportedMarker || !metrics.reportedExitZero)) {
     throw new Error("CPJ inspect arm did not report the required terminal evidence.");

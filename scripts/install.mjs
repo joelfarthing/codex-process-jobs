@@ -590,7 +590,8 @@ function copyPlugin(plan) {
 }
 
 function runCodexPluginAdd(marketplaceName, env) {
-  const selector = `${PLUGIN_NAME}@${marketplaceName}`;
+  const marketplace = validatePathComponent(marketplaceName, "marketplace name");
+  const selector = [PLUGIN_NAME, marketplace].join("@");
   const result = spawnSync("codex", ["plugin", "add", selector, "--json"], {
     env,
     encoding: "utf8",

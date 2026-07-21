@@ -196,6 +196,30 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.equal(calls.some((args) => args.includes("config/batchWrite")), false);
 });
 
+test("passes a shell-like marketplace name as one literal Codex argument", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const marketplaceFile = path.join(home, ".agents", "plugins", "marketplace.json");
+  fs.mkdirSync(path.dirname(marketplaceFile), { recursive: true });
+  fs.writeFileSync(marketplaceFile, `${JSON.stringify({
+    name: "personal;printf-not-executed",
+    interface: { displayName: "Test marketplace" },
+    plugins: [],
+  }, null, 2)}\n`);
+
+  const result = runInstaller(["--apply", "--agent-policy", "none"], env);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+
+  const calls = fs.readFileSync(env.MOCK_CODEX_CALLS, "utf8").trim().split("\n").map(JSON.parse);
+  const pluginAdd = calls.find((args) => args[0] === "plugin" && args[1] === "add");
+  assert.deepEqual(pluginAdd, [
+    "plugin",
+    "add",
+    "codex-process-jobs@personal;printf-not-executed",
+    "--json",
+  ]);
+});
+
 test("default preview requires an explicit global, project, or none policy choice", (t) => {
   const home = temporaryHome(t);
   const env = installEnv(t, home);

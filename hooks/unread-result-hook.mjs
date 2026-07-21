@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
-
 import { isCliEntry } from "../scripts/cli-entry.mjs";
 import { completionMode } from "../scripts/notifier.mjs";
 import { TERMINAL_STATUSES, listJobs, nowIso, updateJob } from "../scripts/state.mjs";
@@ -11,10 +9,15 @@ const MAX_JOBS = 20;
 const DELIVERY_STARTUP_GRACE_MS = 5_000;
 const DELIVERY_STALE_MS = 11 * 60_000;
 
-function readInput() {
-  const raw = fs.readFileSync(0);
-  if (raw.length > MAX_INPUT_BYTES) throw new Error("Hook input is too large.");
-  const text = raw.toString("utf8").trim();
+async function readInput() {
+  const input = Buffer.allocUnsafe(MAX_INPUT_BYTES);
+  let length = 0;
+  for await (const chunk of process.stdin) {
+    if (length + chunk.length > MAX_INPUT_BYTES) throw new Error("Hook input is too large.");
+    chunk.copy(input, length);
+    length += chunk.length;
+  }
+  const text = input.subarray(0, length).toString("utf8").trim();
   return text ? JSON.parse(text) : {};
 }
 
@@ -180,7 +183,7 @@ export async function claimCandidates(
 }
 
 async function main() {
-  const input = readInput();
+  const input = await readInput();
   const eventName = String(input.hook_event_name ?? "UserPromptSubmit");
   const sessionId = String(input.session_id ?? process.env.CODEX_THREAD_ID ?? "").trim();
   if (

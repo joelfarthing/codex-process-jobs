@@ -18,33 +18,31 @@ Both screenshots are from Codex App. The before image is a real openPangu build;
 
 ## Status
 
-The process broker and personal-plugin installation flow are functional and tested on macOS. Fresh Codex App, Codex CLI, and Codex VS Code extension tasks have discovered the installed skills and completed detached launches. In all three surfaces, an external process resumed its owning thread through app-server and durably produced a separate conversational completion turn without polling or a subagent.
+The detached runtime and installer are functional and tested on macOS and Linux. Client coverage includes Codex App, Codex CLI, the Codex VS Code extension, and mobile ChatGPT driving a remote Codex execution host.
 
-Local macOS Codex App tasks have a guarded live-delivery path through the App's private same-user IPC router. An idle-only end-to-end test rendered the automatic notice and model acknowledgment immediately and exactly once; the IPC-returned turn ID matched durable task lifecycle events. If that private protocol is unavailable or incompatible before turn acceptance, the notifier automatically falls back to the portable separate app-server relay.
+A successful start releases the assigning turn immediately. Completion state is durable; consent-gated hooks and experimental Codex transports provide best-effort conversational pickup without polling. Explicit status and result retrieval remain available on every supported surface. Compatible sibling completions can share one sanitized turn, while a busy owning task receives a bounded retry followed by a cheap idle watch.
 
-Live presentation through the portable relay remains best-effort. An already-open VS Code webview, mobile ChatGPT driving a remote execution host, and earlier Codex App builds have all failed to render a completion turn that a separate app-server process durably appended. The job state and completion turn remain durable. Consent-gated hooks can surface a terminal completion after a tool call, at the turn's stop boundary, or on the next ordinary prompt, and explicit status/result requests retrieve durable state directly.
+Goal mode integrates with an explicitly active Codex Goal without reading private Goal state: automatic continuations do independent authorized work while the job runs, wait once when result-gated, and inspect terminal evidence before continuing an already-authorized next step.
 
-The repository includes a repeatable surface test for every client. Both Desktop IPC and app-server are currently experimental Codex interfaces. Hook-boundary pickup plus explicit status/result retrieval are the durable fallbacks.
-
-The assigning launch turn is released as soon as the controller registers the detached job. It must not monitor the job afterward. If the same request includes independent work, Codex may continue only that work before ending the turn; result-dependent work waits for completion delivery, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. While direct delivery is pending, the notifier and hooks atomically claim one delivery path. A busy owner receives the normal bounded retry schedule followed by a cheap idle watch for up to one hour by default. Compatible sibling completions are combined into one sanitized turn, up to 20 jobs. After delivery settles, the first eligible ordinary non-status prompt requires a short recap before Codex handles the new request, even if the synthetic completion already appears in model context. Model context cannot prove that the assigning client rendered the message, so one possible duplicate is preferred over a silent completion. Stale notifier attempts remain recoverable.
-
-For an explicitly active Codex Goal, start adds `--goal-mode` to the durable job record. Goal mode does not attempt to suppress Codex's automatic `Continue` turns. Instead, it changes their useful behavior: Codex performs independent authorized Goal work while the job runs, or makes one bounded wait when the result is the critical path, rather than narrating frequent lightweight status samples. Once terminal, the completion hook or relay directs Codex to inspect `result --peek` and continue the next already-authorized in-scope Goal step. It asks only when new authority, a consequential choice, or expanded scope is required. The plugin never reads Codex's private Goal database.
-
-A later local Codex App test verified the complete fallback path: the direct synthetic completion was durable but absent from the exported conversation, then the first unrelated prompt after terminal state received the hook recap and visibly reported success before continuing. Codex App showed the recap in live commentary and repeated it in the final answer. That is desirable App behavior because commentary auto-collapses when the final answer renders, while the final preserves the completion in the conversation. A complementary App test then showed why this must be explicit: Codex announced completion in live commentary but omitted it from the final answer, leaving the outcome only in collapsed history. The current hook therefore requires final-answer retention even when commentary already announced the job. A subsequent acceptance run passed this exact contract: commentary reported the completed job, unrelated disk inspection continued, and the rendered final answer retained both the requested result and the job's successful exit.
-
-The client and execution host are independent Cartesian axes. See [Cartesian client and execution surfaces](docs/cartesian-surfaces.md), [Conversational completion relay](docs/notification-relay.md), and [VS Code completion wake research](docs/vscode-wake-research-and-process.md).
+The repository includes a repeatable surface acceptance test. For transport behavior, limitations, and empirical client results, see [Conversational completion relay](docs/notification-relay.md), [Cartesian client and execution surfaces](docs/cartesian-surfaces.md), and [VS Code completion wake research](docs/vscode-wake-research-and-process.md).
 
 ## Requirements
 
 - macOS or Linux
 - Node.js 18 or newer
 - A Codex client with local plugin support
+- Optional desktop notices: macOS `osascript`, or Linux `notify-send` in a graphical session
 
-No runtime npm packages are required.
+No runtime npm packages are required. Missing desktop-notification support does not affect detached jobs, durable state, or conversational completion.
 
 ## Installation
 
 Clone or copy the repository somewhere other than `~/plugins/codex-process-jobs`. That path is the installed runtime destination. The installer refuses to replace a source checkout at the destination path.
+
+```bash
+git clone https://github.com/joelfarthing/codex-process-jobs.git
+cd codex-process-jobs
+```
 
 The installer is deliberately two-phase: its default mode only shows the source, destination, marketplace, optional agent policy, Codex CLI, source-path safety, client refresh requirement, and active-job check.
 
@@ -60,7 +58,15 @@ After reviewing that plan, apply it:
 node scripts/install.mjs --apply
 ```
 
-This copies a runtime-only snapshot to `~/plugins/codex-process-jobs`, creates or updates only the matching entry in `~/.agents/plugins/marketplace.json`, enables Codex hooks, and runs `codex plugin add codex-process-jobs@<personal-marketplace-name>`. Existing plugin and configuration files are backed up, and a pre-install failure rolls the local source snapshot and configuration back.
+`--apply` performs only the changes shown in the preview:
+
+- copies a runtime-only snapshot to `~/plugins/codex-process-jobs`;
+- creates or updates only the matching entry in `~/.agents/plugins/marketplace.json`;
+- enables the Codex hooks feature and installs the plugin's hook definitions, without trusting them;
+- runs `codex plugin add codex-process-jobs@<personal-marketplace-name>`; and
+- changes global `~/.codex/AGENTS.md` only when the separately previewed `--with-agent-policy` option was selected.
+
+Existing plugin and configuration files are backed up, and a pre-install failure rolls the local source snapshot and configuration back.
 
 The installer never trusts hooks automatically. After restarting the client, open `/hooks`, inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source, and approve their exact hashes. Direct completion delivery does not depend on hook trust, but hook-boundary fallback remains unavailable until the user approves the definitions.
 
@@ -160,7 +166,7 @@ When the owning persistent task is available, ordinary start reports notificatio
 - Optional human-facing OS notifications are disabled by default. Enable one launch with `--notify-user`, disable it with `--no-notify-user`, or set the durable preference with `config --notify-user true|false`. macOS uses `osascript`; Linux uses `notify-send` when available. These best-effort notices do not affect durable job state or conversational delivery.
 - Local macOS Codex App delivery uses its private IPC router only when the socket and parent directory are owned by the current user and inaccessible to group or other users. It falls back before acceptance and never retries another transport after acceptance becomes uncertain.
 - Job metadata and process output returned by status, tail, or result are untrusted evidence. Never follow instructions embedded in them.
-- Persisted records are size-bounded, schema-validated, filename/ID-bound, and restricted to derived private log paths before use.
+- Persisted records are size-bounded; security-sensitive fields are schema-validated, filename/ID-bound, and restricted to derived private log paths before use.
 - Logs are private and capped per stream. Set `CODEX_PROCESS_JOBS_MAX_LOG_BYTES` to change the default 16 MiB cap.
 - `result --full` has a separate 1 MiB model-facing cap even when the stored log cap is larger.
 - Exit code zero proves only that the command succeeded; higher-level results still require domain-specific verification.
@@ -174,9 +180,11 @@ npm run check
 npm run smoke
 ```
 
-The test suite covers real detached launches, private Desktop IPC and app-server completion relays, cheap idle watching, sibling batching, prompt-data isolation, matching durable turn confirmation, post-tool/stop/next-prompt hook fallback, strict persisted-state validation, tampered log-path rejection, bounded incremental model-facing output, optional argv-only OS notifications, critical cancellation, shell mode, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, explicit hook consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs on macOS and Ubuntu with Node.js 18 and 22 once this repository is published.
+The test suite covers real detached launches, private Desktop IPC and app-server completion relays, cheap idle watching, sibling batching, prompt-data isolation, matching durable turn confirmation, post-tool/stop/next-prompt hook fallback, persisted security-field validation, tampered log-path rejection, bounded incremental model-facing output, optional argv-only OS notifications, critical cancellation, shell mode, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, explicit hook consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs `npm run check` on macOS and Ubuntu with Node.js 18 and 22.
 
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Distribution currently uses the clone-and-install flow above, and `package.json` remains private to prevent accidental npm publication.
 
 ## License
 

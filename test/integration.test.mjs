@@ -505,6 +505,38 @@ test("cancellation terminates descendants in the detached process group", (t) =>
   assert.equal(waitUntil(() => !processExists(descendantPid)), true);
 });
 
+test("cancellation kills a surviving descendant after the process-group leader exits", (t) => {
+  const context = makeEnv(t);
+  const descendantCode = [
+    "process.on('SIGTERM', () => {});",
+    "console.log(`ready ${process.pid}`);",
+    "setInterval(() => {}, 1000);",
+  ].join(" ");
+  const leaderCode = [
+    "const { spawn } = require('node:child_process');",
+    `spawn(process.execPath, ['-e', ${JSON.stringify(descendantCode)}], { stdio: ['ignore', 'inherit', 'inherit'] });`,
+    "process.on('SIGTERM', () => process.exit(0));",
+    "setInterval(() => {}, 1000);",
+  ].join(" ");
+  const job = startJson(["--", process.execPath, "-e", leaderCode], context);
+  waitJson(job.id, context.env, 200);
+
+  const stdoutPath = path.join(context.env.CODEX_HOME, "process-jobs", "logs", `${job.id}.stdout.log`);
+  assert.equal(waitUntil(() => fs.existsSync(stdoutPath) && /ready \d+/.test(fs.readFileSync(stdoutPath, "utf8"))), true);
+  const descendantPid = Number.parseInt(/ready (\d+)/.exec(fs.readFileSync(stdoutPath, "utf8"))?.[1], 10);
+  assert.ok(Number.isInteger(descendantPid) && descendantPid > 0);
+  t.after(() => {
+    try {
+      process.kill(descendantPid, "SIGKILL");
+    } catch {}
+  });
+
+  const cancelled = JSON.parse(runCli(["cancel", job.id, "--json"], context.env).stdout);
+  assert.equal(cancelled.cancellation.forced, true);
+  assert.equal(cancelled.job.status, "cancelled");
+  assert.equal(waitUntil(() => !processExists(descendantPid)), true);
+});
+
 test("name-based status returns a lightweight recent-output snapshot", (t) => {
   const context = makeEnv(t);
   const job = startJson([

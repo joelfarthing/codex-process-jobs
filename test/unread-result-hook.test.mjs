@@ -48,6 +48,16 @@ function runHook(env, payload) {
   });
 }
 
+function runHookInput(env, input) {
+  return spawnSync(process.execPath, [HOOK], {
+    cwd: ROOT,
+    env,
+    input,
+    encoding: "utf8",
+    timeout: 5000,
+  });
+}
+
 function runHookAsync(env, payload) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [HOOK], { cwd: ROOT, env });
@@ -95,6 +105,20 @@ test("next-prompt hook surfaces one same-thread unread completion once", (t) => 
   });
   assert.equal(second.status, 0, second.stderr);
   assert.equal(second.stdout, "");
+});
+
+test("hook accepts exactly 1 MiB of stdin and rejects the first excess byte", (t) => {
+  const env = createEnv(t);
+  const atLimit = Buffer.alloc(1024 * 1024, 0x20);
+  atLimit.write("{}");
+  const accepted = runHookInput(env, atLimit);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(accepted.stdout, "");
+
+  const oversized = Buffer.alloc(1024 * 1024 + 1, 0x78);
+  const rejected = runHookInput(env, oversized);
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /Hook input is too large/);
 });
 
 test("Goal continuation receives terminal result-consumption and continuation instructions", (t) => {

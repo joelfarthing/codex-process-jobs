@@ -311,6 +311,22 @@ function restoreFile(file, original) {
   else atomicWrite(file, original);
 }
 
+function validateMutableFile(file, label) {
+  let stat;
+  try {
+    stat = fs.lstatSync(file);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    fail(`Refusing to modify ${label} because it is not a regular file: ${file}`);
+  }
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    fail(`Refusing to modify ${label} because it is not owned by the current user: ${file}`);
+  }
+}
+
 function copyPlugin(plan) {
   const parent = path.dirname(plan.destination);
   fs.mkdirSync(parent, { recursive: true });
@@ -388,11 +404,15 @@ export async function applyInstall(plan, options, env = process.env) {
     fail("Tracked process jobs are active. Wait for them to finish, or review and pass --allow-active-jobs.");
   }
 
+  const configFile = path.join(plan.codexHome, "config.toml");
+  validateMutableFile(plan.marketplaceFile, "personal marketplace");
+  validateMutableFile(configFile, "Codex configuration");
+  if (options.withAgentPolicy) validateMutableFile(plan.agentFile, "global agent policy");
+
   const marketplaceOriginal = fs.existsSync(plan.marketplaceFile)
     ? fs.readFileSync(plan.marketplaceFile, "utf8")
     : null;
   const agentOriginal = fs.existsSync(plan.agentFile) ? fs.readFileSync(plan.agentFile, "utf8") : null;
-  const configFile = path.join(plan.codexHome, "config.toml");
   const configOriginal = fs.existsSync(configFile) ? fs.readFileSync(configFile, "utf8") : null;
   const marketplace = mergeMarketplace(marketplaceOriginal == null ? null : JSON.parse(marketplaceOriginal));
   const policyText = options.withAgentPolicy ? fs.readFileSync(plan.agentPolicyFile, "utf8") : null;

@@ -63,6 +63,29 @@ function signalProcessGroup(pid, signal, killImpl) {
   }
 }
 
+function isProcessGroupAlive(pid, killImpl) {
+  try {
+    killImpl(-pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "EPERM") return true;
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+function isTrackedProcessGroupAlive(pid, expectedIdentity, options) {
+  const { validateIdentity, killImpl, identityOptions } = options;
+  if (validateIdentity(pid, expectedIdentity, identityOptions)) return true;
+
+  // POSIX reserves a process-group leader's numeric PID for the entire group
+  // lifetime. If that PID is occupied by a different process, the validated
+  // group has ended and must not be signalled. If the PID is free but the PGID
+  // still exists, leaderless descendants are keeping the original group alive.
+  if (isProcessAlive(pid, killImpl)) return false;
+  return isProcessGroupAlive(pid, killImpl);
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -82,16 +105,32 @@ export async function terminateTrackedProcess(pid, expectedIdentity, options = {
 
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
-    if (!validateIdentity(pid, expectedIdentity, options.identityOptions)) {
+    if (!isTrackedProcessGroupAlive(pid, expectedIdentity, {
+      validateIdentity,
+      killImpl,
+      identityOptions: options.identityOptions,
+    })) {
       return { terminated: true, forced: false };
     }
     await delay(pollMs);
   }
 
+  if (!isTrackedProcessGroupAlive(pid, expectedIdentity, {
+    validateIdentity,
+    killImpl,
+    identityOptions: options.identityOptions,
+  })) {
+    return { terminated: true, forced: false };
+  }
+
   const killDelivered = signalProcessGroup(pid, "SIGKILL", killImpl);
   const killDeadline = Date.now() + Math.min(2_000, Math.max(250, graceMs));
   while (Date.now() < killDeadline) {
-    if (!validateIdentity(pid, expectedIdentity, options.identityOptions)) {
+    if (!isTrackedProcessGroupAlive(pid, expectedIdentity, {
+      validateIdentity,
+      killImpl,
+      identityOptions: options.identityOptions,
+    })) {
       return { terminated: true, forced: killDelivered };
     }
     await delay(pollMs);

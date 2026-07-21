@@ -18,7 +18,7 @@ These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the exi
 1. Automatic prompts admit at most 20 compatible records, each containing only a validated job ID, terminal-status enum, and integer exit code, plus one fixed mode-selected instruction. Never interpolate names, commands, paths, errors, or process output.
 2. Notification presentation is claimed atomically under the per-job state lock; worker, notifier, and hook never overwrite a competitor's claim.
 3. Hook execution requires explicit `/hooks` consent; nothing may depend on the hook being trusted.
-4. All reads of process output are bounded; persisted records remain strict-schema, size-bounded, filename-bound, no-follow.
+4. All reads of process output are bounded; persisted records remain size-bounded and no-follow, with security-sensitive fields filename-bound and schema-validated.
 5. Malformed or unexpected state fails closed.
 
 ## 1. Extend notifier patience with a cheap idle-watch — implemented

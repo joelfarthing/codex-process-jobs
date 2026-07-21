@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { resolveDesktopIpcSocket } from "../scripts/desktop-ipc.mjs";
+import { resolveDesktopIpcSocket, startDesktopNotificationTurn } from "../scripts/desktop-ipc.mjs";
 import { writePreferences } from "../scripts/preferences.mjs";
 import {
   buildNotificationPrompt,
@@ -250,6 +250,39 @@ test("Desktop IPC requires an App-owned private same-user socket", async (t) => 
   ), null);
 });
 
+test("Desktop IPC rejects oversized frames before buffering their bodies", async (t) => {
+  const directory = fs.mkdtempSync("/tmp/cpj-ipc-frame-limit-");
+  const socketPath = path.join(directory, "ipc.sock");
+  fs.chmodSync(directory, 0o700);
+  const server = net.createServer((socket) => {
+    socket.once("data", () => {
+      const header = Buffer.alloc(4);
+      header.writeUInt32LE(1024 * 1024 + 1);
+      socket.write(header);
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  fs.chmodSync(socketPath, 0o600);
+  t.after(() => {
+    server.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    startDesktopNotificationTurn(
+      terminalJob({ ownerSurface: "app" }),
+      "bounded safe prompt",
+      "thread-notify-001",
+      1000,
+      { ...process.env, CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath },
+    ),
+    /Invalid Desktop IPC frame length: 1048577/,
+  );
+});
+
 test("relay refuses to start a completion turn while the owner is active", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notify-active-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -297,6 +330,83 @@ test("app-server relay resumes the owner and completes a synthetic turn", async 
     transport: "app-server",
   });
   assert.match(fs.readFileSync(promptFile, "utf8"), /Background job finished/);
+});
+
+test("app-server relay ignores an interleaved completion from the same thread", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notify-interleaved-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-interleaved");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "const readline = require('node:readline');",
+    "const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });",
+    "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+    "lines.on('line', (line) => {",
+    "  const message = JSON.parse(line);",
+    "  if (message.id === 1) send({ id: 1, result: {} });",
+    "  else if (message.id === 2) send({ id: 2, result: { thread: { id: message.params.threadId, status: { type: 'idle' } } } });",
+    "  else if (message.id === 3) {",
+    "    send({ id: 3, result: { turn: { id: 'turn-notify-target', status: 'inProgress' } } });",
+    "    send({ method: 'turn/completed', params: { threadId: message.params.threadId, turn: { id: 'turn-user-interleaved', status: 'completed' } } });",
+    "    setTimeout(() => send({ method: 'turn/completed', params: { threadId: message.params.threadId, turn: { id: 'turn-notify-target', status: 'completed' } } }), 20);",
+    "  }",
+    "});",
+  ].join("\n") + "\n", { mode: 0o755 });
+
+  const result = await deliverNotificationTurn(terminalJob(), {
+    ...process.env,
+    CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+  });
+  assert.deepEqual(result, {
+    threadId: "thread-notify-001",
+    turnId: "turn-notify-target",
+    status: "completed",
+    transport: "app-server",
+  });
+});
+
+test("app-server relay terminates on oversized newline-free protocol input", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notify-stdout-limit-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-stdout-overflow");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "process.stdout.write('x'.repeat(1024 * 1024 + 1));",
+    "setInterval(() => {}, 1000);",
+  ].join("\n") + "\n", { mode: 0o755 });
+
+  await assert.rejects(
+    deliverNotificationTurn(terminalJob(), {
+      ...process.env,
+      CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+      CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+      CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    }),
+    /protocol line exceeded 1048576 bytes/,
+  );
+});
+
+test("app-server relay terminates when stderr exceeds its diagnostic cap", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notify-stderr-limit-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-stderr-overflow");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "process.stderr.write('x'.repeat(64 * 1024 + 1));",
+    "setInterval(() => {}, 1000);",
+  ].join("\n") + "\n", { mode: 0o755 });
+
+  await assert.rejects(
+    deliverNotificationTurn(terminalJob(), {
+      ...process.env,
+      CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+      CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+      CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    }),
+    /stderr exceeded 65536 bytes/,
+  );
 });
 
 test("Codex App relay uses private Desktop IPC and confirms the matching durable turn", async (t) => {

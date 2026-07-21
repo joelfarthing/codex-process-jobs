@@ -2,7 +2,6 @@
 
 import fs from "node:fs";
 import process from "node:process";
-import readline from "node:readline";
 import { spawn } from "node:child_process";
 
 import { isCliEntry } from "./cli-entry.mjs";
@@ -20,6 +19,8 @@ const DEFAULT_IDLE_SETTLE_MS = 1_500;
 const DEFAULT_IDLE_WATCH_MS = 60 * 60_000;
 const DEFAULT_IDLE_WATCH_POLL_MS = 5_000;
 const MAX_LIFECYCLE_TAIL_BYTES = 8 * 1024 * 1024;
+const MAX_APP_SERVER_PROTOCOL_LINE_BYTES = 1024 * 1024;
+const MAX_APP_SERVER_STDERR_BYTES = 64 * 1024;
 const MAX_NOTIFICATION_BATCH = 20;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "cancel_failed"]);
 const INSPECT_SURFACES = new Set(["app", "remote"]);
@@ -184,11 +185,13 @@ async function deliverAppServerNotificationTurn(job, threadId, prompt, timeoutMs
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
     });
-    const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
     let settled = false;
     let accepted = false;
     let turnId = null;
-    let stderr = "";
+    const stdoutLine = Buffer.allocUnsafe(MAX_APP_SERVER_PROTOCOL_LINE_BYTES);
+    let stdoutLineLength = 0;
+    const stderrBuffer = Buffer.allocUnsafe(MAX_APP_SERVER_STDERR_BYTES);
+    let stderrLength = 0;
 
     const timeout = setTimeout(() => {
       finish(reject, relayError(
@@ -203,9 +206,17 @@ async function deliverAppServerNotificationTurn(job, threadId, prompt, timeoutMs
 
     function cleanup() {
       clearTimeout(timeout);
-      lines.close();
+      child.stdout.off("data", onStdoutData);
+      child.stderr.off("data", onStderrData);
       child.stdin.end();
-      if (child.exitCode == null && child.signalCode == null) child.kill("SIGTERM");
+      if (child.exitCode == null && child.signalCode == null) {
+        child.kill("SIGTERM");
+        const forceKill = setTimeout(() => {
+          if (child.exitCode == null && child.signalCode == null) child.kill("SIGKILL");
+        }, 1_000);
+        forceKill.unref();
+        child.once("exit", () => clearTimeout(forceKill));
+      }
     }
 
     function finish(handler, value) {
@@ -215,22 +226,19 @@ async function deliverAppServerNotificationTurn(job, threadId, prompt, timeoutMs
       handler(value);
     }
 
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (error) => {
-      finish(reject, relayError(`Unable to start Codex app-server: ${error.message}`, { accepted }));
-    });
-    child.on("exit", (code, signal) => {
-      if (settled) return;
-      const detail = stderr.trim() ? `: ${stderr.trim()}` : "";
-      finish(reject, relayError(`Codex app-server exited early (code=${code}, signal=${signal})${detail}`, { accepted }));
-    });
-    child.stdin.on("error", (error) => {
-      finish(reject, relayError(`Unable to write to Codex app-server: ${error.message}`, { accepted }));
-    });
+    function onStderrData(chunk) {
+      if (stderrLength + chunk.length > MAX_APP_SERVER_STDERR_BYTES) {
+        finish(reject, relayError(
+          `Codex app-server stderr exceeded ${MAX_APP_SERVER_STDERR_BYTES} bytes.`,
+          { accepted },
+        ));
+        return;
+      }
+      chunk.copy(stderrBuffer, stderrLength);
+      stderrLength += chunk.length;
+    }
 
-    lines.on("line", (line) => {
+    function handleStdoutLine(line) {
       if (!line.trim()) return;
       let message;
       try {
@@ -282,8 +290,9 @@ async function deliverAppServerNotificationTurn(job, threadId, prompt, timeoutMs
 
       if (message.method === "turn/completed" && message.params?.threadId === threadId) {
         const turn = message.params?.turn ?? {};
+        if (!accepted || turnId == null || turn.id !== turnId) return;
         if (turn.status === "completed") {
-          finish(resolve, { threadId, turnId: turn.id ?? turnId, status: turn.status, transport: "app-server" });
+          finish(resolve, { threadId, turnId, status: turn.status, transport: "app-server" });
         } else {
           finish(reject, relayError(
             `Notification turn ended with status ${turn.status ?? "unknown"}.`,
@@ -291,6 +300,43 @@ async function deliverAppServerNotificationTurn(job, threadId, prompt, timeoutMs
           ));
         }
       }
+    }
+
+    function onStdoutData(chunk) {
+      let offset = 0;
+      while (!settled && offset < chunk.length) {
+        const newline = chunk.indexOf(0x0a, offset);
+        const end = newline === -1 ? chunk.length : newline;
+        const segmentLength = end - offset;
+        if (stdoutLineLength + segmentLength > MAX_APP_SERVER_PROTOCOL_LINE_BYTES) {
+          finish(reject, relayError(
+            `Codex app-server protocol line exceeded ${MAX_APP_SERVER_PROTOCOL_LINE_BYTES} bytes.`,
+            { accepted },
+          ));
+          return;
+        }
+        chunk.copy(stdoutLine, stdoutLineLength, offset, end);
+        stdoutLineLength += segmentLength;
+        if (newline === -1) return;
+        handleStdoutLine(stdoutLine.subarray(0, stdoutLineLength).toString("utf8"));
+        stdoutLineLength = 0;
+        offset = newline + 1;
+      }
+    }
+
+    child.stderr.on("data", onStderrData);
+    child.stdout.on("data", onStdoutData);
+    child.on("error", (error) => {
+      finish(reject, relayError(`Unable to start Codex app-server: ${error.message}`, { accepted }));
+    });
+    child.on("exit", (code, signal) => {
+      if (settled) return;
+      const stderr = stderrBuffer.subarray(0, stderrLength).toString("utf8").trim();
+      const detail = stderr ? `: ${stderr}` : "";
+      finish(reject, relayError(`Codex app-server exited early (code=${code}, signal=${signal})${detail}`, { accepted }));
+    });
+    child.stdin.on("error", (error) => {
+      finish(reject, relayError(`Unable to write to Codex app-server: ${error.message}`, { accepted }));
     });
 
     send({

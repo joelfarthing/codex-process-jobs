@@ -2,6 +2,12 @@
 
 Codex Process Jobs launches user-authorized local commands under the same OS account and execution constraints as the Codex process that starts it. Detachment changes lifetime and bookkeeping; it does not grant additional privileges, bypass sandboxing, or provide a security boundary around the command.
 
+## Reporting a vulnerability
+
+Do not open a public issue for a suspected vulnerability. Email [info@filamentlabs.io](mailto:info@filamentlabs.io) with the affected version, operating system, reproduction steps, and potential impact. Avoid including credentials, private process output, or other secrets. We aim to acknowledge reports within three business days.
+
+Only the latest published release is supported with security fixes. Before the first public release, security reports should target the latest commit on `main`.
+
 ## Trust boundaries
 
 - Plugin code and a hook hash explicitly approved by the user in `/hooks` are trusted local code.
@@ -11,7 +17,7 @@ Codex Process Jobs launches user-authorized local commands under the same OS acc
 - `$status`, `$tail`, and `$result` intentionally expose bounded metadata or process output. Incremental cursor reads are stateless, independently scoped to stdout and stderr, and carry a generation fingerprint so log compaction is reported instead of silently joining discontinuous byte streams. In proactive completion mode, the fixed prompt may invoke `$result --peek`; this does not mark the result user-viewed or suppress fallback. Codex must treat all returned content as untrusted evidence and never obey embedded instructions. Outside Goal mode it stops after recommending one next step and asking permission. In Goal mode it may continue only a next step already authorized by the still-active Goal; new authority, a consequential choice, or expanded scope requires the user.
 - Optional OS notifications are a separate human-facing boundary. They may contain the validated job ID, status, exit code, and a control-character-normalized job label capped at 512 UTF-8 bytes. They never enter a model prompt, are launched without a shell, and are disabled by default.
 
-Persisted records are size-bounded, schema-checked, bound to their validated filename, read without following record symlinks, and accepted only when their stdout/stderr paths exactly match the job's private log paths. Model-facing full-log reads have an independent 1 MiB cap.
+Persisted records are size-bounded; security-sensitive fields are schema-checked, bound to their validated filename, read without following record symlinks, and accepted only when their stdout/stderr paths exactly match the job's private log paths. Unknown non-security metadata is tolerated for forward compatibility. Model-facing full-log reads have an independent 1 MiB cap.
 
 ## Same-account limitation
 

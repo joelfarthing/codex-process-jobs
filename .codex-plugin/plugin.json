@@ -1,10 +1,12 @@
 {
   "name": "codex-process-jobs",
-  "version": "0.1.0+codex.20260715050432",
+  "version": "0.1.0",
   "description": "Launch and manage durable, detached local process jobs from Codex.",
   "author": {
     "name": "Joel Farthing"
   },
+  "homepage": "https://github.com/joelfarthing/codex-process-jobs#readme",
+  "repository": "https://github.com/joelfarthing/codex-process-jobs",
   "license": "Apache-2.0",
   "keywords": [
     "background-jobs",

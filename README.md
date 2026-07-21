@@ -4,6 +4,18 @@ Codex Process Jobs is a dependency-free Codex plugin for launching ordinary macO
 
 The runtime tracks process identity, status, bounded stdout/stderr, exit status, and safe cancellation metadata under `$CODEX_HOME/process-jobs` (normally `~/.codex/process-jobs`). Jobs are machine-scoped and survive Codex App, IDE, or CLI exit.
 
+## Before and after
+
+Without a detached process harness, Codex can spend a sequence of agent turns polling a build and narrating tiny progress changes instead of releasing the conversation for useful work. This real openPangu CUDA build moved from 190/256 to 199/256 across five progress-only turns:
+
+![Before Codex Process Jobs: five successive Codex turns narrate small CUDA build progress changes.](docs/assets/codex-process-jobs-before.png)
+
+With Codex Process Jobs, the assigning turn registers the ordinary OS process and returns immediately. When the harmless 70-second synthetic build below finished, the owning task received one sanitized completion notice, inspected the bounded saved result, summarized the outcome, and offered one next step:
+
+![After Codex Process Jobs: one detached launch followed by one completion notice and inspected result.](docs/assets/codex-process-jobs-after.png)
+
+Both screenshots are from Codex App. The before image is a real openPangu build; the after image uses a harmless synthetic CMake-style process so the demonstration is reproducible and changes no project files.
+
 ## Status
 
 The process broker and personal-plugin installation flow are functional and tested on macOS. Fresh Codex App, Codex CLI, and Codex VS Code extension tasks have discovered the installed skills and completed detached launches. In all three surfaces, an external process resumed its owning thread through app-server and durably produced a separate conversational completion turn without polling or a subagent.

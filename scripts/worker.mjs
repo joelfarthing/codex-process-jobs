@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { isCliEntry } from "./cli-entry.mjs";
 import { createBoundedLogWriter, resolveMaxLogBytes } from "./logs.mjs";
 import { getProcessIdentity } from "./process-control.mjs";
 import {
@@ -230,7 +231,7 @@ async function main() {
   await runWorker(parseJobId(process.argv.slice(2)));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
     process.exitCode = 1;

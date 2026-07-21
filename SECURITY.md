@@ -23,6 +23,9 @@ The installer enables Codex's hooks feature and installs the plugin hook, but ne
 ## Operational risks
 
 - Detached commands can modify files, consume resources, access inherited environment values, and continue after the client exits, subject to the launching process's OS and sandbox restrictions.
+- Cancellation signals the tracked detached process group. A descendant that moves itself into a new session or process group escapes that signal and must be stopped through its own mechanism.
+- Process identity binds a PID to its start time (plus the executable name on macOS). This greatly reduces PID-reuse risk but start-time granularity is one second, so an extremely fast reuse by an identically named executable is theoretically indistinguishable.
+- The notifier and installer invoke the `codex` executable found via `PATH` (or `CODEX_PROCESS_JOBS_CODEX_BIN`); both run under the same-account trust assumption above.
 - Do not place secrets in argv or tracked output. The broker does not persist the inherited environment, but the launched command receives it.
 - Shell mode is explicit and should be used only when the authorized command requires shell syntax.
 - Critical repair, firmware, migration, and destructive jobs require an explicit force flag to cancel; cancellation still cannot make interruption intrinsically safe.

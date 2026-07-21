@@ -7,6 +7,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { isCliEntry } from "./cli-entry.mjs";
+
 export const PLUGIN_NAME = "codex-process-jobs";
 export const POLICY_BEGIN = "<!-- codex-process-jobs:begin -->";
 export const POLICY_END = "<!-- codex-process-jobs:end -->";
@@ -466,7 +468,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   ].filter(Boolean).join("\n") + "\n");
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

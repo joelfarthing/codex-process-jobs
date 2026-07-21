@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { isCliEntry } from "./cli-entry.mjs";
 import { DEFAULT_READ_BYTES, MAX_MODEL_LOG_BYTES, readLog } from "./logs.mjs";
 import { detectClientSurface, notificationPresentation } from "./client-surface.mjs";
 import { COMPLETION_MODES, readPreferences, resolvePreferencesFile, writePreferences } from "./preferences.mjs";
@@ -275,33 +276,40 @@ async function handleStart(args, env = process.env) {
     ...notificationBase,
     presentation: notificationPresentation(ownerClient.surface, notificationBase.status),
   };
-  const job = createJob(
-    {
-      id,
-      name: parsed.name || displayCommand.slice(0, 120),
-      status: "queued",
-      phase: "queued",
-      critical: parsed.critical,
-      goalMode: parsed.goalMode,
-      shell: parsed.shell,
-      argv: parsed.argv,
-      displayCommand,
-      cwd: parsed.cwd,
-      platform: process.platform,
-      ownerThreadId,
-      ownerSurface: ownerClient.surface,
-      ownerSurfaceDetectedBy: ownerClient.detectedBy,
-      notification,
-      resultViewedAt: null,
-      stdin: "ignored",
-      pid: null,
-      pidIdentity: null,
-      workerPid: null,
-      workerIdentity: null,
-      logs,
-    },
-    env
-  );
+  let job;
+  try {
+    job = createJob(
+      {
+        id,
+        name: parsed.name || displayCommand.slice(0, 120),
+        status: "queued",
+        phase: "queued",
+        critical: parsed.critical,
+        goalMode: parsed.goalMode,
+        shell: parsed.shell,
+        argv: parsed.argv,
+        displayCommand,
+        cwd: parsed.cwd,
+        platform: process.platform,
+        ownerThreadId,
+        ownerSurface: ownerClient.surface,
+        ownerSurfaceDetectedBy: ownerClient.detectedBy,
+        notification,
+        resultViewedAt: null,
+        stdin: "ignored",
+        pid: null,
+        pidIdentity: null,
+        workerPid: null,
+        workerIdentity: null,
+        logs,
+      },
+      env
+    );
+  } catch (error) {
+    fs.rmSync(logs.stdout, { force: true });
+    fs.rmSync(logs.stderr, { force: true });
+    throw error;
+  }
 
   try {
     const worker = spawn(process.execPath, [WORKER_PATH, "--job-id", id], {
@@ -532,6 +540,43 @@ async function handleConfig(args, env = process.env) {
   );
 }
 
+const SUPPRESSIBLE_NOTIFICATION_STATUSES = ["pending", "delivering", "failed", "accepted"];
+
+export function applyCancellationOutcome(current, cancellation, timestamp = nowIso()) {
+  if (TERMINAL_STATUSES.has(current.status)) {
+    // The worker finished its own terminal bookkeeping while cancellation was in
+    // flight. Keep that record; only silence a still-undelivered notification.
+    if (SUPPRESSIBLE_NOTIFICATION_STATUSES.includes(current.notification?.status)) {
+      return {
+        ...current,
+        notification: {
+          ...(current.notification ?? {}),
+          status: "suppressed",
+          suppressedAt: timestamp,
+        },
+      };
+    }
+    return current;
+  }
+  return {
+    ...current,
+    status: cancellation.terminated ? "cancelled" : "cancel_failed",
+    phase: cancellation.terminated ? "cancelled" : "cancel_failed",
+    completedAt: timestamp,
+    errorMessage: cancellation.terminated
+      ? "Cancelled by explicit request."
+      : `Cancellation refused or failed: ${cancellation.reason ?? "unknown failure"}`,
+    lastPid: current.pid ?? current.lastPid ?? null,
+    pid: cancellation.terminated ? null : current.pid,
+    pidIdentity: cancellation.terminated ? null : current.pidIdentity,
+    notification: {
+      ...(current.notification ?? {}),
+      status: "suppressed",
+      suppressedAt: timestamp,
+    },
+  };
+}
+
 async function handleCancel(args, env = process.env) {
   const { jobId, options } = parseCommonJobArgs(args);
   if (!jobId) fail("cancel requires a job id.");
@@ -544,11 +589,13 @@ async function handleCancel(args, env = process.env) {
     fail(`Job ${job.id} is CRITICAL. Cancellation may damage in-progress state; repeat with --force only after explicit approval.`);
   }
 
+  let cancelledBeforeStart = false;
   job = await updateJob(
     job.id,
     (current) => {
       if (TERMINAL_STATUSES.has(current.status)) return current;
       if (!current.pid) {
+        cancelledBeforeStart = true;
         return {
           ...current,
           status: "cancelled",
@@ -567,8 +614,14 @@ async function handleCancel(args, env = process.env) {
     env
   );
 
-  if (job.status === "cancelled" || TERMINAL_STATUSES.has(job.status) && job.status !== "cancel_failed") {
-    output({ job: publicJob(job) }, `Cancelled ${job.id} before process start.`, options.json);
+  if (TERMINAL_STATUSES.has(job.status)) {
+    output(
+      { job: publicJob(job) },
+      cancelledBeforeStart
+        ? `Cancelled ${job.id} before process start.`
+        : `Job ${job.id} is already ${job.status}.`,
+      options.json
+    );
     return;
   }
 
@@ -582,30 +635,12 @@ async function handleCancel(args, env = process.env) {
       reason: error instanceof Error ? error.message : String(error),
     };
   }
-  job = await updateJob(
-    job.id,
-    (current) => ({
-      ...current,
-      status: cancellation.terminated ? "cancelled" : "cancel_failed",
-      phase: cancellation.terminated ? "cancelled" : "cancel_failed",
-      completedAt: nowIso(),
-      errorMessage: cancellation.terminated
-        ? "Cancelled by explicit request."
-        : `Cancellation refused or failed: ${cancellation.reason ?? "unknown failure"}`,
-      lastPid: current.pid ?? current.lastPid ?? null,
-      pid: cancellation.terminated ? null : current.pid,
-      pidIdentity: cancellation.terminated ? null : current.pidIdentity,
-      notification: {
-        ...(current.notification ?? {}),
-        status: "suppressed",
-        suppressedAt: nowIso(),
-      },
-    }),
-    env
-  );
+  job = await updateJob(job.id, (current) => applyCancellationOutcome(current, cancellation), env);
   const rendered = cancellation.terminated
     ? `Cancelled ${job.id}${cancellation.forced ? " with SIGKILL after the grace period" : " with SIGTERM"}.`
-    : `Could not cancel ${job.id}: ${cancellation.reason ?? "unknown failure"}`;
+    : job.status !== "cancel_failed"
+      ? `Job ${job.id} ended as ${job.status} while cancellation was in progress.`
+      : `Could not cancel ${job.id}: ${cancellation.reason ?? "unknown failure"}`;
   output({ job: publicJob(job), cancellation }, rendered, options.json);
 }
 
@@ -628,7 +663,7 @@ async function main() {
   await runCli(process.argv.slice(2));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

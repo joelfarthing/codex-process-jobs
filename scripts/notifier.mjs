@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
-import path from "node:path";
 import process from "node:process";
 import readline from "node:readline";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
+import { isCliEntry } from "./cli-entry.mjs";
 import { startDesktopNotificationTurn } from "./desktop-ipc.mjs";
 import { COMPLETION_MODES, readPreferences } from "./preferences.mjs";
 import { resolveOwnerRolloutFile, sanitizeThreadId } from "./session.mjs";
@@ -429,7 +428,7 @@ async function main() {
   await runNotifier(parseJobId(process.argv.slice(2)));
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
     process.exitCode = 1;

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
-import { pathToFileURL } from "node:url";
 
+import { isCliEntry } from "../scripts/cli-entry.mjs";
 import { TERMINAL_STATUSES, listJobs, nowIso, updateJob } from "../scripts/state.mjs";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -177,7 +177,7 @@ async function main() {
   if (claimed.length > 0) process.stdout.write(`${buildContext(claimed)}\n`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isCliEntry(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

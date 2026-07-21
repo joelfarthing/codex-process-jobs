@@ -4,6 +4,8 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 
+import { resolveCodexHome } from "./state.mjs";
+
 const MAX_FRAME_BYTES = 256 * 1024 * 1024;
 const INITIALIZE_VERSION = 0;
 const START_TURN_VERSION = 1;
@@ -66,8 +68,7 @@ export function resolveDesktopIpcSocket(job, env = process.env) {
   if (job.ownerSurface !== "app") return null;
   const override = String(env.CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET ?? "").trim();
   if (!override && process.platform !== "darwin") return null;
-  const codexHome = env.CODEX_HOME || path.join(env.HOME ?? "", ".codex");
-  const socketPath = override || path.join(codexHome, "ipc", "ipc.sock");
+  const socketPath = override || path.join(resolveCodexHome(env), "ipc", "ipc.sock");
   try {
     validateOwnedPrivatePath(path.dirname(socketPath));
     validateOwnedPrivatePath(socketPath, { socket: true });

@@ -145,8 +145,10 @@ test("Goal-mode start persists the marker and emits Goal-specific release guidan
     "process.exit(0)",
   ], context.env);
   assert.match(started.stdout, /Goal mode is active/i);
-  assert.match(started.stdout, /at most one bounded wait per continuation/i);
-  assert.match(started.stdout, /inspect its bounded saved result and continue the already-authorized Goal/i);
+  assert.match(started.stdout, /automatic Goal continuation is not permission to monitor/i);
+  assert.match(started.stdout, /do not call status, wait, sleep, or probe the job/i);
+  assert.match(started.stdout, /apply the host Goal blocked audit/i);
+  assert.match(started.stdout, /When a hook surfaces terminal state, inspect its bounded saved result and continue the already-authorized Goal/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);
@@ -459,18 +461,41 @@ test("critical jobs refuse cancellation without an explicit force flag", (t) => 
   assert.equal(cancelled.job.status, "cancelled");
 });
 
-test("shell mode is explicit and stores the authorized command string", (t) => {
+test("Bash shell mode supports pipefail and stores its execution contract", (t) => {
   const context = makeEnv(t);
   const job = startJson([
     "--shell",
     "--",
-    "printf shell-mode",
+    "set -o pipefail; test -n \"$BASH_VERSION\"; printf bash-pipefail | cat",
   ], context);
+  assert.deepEqual(job.execution, { kind: "shell", interpreter: "bash" });
   const waited = waitJson(job.id, context.env);
   assert.equal(waited.job.status, "completed");
-  assert.equal(waited.job.command, "printf shell-mode");
+  assert.deepEqual(waited.job.execution, { kind: "shell", interpreter: "bash" });
+  assert.equal(waited.job.command, "set -o pipefail; test -n \"$BASH_VERSION\"; printf bash-pipefail | cat");
   const result = JSON.parse(runCli(["result", job.id, "--json"], context.env).stdout);
-  assert.equal(result.stdout, "shell-mode");
+  assert.equal(result.stdout, "bash-pipefail");
+});
+
+test("Bash pipefail propagates a failing pipeline", (t) => {
+  const context = makeEnv(t);
+  const job = startJson(["--shell", "--", "set -o pipefail; false | true"], context);
+  const waited = waitJson(job.id, context.env);
+  assert.equal(waited.job.status, "failed");
+  assert.equal(waited.job.exitCode, 1);
+});
+
+test("POSIX shell mode is explicit and shell flags are mutually exclusive", (t) => {
+  const context = makeEnv(t);
+  const job = startJson(["--posix-sh", "--", "printf posix-sh | cat"], context);
+  assert.deepEqual(job.execution, { kind: "shell", interpreter: "posix-sh" });
+  const waited = waitJson(job.id, context.env);
+  assert.equal(waited.job.status, "completed");
+  const result = JSON.parse(runCli(["result", job.id, "--json"], context.env).stdout);
+  assert.equal(result.stdout, "posix-sh");
+
+  const rejected = runCli(["start", "--shell", "--posix-sh", "--", "printf never"], context.env, { expectStatus: 1 });
+  assert.match(rejected.stderr, /only one of --shell or --posix-sh/i);
 });
 
 test("status --all returns stored jobs instead of slicing to an empty list", (t) => {

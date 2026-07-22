@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { isCliEntry } from "./cli-entry.mjs";
 import { createBoundedLogWriter, resolveMaxLogBytes } from "./logs.mjs";
+import { buildSpawnSpec } from "./execution.mjs";
 import { getProcessIdentity } from "./process-control.mjs";
 import {
   TERMINAL_STATUSES,
@@ -24,12 +25,11 @@ function parseJobId(argv) {
   return argv[index + 1];
 }
 
-function spawnJobProcess(job) {
-  const command = job.shell ? "/bin/sh" : job.argv[0];
-  const args = job.shell ? ["-lc", job.argv[0]] : job.argv.slice(1);
-  return spawn(command, args, {
+export function spawnJobProcess(job, env = process.env, spawnImpl = spawn) {
+  const spec = buildSpawnSpec(job, env);
+  return spawnImpl(spec.command, spec.args, {
     cwd: job.cwd,
-    env: process.env,
+    env: spec.env,
     detached: true,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
@@ -164,7 +164,7 @@ export async function runWorker(jobId, env = process.env) {
   const stderr = createBoundedLogWriter(logs.stderr, limit);
 
   try {
-    const child = spawnJobProcess(starting);
+    const child = spawnJobProcess(starting, env);
     child.stdout?.on("data", (chunk) => stdout.append(chunk));
     child.stderr?.on("data", (chunk) => stderr.append(chunk));
 

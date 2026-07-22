@@ -4,6 +4,12 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Fixed
+
+- `--shell` now executes deterministic non-login `/bin/bash -c`, so agent-authored commands using `set -o pipefail` work consistently on macOS and Linux. New `--posix-sh` preserves an explicit `/bin/sh -c` option, while schema-v1 shell records retain their historical `/bin/sh -lc` execution semantics.
+- Automatic Goal continuations no longer treat a result-gated detached job as permission to wait or poll. They perform independent work or follow Codex's blocked-Goal audit until the completion relay or hook surfaces terminal state.
+- A yielded `status --wait` tool execution is now explicitly treated as an in-flight waiter rather than blank output. Codex may resume only that same waiter once; after it finishes or times out, hook guidance forbids replacement sleeps or status probes.
+
 ## [0.1.0] - 2026-07-21
 
 Initial public beta.

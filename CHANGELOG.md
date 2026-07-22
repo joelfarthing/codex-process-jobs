@@ -4,6 +4,14 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-22
+
+### Added
+
+- Versioned npm distribution with preview-first `install` and `update` commands, a read-only `doctor`, and exact package-version reporting.
+- An explicit package allowlist so npm artifacts contain only the plugin runtime, installer, user documentation, license, and security policy.
+- A reproducible update path that previews `@latest` and pins the reviewed immutable version for the apply step.
+
 ### Fixed
 
 - `--shell` now executes deterministic non-login `/bin/bash -c`, so agent-authored commands using `set -o pipefail` work consistently on macOS and Linux. New `--posix-sh` preserves an explicit `/bin/sh -c` option, while schema-v1 shell records retain their historical `/bin/sh -lc` execution semantics.
@@ -42,5 +50,6 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/joelfarthing/codex-process-jobs/releases/tag/v0.1.0

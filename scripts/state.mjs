@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const SCHEMA_VERSION = 1;
+import { isExecutionDescriptor } from "./execution.mjs";
+
+export const SCHEMA_VERSION = 2;
+const SUPPORTED_SCHEMA_VERSIONS = new Set([1, SCHEMA_VERSION]);
 export const MAX_JOB_RECORD_BYTES = 256 * 1024;
 export const ACTIVE_STATUSES = new Set([
   "queued",
@@ -125,7 +128,7 @@ function validateOptionalString(job, field, maximum) {
 
 export function validateJobRecord(job, { expectedId = null, env = process.env } = {}) {
   if (!isObject(job)) throw new Error("Persisted job record must be a JSON object.");
-  if (job.schemaVersion !== SCHEMA_VERSION) {
+  if (!SUPPORTED_SCHEMA_VERSIONS.has(job.schemaVersion)) {
     throw new Error(`Unsupported persisted job schema version: ${job.schemaVersion ?? "(missing)"}.`);
   }
   if (typeof job.id !== "string") throw new Error("Persisted job id must be a string.");
@@ -161,8 +164,15 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
   if (job.cwd != null && !path.isAbsolute(job.cwd)) {
     throw new Error(`Persisted cwd for ${id} must be absolute.`);
   }
-  if (job.shell != null && typeof job.shell !== "boolean") {
-    throw new Error(`Invalid persisted shell flag for ${id}.`);
+  if (job.schemaVersion === 1) {
+    if (job.shell != null && typeof job.shell !== "boolean") {
+      throw new Error(`Invalid persisted shell flag for ${id}.`);
+    }
+  } else {
+    if (job.shell != null) throw new Error(`Schema v2 job ${id} cannot contain the legacy shell flag.`);
+    if (!isExecutionDescriptor(job.execution)) {
+      throw new Error(`Invalid persisted execution descriptor for ${id}.`);
+    }
   }
   if (job.critical != null && typeof job.critical !== "boolean") {
     throw new Error(`Invalid persisted critical flag for ${id}.`);
@@ -183,8 +193,13 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
       throw new Error(`Invalid persisted argv for ${id}.`);
     }
   }
-  if (ACTIVE_STATUSES.has(job.status) && (!job.cwd || !job.argv || typeof job.shell !== "boolean")) {
-    throw new Error(`Active persisted job ${id} is missing validated execution fields.`);
+  if (ACTIVE_STATUSES.has(job.status)) {
+    const executionMissing = job.schemaVersion === 1
+      ? typeof job.shell !== "boolean"
+      : !isExecutionDescriptor(job.execution);
+    if (!job.cwd || !job.argv || executionMissing) {
+      throw new Error(`Active persisted job ${id} is missing validated execution fields.`);
+    }
   }
   for (const field of ["pid", "lastPid", "workerPid"]) {
     if (job[field] != null && (!Number.isSafeInteger(job[field]) || job[field] <= 0)) {
@@ -298,9 +313,14 @@ function atomicWriteJson(file, value) {
 export function createJob(job, env = process.env) {
   ensureStateDirs(env);
   const file = resolveJobFile(job.id, env);
+  const normalized = { ...job };
+  normalized.execution ??= normalized.shell
+    ? { kind: "shell", interpreter: "bash" }
+    : { kind: "argv" };
+  delete normalized.shell;
   const record = {
     schemaVersion: SCHEMA_VERSION,
-    ...job,
+    ...normalized,
     createdAt: job.createdAt || nowIso(),
     updatedAt: nowIso(),
   };
@@ -399,7 +419,7 @@ export async function updateJob(jobId, updater, env = process.env) {
     const record = {
       ...next,
       id: current.id,
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: current.schemaVersion,
       createdAt: current.createdAt,
       updatedAt: nowIso(),
     };

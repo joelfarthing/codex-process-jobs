@@ -12,6 +12,7 @@ import {
   readJob,
   resolveJobLogs,
   updateJob,
+  validateJobRecord,
 } from "../scripts/state.mjs";
 
 function withTemporaryHome(t) {
@@ -34,6 +35,9 @@ test("creates private state and updates it under a per-job lock", async (t) => {
     logs,
   }, env);
   assert.equal(created.status, "queued");
+  assert.equal(created.schemaVersion, 2);
+  assert.deepEqual(created.execution, { kind: "argv" });
+  assert.equal(created.shell, undefined);
   assert.equal(readJob(created.id, env).name, "test job");
 
   const updated = await updateJob(created.id, (job) => ({
@@ -48,6 +52,68 @@ test("creates private state and updates it under a per-job lock", async (t) => {
 
   const mode = fs.statSync(path.join(env.CODEX_HOME, "process-jobs", "jobs", `${created.id}.json`)).mode & 0o777;
   assert.equal(mode, 0o600);
+});
+
+test("schema v2 validates fixed execution descriptors and schema v1 remains readable", (t) => {
+  const env = withTemporaryHome(t);
+  const base = {
+    schemaVersion: 2,
+    id: "job-execution-v2",
+    status: "queued",
+    phase: "queued",
+    cwd: process.cwd(),
+    argv: ["printf ok"],
+    logs: resolveJobLogs("job-execution-v2", env),
+    createdAt: "2026-07-22T00:00:00.000Z",
+    updatedAt: "2026-07-22T00:00:00.000Z",
+  };
+  assert.doesNotThrow(() => validateJobRecord({
+    ...base,
+    execution: { kind: "shell", interpreter: "bash" },
+  }, { expectedId: base.id, env }));
+  assert.throws(() => validateJobRecord({
+    ...base,
+    execution: { kind: "shell", interpreter: "/tmp/evil" },
+  }, { expectedId: base.id, env }), /execution descriptor/i);
+  assert.throws(() => validateJobRecord({
+    ...base,
+    execution: { kind: "argv" },
+    shell: true,
+  }, { expectedId: base.id, env }), /legacy shell flag/i);
+
+  assert.doesNotThrow(() => validateJobRecord({
+    ...base,
+    schemaVersion: 1,
+    shell: true,
+    execution: undefined,
+  }, { expectedId: base.id, env }));
+});
+
+test("updating a legacy v1 shell record preserves its schema and execution semantics", async (t) => {
+  const env = withTemporaryHome(t);
+  ensureStateDirs(env);
+  const id = "job-legacy-shell-update";
+  const record = {
+    schemaVersion: 1,
+    id,
+    status: "queued",
+    phase: "queued",
+    cwd: process.cwd(),
+    shell: true,
+    argv: ["printf legacy"],
+    logs: resolveJobLogs(id, env),
+    createdAt: "2026-07-22T00:00:00.000Z",
+    updatedAt: "2026-07-22T00:00:00.000Z",
+  };
+  fs.writeFileSync(
+    path.join(env.CODEX_HOME, "process-jobs", "jobs", `${id}.json`),
+    `${JSON.stringify(record)}\n`,
+    { mode: 0o600 },
+  );
+  const updated = await updateJob(id, (job) => ({ ...job, phase: "waiting" }), env);
+  assert.equal(updated.schemaVersion, 1);
+  assert.equal(updated.shell, true);
+  assert.equal(updated.execution, undefined);
 });
 
 test("serializes concurrent state updates without corrupting JSON", async (t) => {

@@ -116,7 +116,7 @@ In a clean checkout of `joelfarthing/homebrew-tap`:
 4. Run Homebrew style, strict audit, formula installation, version, doctor, preview-only install, preview-only update, and formula tests on macOS.
 5. Verify Linuxbrew in CI or on a Linux host.
 6. Review the formula diff and ensure unrelated editor, cache, or filesystem artifacts are not staged.
-7. After the publication approval checkpoint, merge or push the tap update.
+7. After the publication approval checkpoint, open and merge the tap update pull request.
 8. Run `brew update` from a consumer installation and confirm `brew outdated codex-process-jobs` discovers the intended version.
 9. Verify the public installation path while signed out:
 

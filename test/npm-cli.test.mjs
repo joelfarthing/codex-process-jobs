@@ -34,12 +34,34 @@ function temporaryHome(t) {
 }
 
 function run(args, env = process.env) {
-  return spawnSync(process.execPath, [CLI, ...args], {
-    cwd: ROOT,
+  return runFrom(CLI, args, env);
+}
+
+function runFrom(cli, args, env = process.env) {
+  return spawnSync(process.execPath, [cli, ...args], {
+    cwd: path.resolve(path.dirname(cli), ".."),
     env,
     encoding: "utf8",
     timeout: 20_000,
   });
+}
+
+function copyMinimalCommandSource(destination, { includeManifest = true } = {}) {
+  const scripts = path.join(destination, "scripts");
+  fs.mkdirSync(scripts, { recursive: true });
+  for (const file of ["npm-cli.mjs", "install.mjs", "cli-entry.mjs"]) {
+    fs.copyFileSync(path.join(ROOT, "scripts", file), path.join(scripts, file));
+  }
+  fs.copyFileSync(path.join(ROOT, "package.json"), path.join(destination, "package.json"));
+  if (includeManifest) {
+    const manifestDirectory = path.join(destination, ".codex-plugin");
+    fs.mkdirSync(manifestDirectory);
+    fs.copyFileSync(
+      path.join(ROOT, ".codex-plugin", "plugin.json"),
+      path.join(manifestDirectory, "plugin.json")
+    );
+  }
+  return path.join(scripts, "npm-cli.mjs");
 }
 
 test("version reports the release version", () => {
@@ -145,6 +167,39 @@ test("provenance doctor reports absent layers without creating state", (t) => {
   assert.equal(fs.existsSync(codexMarker), false);
 });
 
+test("provenance doctor describes a release package without implying a checkout registry", (t) => {
+  const { home, env } = temporaryHome(t);
+  const releaseRoot = path.join(home, "release-package");
+  const releaseCli = copyMinimalCommandSource(releaseRoot);
+
+  const result = runFrom(releaseCli, ["doctor", "--provenance"], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /command source: release package/);
+  assert.match(
+    result.stdout,
+    /current command source is not an editable checkout; other checkouts were not searched/
+  );
+  assert.doesNotMatch(result.stdout, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("provenance doctor reports a conflicting marketplace source as invalid", (t) => {
+  const { home, env } = temporaryHome(t);
+  const marketplaceFile = path.join(home, ".agents", "plugins", "marketplace.json");
+  fs.mkdirSync(path.dirname(marketplaceFile), { recursive: true });
+  fs.writeFileSync(marketplaceFile, `${JSON.stringify({
+    name: "personal",
+    plugins: [{
+      name: "codex-process-jobs",
+      source: { source: "local", path: "./plugins/something-else" },
+    }],
+  })}\n`);
+
+  const result = run(["doctor", "--provenance"], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /plugin cache: invalid/);
+  assert.match(result.stdout, /cache generations: none/);
+});
+
 test("provenance doctor fails closed on a symlinked cache generation", (t) => {
   const { home, env } = temporaryHome(t);
   const marketplaceFile = path.join(home, ".agents", "plugins", "marketplace.json");
@@ -173,6 +228,40 @@ test("provenance doctor fails closed on a symlinked cache generation", (t) => {
   assert.doesNotMatch(result.stdout, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
+test("provenance doctor fails closed on a symlinked CODEX_HOME root", (t) => {
+  const { home, env } = temporaryHome(t);
+  const realCodexHome = path.join(home, "real-codex-home");
+  fs.mkdirSync(realCodexHome);
+  fs.symlinkSync(realCodexHome, env.CODEX_HOME);
+  const marketplaceFile = path.join(home, ".agents", "plugins", "marketplace.json");
+  fs.mkdirSync(path.dirname(marketplaceFile), { recursive: true });
+  fs.writeFileSync(marketplaceFile, `${JSON.stringify({
+    name: "personal",
+    plugins: [{
+      name: "codex-process-jobs",
+      source: { source: "local", path: "./plugins/codex-process-jobs" },
+    }],
+  })}\n`);
+  const version = "0.2.0+codex.local-20260723-010203";
+  const manifest = path.join(
+    realCodexHome,
+    "plugins",
+    "cache",
+    "personal",
+    "codex-process-jobs",
+    version,
+    ".codex-plugin",
+    "plugin.json"
+  );
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, `${JSON.stringify({ name: "codex-process-jobs", version })}\n`);
+
+  const result = run(["doctor", "--provenance"], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /plugin cache: invalid/);
+  assert.match(result.stdout, /cache generations: none/);
+});
+
 test("provenance doctor fails closed on symlinked cache boundaries", (t) => {
   for (const dangling of [false, true]) {
     const { home, env } = temporaryHome(t);
@@ -196,6 +285,20 @@ test("provenance doctor fails closed on symlinked cache boundaries", (t) => {
     assert.match(result.stdout, /plugin cache: invalid/);
     assert.match(result.stdout, /cache generations: none/);
   }
+});
+
+test("provenance doctor redacts source paths when command metadata is damaged", (t) => {
+  const { home, env } = temporaryHome(t);
+  const damagedRoot = path.join(home, "private-source-location");
+  const damagedCli = copyMinimalCommandSource(damagedRoot, { includeManifest: false });
+
+  const result = runFrom(damagedCli, ["doctor", "--provenance"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unable to inspect provenance: command source is invalid/);
+  assert.doesNotMatch(
+    result.stderr,
+    new RegExp(damagedRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  );
 });
 
 test("doctor rejects unknown or repeated provenance options", () => {

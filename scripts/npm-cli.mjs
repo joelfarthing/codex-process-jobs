@@ -14,6 +14,7 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_FILE = path.join(ROOT, "package.json");
+const SAFE_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$/;
 
 function readPackage() {
   return JSON.parse(fs.readFileSync(PACKAGE_FILE, "utf8"));
@@ -105,17 +106,21 @@ function marketplaceIdentity(file) {
     ) {
       return { status: "invalid", name: null };
     }
-    const matches = marketplace.plugins.filter((candidate) => (
-      candidate?.name === "codex-process-jobs"
-      && candidate?.source?.source === "local"
-      && candidate?.source?.path === "./plugins/codex-process-jobs"
-    ));
-    if (marketplace.plugins.filter((candidate) => candidate?.name === "codex-process-jobs").length > 1) {
+    const matches = marketplace.plugins.filter(
+      (candidate) => candidate?.name === "codex-process-jobs"
+    );
+    if (matches.length > 1) {
       return { status: "invalid", name: null };
     }
-    return matches.length === 1
-      ? { status: "present", name: marketplace.name }
-      : { status: "absent", name: null };
+    if (matches.length === 0) return { status: "absent", name: null };
+    const [candidate] = matches;
+    if (
+      candidate?.source?.source !== "local"
+      || candidate?.source?.path !== "./plugins/codex-process-jobs"
+    ) {
+      return { status: "invalid", name: null };
+    }
+    return { status: "present", name: marketplace.name };
   } catch (error) {
     if (error?.code === "ENOENT") return { status: "absent", name: null };
     return { status: "invalid", name: null };
@@ -129,7 +134,7 @@ function inspectCache(plan) {
   const cache = inspectPluginCache(plan.codexHome, marketplace.name);
   if (
     cache.status === "present"
-    && cache.versions.some((version) => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$/.test(version))
+    && cache.versions.some((version) => !SAFE_VERSION_PATTERN.test(version))
   ) {
     return { status: "invalid", generations: [] };
   }
@@ -144,7 +149,7 @@ function inspectRuntime(destination) {
     }
     const version = readInstalledVersion(destination);
     if (version == null) return { status: "absent", version: null };
-    if (!/^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$/.test(version)) {
+    if (!SAFE_VERSION_PATTERN.test(version)) {
       return { status: "invalid", version: null };
     }
     return { status: "present", version };
@@ -175,7 +180,11 @@ function runProvenanceDoctor(metadata, plan, runtimeSnapshot) {
     `  plugin cache: ${cacheSummary}`,
     `  cache generations: ${displayedGenerations || "none"}`,
     `  upstream repository: ${repository ?? "not declared"}`,
-    `  editable checkout: ${sourceKind === "development checkout" ? "current command source" : "not registered"}`,
+    `  editable checkout: ${
+      sourceKind === "development checkout"
+        ? "current command source"
+        : "current command source is not an editable checkout; other checkouts were not searched"
+    }`,
     "  local paths: redacted",
     "",
     "Provenance is read-only and made no changes.",
@@ -184,12 +193,22 @@ function runProvenanceDoctor(metadata, plan, runtimeSnapshot) {
 }
 
 function runDoctor(env, { provenance = false } = {}) {
-  const metadata = readPackage();
   if (provenance) {
-    const plan = resolveInstallPaths({ env });
+    let metadata;
+    let plan;
+    try {
+      metadata = readPackage();
+      if (!SAFE_VERSION_PATTERN.test(metadata?.version)) {
+        throw new Error("Invalid release version.");
+      }
+      plan = resolveInstallPaths({ env });
+    } catch {
+      throw new Error("Unable to inspect provenance: command source is invalid.");
+    }
     runProvenanceDoctor(metadata, plan, inspectRuntime(plan.destination));
     return;
   }
+  const metadata = readPackage();
   const plan = resolveInstallPlan({ env });
   const installedVersion = readInstalledVersion(plan.destination);
   const status = installedVersion == null

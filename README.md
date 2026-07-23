@@ -122,7 +122,7 @@ For a path-redacted view of the package, runtime snapshot, validated cache gener
 codex-process-jobs doctor --provenance
 ```
 
-The provenance diagnostic is read-only. It identifies the current command source as a development checkout only when that source contains Git checkout metadata; otherwise it reports that an editable checkout is not registered. It never scans the filesystem for clones, treats a generated cache as source, or prints local paths.
+The provenance diagnostic is read-only. It identifies the current command source as a development checkout only when that source contains Git checkout metadata; otherwise it states that the current command source is not an editable checkout and that other checkouts were not searched. It never scans the filesystem for clones, treats a generated cache as source, or prints local paths.
 
 When Codex performs the installation, it must show and describe this preview, then explicitly ask the user to choose one policy scope: `global`, `project`, or `none`. A request to install the plugin does not imply consent to change any agent instructions.
 

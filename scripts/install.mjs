@@ -176,6 +176,12 @@ export function inspectPluginCache(codexHome, marketplaceName) {
   const cacheRoot = pluginCacheRoot(codexHome, marketplaceName);
   try {
     let current = path.resolve(codexHome);
+    try {
+      validateOwnedNode(current, "plugin cache boundary", "directory");
+    } catch (error) {
+      if (error?.code === "ENOENT") return { status: "absent", versions: [] };
+      throw error;
+    }
     for (const component of ["plugins", "cache", validatePathComponent(marketplaceName, "marketplace name"), PLUGIN_NAME]) {
       current = path.join(current, component);
       try {

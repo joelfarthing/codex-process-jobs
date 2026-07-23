@@ -5,7 +5,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isCliEntry } from "./cli-entry.mjs";
-import { main as runInstaller, resolveInstallPlan } from "./install.mjs";
+import {
+  inspectPluginCache,
+  main as runInstaller,
+  resolveInstallPaths,
+  resolveInstallPlan,
+} from "./install.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_FILE = path.join(ROOT, "package.json");
@@ -19,7 +24,7 @@ function usage() {
     "Usage:",
     "  codex-process-jobs install [installer options]",
     "  codex-process-jobs update [installer options]",
-    "  codex-process-jobs doctor",
+    "  codex-process-jobs doctor [--provenance]",
     "  codex-process-jobs version",
     "",
     "Install and update are preview-only unless --apply is supplied.",
@@ -50,8 +55,141 @@ function baseVersion(version) {
   return String(version).split("+", 1)[0];
 }
 
-function runDoctor(env) {
+function repositorySlug(repository) {
+  const value = typeof repository === "string" ? repository : repository?.url;
+  const match = String(value ?? "").match(
+    /^(?:git\+)?(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/
+  );
+  return match ? match[1] : null;
+}
+
+function commandSourceKind(plan) {
+  if (plan.sourceDestinationConflict) return "runtime snapshot";
+  try {
+    const gitMetadata = path.join(ROOT, ".git");
+    const stat = fs.lstatSync(gitMetadata);
+    if (stat.isSymbolicLink()) return "release package";
+    let gitDirectory = gitMetadata;
+    if (stat.isFile()) {
+      if (stat.size > 4096) return "release package";
+      const match = fs.readFileSync(gitMetadata, "utf8").trim().match(/^gitdir:\s*(.+)$/);
+      if (!match) return "release package";
+      gitDirectory = path.resolve(ROOT, match[1]);
+      const gitDirectoryStat = fs.lstatSync(gitDirectory);
+      if (gitDirectoryStat.isSymbolicLink() || !gitDirectoryStat.isDirectory()) {
+        return "release package";
+      }
+    } else if (!stat.isDirectory()) {
+      return "release package";
+    }
+    const head = fs.lstatSync(path.join(gitDirectory, "HEAD"));
+    if (!head.isSymbolicLink() && head.isFile()) {
+      return "development checkout";
+    }
+  } catch {}
+  return "release package";
+}
+
+function marketplaceIdentity(file) {
+  try {
+    const stat = fs.lstatSync(file);
+    if (stat.isSymbolicLink() || !stat.isFile()) return { status: "invalid", name: null };
+    const marketplace = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (
+      typeof marketplace?.name !== "string"
+      || !marketplace.name
+      || marketplace.name === "."
+      || marketplace.name === ".."
+      || path.basename(marketplace.name) !== marketplace.name
+      || !Array.isArray(marketplace.plugins)
+    ) {
+      return { status: "invalid", name: null };
+    }
+    const matches = marketplace.plugins.filter((candidate) => (
+      candidate?.name === "codex-process-jobs"
+      && candidate?.source?.source === "local"
+      && candidate?.source?.path === "./plugins/codex-process-jobs"
+    ));
+    if (marketplace.plugins.filter((candidate) => candidate?.name === "codex-process-jobs").length > 1) {
+      return { status: "invalid", name: null };
+    }
+    return matches.length === 1
+      ? { status: "present", name: marketplace.name }
+      : { status: "absent", name: null };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { status: "absent", name: null };
+    return { status: "invalid", name: null };
+  }
+}
+
+function inspectCache(plan) {
+  const marketplace = marketplaceIdentity(plan.marketplaceFile);
+  if (marketplace.status === "invalid") return { status: "invalid", generations: [] };
+  if (marketplace.status === "absent") return { status: "absent", generations: [] };
+  const cache = inspectPluginCache(plan.codexHome, marketplace.name);
+  if (
+    cache.status === "present"
+    && cache.versions.some((version) => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$/.test(version))
+  ) {
+    return { status: "invalid", generations: [] };
+  }
+  return { status: cache.status, generations: cache.versions };
+}
+
+function inspectRuntime(destination) {
+  try {
+    const stat = fs.lstatSync(destination);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      return { status: "invalid", version: null };
+    }
+    const version = readInstalledVersion(destination);
+    if (version == null) return { status: "absent", version: null };
+    if (!/^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$/.test(version)) {
+      return { status: "invalid", version: null };
+    }
+    return { status: "present", version };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { status: "absent", version: null };
+    return { status: "invalid", version: null };
+  }
+}
+
+function runProvenanceDoctor(metadata, plan, runtimeSnapshot) {
+  const sourceKind = commandSourceKind(plan);
+  const cache = inspectCache(plan);
+  const repository = repositorySlug(metadata.repository);
+  const runtime = runtimeSnapshot.status === "present"
+    ? `present (${runtimeSnapshot.version})`
+    : runtimeSnapshot.status;
+  const cacheSummary = cache.status === "present"
+    ? `present (${cache.generations.length} validated generation${cache.generations.length === 1 ? "" : "s"})`
+    : cache.status;
+  const displayedGenerations = cache.generations.length <= 20
+    ? cache.generations.join(", ")
+    : `${cache.generations.slice(0, 20).join(", ")} (${cache.generations.length - 20} more omitted)`;
+  const lines = [
+    "Codex Process Jobs provenance",
+    `  command source: ${sourceKind}`,
+    `  release version: ${metadata.version}`,
+    `  runtime snapshot: ${runtime}`,
+    `  plugin cache: ${cacheSummary}`,
+    `  cache generations: ${displayedGenerations || "none"}`,
+    `  upstream repository: ${repository ?? "not declared"}`,
+    `  editable checkout: ${sourceKind === "development checkout" ? "current command source" : "not registered"}`,
+    "  local paths: redacted",
+    "",
+    "Provenance is read-only and made no changes.",
+  ];
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function runDoctor(env, { provenance = false } = {}) {
   const metadata = readPackage();
+  if (provenance) {
+    const plan = resolveInstallPaths({ env });
+    runProvenanceDoctor(metadata, plan, inspectRuntime(plan.destination));
+    return;
+  }
   const plan = resolveInstallPlan({ env });
   const installedVersion = readInstalledVersion(plan.destination);
   const status = installedVersion == null
@@ -86,8 +224,10 @@ export async function runNpmCli(argv = process.argv.slice(2), env = process.env)
     return;
   }
   if (command === "doctor") {
-    if (args.length > 0) throw new Error("doctor does not accept options.");
-    runDoctor(env);
+    if (args.some((arg) => arg !== "--provenance") || args.length > 1) {
+      throw new Error("doctor accepts only --provenance.");
+    }
+    runDoctor(env, { provenance: args[0] === "--provenance" });
     return;
   }
   if (command === "install" || command === "update") {

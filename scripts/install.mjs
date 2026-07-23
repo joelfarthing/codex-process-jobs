@@ -172,6 +172,37 @@ function validateCacheGeneration(generation, expectedVersion) {
   return manifest;
 }
 
+export function inspectPluginCache(codexHome, marketplaceName) {
+  const cacheRoot = pluginCacheRoot(codexHome, marketplaceName);
+  try {
+    let current = path.resolve(codexHome);
+    for (const component of ["plugins", "cache", validatePathComponent(marketplaceName, "marketplace name"), PLUGIN_NAME]) {
+      current = path.join(current, component);
+      try {
+        validateOwnedNode(current, "plugin cache boundary", "directory");
+      } catch (error) {
+        if (error?.code === "ENOENT") return { status: "absent", versions: [] };
+        throw error;
+      }
+    }
+    const entries = fs.readdirSync(cacheRoot, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    const versions = [];
+    for (const entry of entries) {
+      const version = validatePathComponent(entry.name, "cache generation version");
+      const generation = path.join(cacheRoot, version);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        fail(`Refusing unexpected plugin cache entry: ${generation}`);
+      }
+      validateCacheGeneration(generation, version);
+      versions.push(version);
+    }
+    return { status: versions.length > 0 ? "present" : "absent", versions };
+  } catch {
+    return { status: "invalid", versions: [] };
+  }
+}
+
 function snapshotPluginCache(codexHome, marketplaceName) {
   const cacheRoot = pluginCacheRoot(codexHome, marketplaceName);
   if (!fs.existsSync(cacheRoot)) return { cacheRoot, temporaryRoot: null, versions: [] };
@@ -402,7 +433,7 @@ function detectCodex(env) {
   };
 }
 
-export function resolveInstallPlan({ env = process.env, now = new Date(), sourceRoot = SOURCE_ROOT } = {}) {
+export function resolveInstallPaths({ env = process.env, sourceRoot = SOURCE_ROOT } = {}) {
   if (!(["darwin", "linux"].includes(process.platform))) {
     fail(`Unsupported platform: ${process.platform}. Use macOS or Linux.`);
   }
@@ -414,7 +445,6 @@ export function resolveInstallPlan({ env = process.env, now = new Date(), source
   const manifest = validateManifest(readJson(manifestFile, "plugin manifest"), manifestFile);
   const home = resolveHome(env);
   const codexHome = path.resolve(env.CODEX_HOME || path.join(home, ".codex"));
-  const timestamp = cachebusterTimestamp(now);
   const destination = path.join(home, "plugins", PLUGIN_NAME);
   return {
     sourceRoot: root,
@@ -427,9 +457,17 @@ export function resolveInstallPlan({ env = process.env, now = new Date(), source
     globalAgentFile: path.join(codexHome, "AGENTS.md"),
     agentPolicyFile: path.join(root, "assets", "agent-policy.md"),
     sourceVersion: manifest.version,
-    installVersion: withCodexCachebuster(manifest.version, timestamp),
+  };
+}
+
+export function resolveInstallPlan({ env = process.env, now = new Date(), sourceRoot = SOURCE_ROOT } = {}) {
+  const paths = resolveInstallPaths({ env, sourceRoot });
+  const timestamp = cachebusterTimestamp(now);
+  return {
+    ...paths,
+    installVersion: withCodexCachebuster(paths.sourceVersion, timestamp),
     timestamp,
-    activeJobs: listActiveJobs(codexHome),
+    activeJobs: listActiveJobs(paths.codexHome),
     codex: detectCodex(env),
   };
 }

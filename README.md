@@ -116,6 +116,14 @@ codex-process-jobs install
 
 The preview reports the exact release version alongside the source, destination, marketplace, agent-policy choice, Codex CLI, source-path safety, client refresh requirement, and active-job check. It does not install or update anything.
 
+For a path-redacted view of the package, runtime snapshot, validated cache generations, upstream repository, and editable-checkout status, run:
+
+```bash
+codex-process-jobs doctor --provenance
+```
+
+The provenance diagnostic is read-only. It identifies the current command source as a development checkout only when that source contains Git checkout metadata; otherwise it reports that an editable checkout is not registered. It never scans the filesystem for clones, treats a generated cache as source, or prints local paths.
+
 When Codex performs the installation, it must show and describe this preview, then explicitly ask the user to choose one policy scope: `global`, `project`, or `none`. A request to install the plugin does not imply consent to change any agent instructions.
 
 After reviewing that plan, apply it with the explicit policy choice. The least invasive choice is:

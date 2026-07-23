@@ -22,8 +22,8 @@ for (const [label, version] of versions) {
   }
 }
 
-if (packageMetadata.name !== "codex-process-jobs" || packageMetadata.private === true) {
-  throw new Error("package.json is not configured as the public codex-process-jobs package.");
+if (packageMetadata.name !== "codex-process-jobs") {
+  throw new Error("package.json does not identify the codex-process-jobs release artifact.");
 }
 
 process.stdout.write(`Verified codex-process-jobs ${expected} for ${tag}.\n`);

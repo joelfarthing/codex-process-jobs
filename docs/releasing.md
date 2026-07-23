@@ -1,6 +1,8 @@
 # Release checklist
 
-Use this gate for every public Codex Process Jobs release. Preparing a release does not authorize changing repository visibility, publishing an npm package, creating a public release, or submitting to a marketplace.
+Use this gate for every public Codex Process Jobs release. Preparing a release does not authorize changing repository visibility, creating a public GitHub Release, updating the public Homebrew tap, or submitting to a marketplace.
+
+Codex Process Jobs intentionally uses immutable GitHub Releases plus `joelfarthing/homebrew-tap` for versioned distribution. Do not introduce npm registry publication unless the maintainer explicitly reverses [the accepted distribution decision](decisions/0001-homebrew-distribution.md).
 
 ## Code and evidence
 
@@ -23,32 +25,32 @@ Use this gate for every public Codex Process Jobs release. Preparing a release d
 
 - Keep `package.json` and `.codex-plugin/plugin.json` versions aligned.
 - Confirm the manifest, skill metadata, license, notice, repository URLs, and supported-platform claims are current.
-- Test the README's npm and source preview, policy-selection, apply, restart, and `/hooks` instructions from a clean account or isolated home.
+- Test the README's Homebrew and source preview, policy-selection, apply, restart, and `/hooks` instructions from a clean account or isolated home.
 - Verify one local Codex App task and one Linux execution host can start, report, inspect, and cancel harmless jobs.
 - Run `npm pack --dry-run` and inspect the complete file list, sizes, executable entry point, package metadata, and absence of development-only or private material.
-- Install the packed tarball in an isolated npm prefix, then exercise `version`, `doctor`, preview-only `install`, and preview-only `update`.
-- Keep npm and plugin versions identical. The immutable npm version, Git tag, and GitHub Release title must all match.
+- Exercise the packed tarball in an isolated Node environment, then test `version`, `doctor`, preview-only `install`, and preview-only `update` through the proposed Homebrew formula.
+- Keep package metadata, plugin manifest, Homebrew formula, Git tag, and GitHub Release versions identical.
 
 ## Publication boundary
 
 - Merge the reviewed release candidate into the default branch.
 - Verify CI on the exact default-branch commit.
 - Prepare the changelog entry and GitHub release notes without publishing them.
-- Obtain explicit approval immediately before any public npm publish, version tag, or GitHub Release.
-- Publish npm with public access and provenance. For the first package-name reservation, use an authenticated one-time bootstrap publication; then configure npm Trusted Publishing for the exact repository and workflow and remove any temporary publication token.
-- Create the matching signed or annotated version tag and GitHub Release only after the package artifact and exact default-branch commit are verified.
+- Obtain explicit approval immediately before any public version tag, GitHub Release, or Homebrew tap update.
+- Create the matching signed or annotated version tag and GitHub Release only after the release artifact and exact default-branch commit are verified.
+- Update the tap formula only after the final release-asset URL and SHA-256 are known.
 - Confirm the public clone URL, screenshots, issue tracker, security-reporting route, and installation instructions work while signed out.
 
-## npm release procedure
+## GitHub Release and Homebrew procedure
 
 1. Confirm `package.json`, `package-lock.json`, and `.codex-plugin/plugin.json` contain the same strict SemVer version.
 2. Run `npm ci --ignore-scripts`, `npm run check`, and `npm pack --dry-run`.
-3. Run `npm pack`, inspect the tarball, and test it from an isolated home and npm prefix.
-4. Confirm the intended version does not already exist on npm. Published npm versions are immutable.
-5. Publish with `npm publish --access public --provenance` from an approved provenance-capable workflow. A separately authorized local bootstrap publish may omit provenance only when required to establish the package before Trusted Publishing can be configured.
-6. Configure npm Trusted Publishing for `joelfarthing/codex-process-jobs` and the exact publication workflow. Grant only `contents: read` and `id-token: write` to that job.
-7. Tag the verified commit `v<version>`, push the tag, and create the matching GitHub Release with the inspected npm tarball attached.
-8. Verify `npx --yes codex-process-jobs@<version> version`, preview installation, npm metadata, release assets, and public documentation while signed out.
+3. Run `npm pack`, inspect the tarball, and test it from an isolated home. `npm` is the local archive builder only; do not publish to the npm registry.
+4. Tag the verified commit `v<version>`, push the tag, and create the matching GitHub Release with the inspected tarball attached.
+5. Calculate the final release asset's SHA-256 and update `Formula/codex-process-jobs.rb` in `joelfarthing/homebrew-tap` with the exact version, asset URL, and checksum.
+6. Confirm the formula depends on Node 18 or newer, installs the release beneath `libexec`, exposes only the `codex-process-jobs` executable, and has a non-mutating `test do` block.
+7. Run Homebrew style, audit, install, version, doctor, preview-only install, preview-only update, and formula tests on macOS. Verify Linuxbrew in CI or on a Linux host.
+8. Verify `brew install joelfarthing/tap/codex-process-jobs`, the release asset, source tag, update path, and public documentation while signed out.
 
 ## Claims
 

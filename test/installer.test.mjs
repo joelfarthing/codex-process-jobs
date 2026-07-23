@@ -165,7 +165,8 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
   assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
   assert.match(preview.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
-  assert.match(preview.stdout, /requires explicit approval in \/hooks after restart/);
+  assert.match(preview.stdout, /review definitions and referenced source in \/hooks after every install or update/i);
+  assert.match(preview.stdout, /approve any definition Codex marks new or changed/i);
   assert.equal(fs.existsSync(marketplaceFile), false);
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
@@ -182,9 +183,11 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
   assert.match(agentPolicy, /follow the selected Codex Process Jobs skills/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140, "managed policy should stay compact");
-  assert.match(applied.stdout, /installer never trusts hooks automatically/i);
+  assert.match(applied.stdout, /installer never writes hook trust/i);
   assert.match(applied.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
-  assert.match(applied.stdout, /explicit user approval in \/hooks/i);
+  assert.match(applied.stdout, /If Codex marks a definition new or changed, approve its exact hash/i);
+  assert.match(applied.stdout, /if trust persists, verify that status/i);
+  assert.match(applied.stdout, /review them in \/hooks after every install or update/i);
   assert.match(applied.stdout, /Restart every open Codex client/);
   assert.match(applied.stdout, /Developer: Reload Window/);
   assert.match(applied.stdout, /After the restart, start a fresh Codex task/);

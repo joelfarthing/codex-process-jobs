@@ -4,6 +4,10 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Added
+
+- `codex-process-jobs doctor --provenance` reports path-redacted release, runtime snapshot, cache-generation, upstream, and editable-checkout provenance without scanning or changing the host.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added

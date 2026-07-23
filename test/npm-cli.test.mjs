@@ -8,6 +8,9 @@ import test from "node:test";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "scripts", "npm-cli.mjs");
+const RELEASE_VERSION = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "package.json"), "utf8")
+).version;
 
 function temporaryHome(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-npm-cli-"));
@@ -67,7 +70,7 @@ function copyMinimalCommandSource(destination, { includeManifest = true } = {}) 
 test("version reports the release version", () => {
   const result = run(["version"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), "0.2.0");
+  assert.equal(result.stdout.trim(), RELEASE_VERSION);
 });
 
 test("install and update retain the preview-only installer boundary", (t) => {
@@ -86,7 +89,7 @@ test("doctor reports package and installation state without changing the host", 
   const { home, env } = temporaryHome(t);
   const result = run(["doctor"], env);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /release version: 0\.2\.0/);
+  assert.ok(result.stdout.includes(`release version: ${RELEASE_VERSION}`));
   assert.match(result.stdout, /installed version: not installed/);
   assert.match(result.stdout, /Doctor is read-only and made no changes/);
   assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);

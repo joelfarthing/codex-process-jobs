@@ -24,7 +24,7 @@ function usage() {
     "",
     "Install and update are preview-only unless --apply is supplied.",
     "Applying requires --agent-policy global, project, or none.",
-    "Use an exact npm version for the apply step after reviewing a @latest preview.",
+    "Homebrew supplies the immutable release version used for both preview and apply.",
   ].join("\n");
 }
 
@@ -61,7 +61,7 @@ function runDoctor(env) {
       : `update available (${baseVersion(installedVersion)} -> ${metadata.version})`;
   const lines = [
     "Codex Process Jobs doctor",
-    `  package version: ${metadata.version}`,
+    `  release version: ${metadata.version}`,
     `  installed version: ${installedVersion ?? "not installed"}`,
     `  installation status: ${status}`,
     `  plugin destination: ${plan.destination}`,

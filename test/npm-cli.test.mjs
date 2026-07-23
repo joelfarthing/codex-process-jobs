@@ -41,7 +41,7 @@ function run(args, env = process.env) {
   });
 }
 
-test("version reports the package version", () => {
+test("version reports the release version", () => {
   const result = run(["version"]);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), "0.2.0");
@@ -63,7 +63,7 @@ test("doctor reports package and installation state without changing the host", 
   const { home, env } = temporaryHome(t);
   const result = run(["doctor"], env);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /package version: 0\.2\.0/);
+  assert.match(result.stdout, /release version: 0\.2\.0/);
   assert.match(result.stdout, /installed version: not installed/);
   assert.match(result.stdout, /Doctor is read-only and made no changes/);
   assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);

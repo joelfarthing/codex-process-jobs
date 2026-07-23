@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/ci.yml/badge.svg)](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/ci.yml)
 [![HOL Plugin Scanner](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml/badge.svg)](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml)
-[![npm](https://img.shields.io/npm/v/codex-process-jobs)](https://www.npmjs.com/package/codex-process-jobs)
+[![GitHub release](https://img.shields.io/github/v/release/joelfarthing/codex-process-jobs)](https://github.com/joelfarthing/codex-process-jobs/releases/latest)
 
 > **Community beta:** This is an independent project, not an official OpenAI plugin. Detached job state is durable, while automatic conversational completion uses consent-gated hooks and experimental local Codex transports on a best-effort basis.
 
@@ -26,9 +26,9 @@ Both screenshots are from Codex App. The before image is a real CUDA build; the 
 
 Tell Codex:
 
-> Install the latest `codex-process-jobs` npm release. Run the installer's read-only preview first and describe every local change. Then ask whether I want the optional `AGENTS.md` policy globally, in one project, or not at all. Pin the reviewed package version for the apply step, and do not apply the installation until I approve the preview and policy scope.
+> Install the latest `codex-process-jobs` release from `joelfarthing/tap` with Homebrew. Run the plugin installer's read-only preview and describe every local change. Then ask whether I want the optional `AGENTS.md` policy globally, in one project, or not at all. Do not apply the plugin installation until I approve the preview and policy scope.
 
-Codex should run the versioned npm package, follow the two-phase installation below, and leave hook trust for your explicit review in `/hooks`.
+Codex should install the versioned Homebrew formula, follow the plugin's two-phase installation below, and leave hook trust for your explicit review in `/hooks`.
 
 ## Status
 
@@ -58,7 +58,7 @@ A [SHA-pinned HOL scanner workflow](.github/workflows/hol-plugin-scanner.yml) re
 | Layer | Supported or tested scope |
 |---|---|
 | Execution host | macOS and Linux |
-| Runtime | Node.js 18 or newer; no runtime npm dependencies |
+| Runtime | Node.js 18 or newer; no third-party runtime dependencies |
 | Codex surfaces | Codex App, Codex CLI, and the Codex VS Code extension |
 | Remote clients | ChatGPT mobile driving Codex on a separately installed remote execution host |
 | Remote development | Remote SSH, Dev Containers, WSL, and similar bridges when CPJ is installed inside the actual macOS or Linux execution environment |
@@ -96,27 +96,35 @@ The included [three-arm token benchmark](benchmarks/token-savings/README.md) mea
 - Bash at `/bin/bash` only when using Bash command mode (`--shell`); direct argv and `--posix-sh` do not require it
 - Optional desktop notices: macOS `osascript`, or Linux `notify-send` in a graphical session
 
-No runtime npm packages are required. Missing desktop-notification support does not affect detached jobs, durable state, or conversational completion.
+No third-party runtime packages are required. Missing desktop-notification support does not affect detached jobs, durable state, or conversational completion.
 
 ## Installation
 
-The preferred installer is the versioned npm package. Its first run is always a read-only preview:
+Install the versioned command-line release from the project's public Homebrew tap:
 
 ```bash
-npx --yes codex-process-jobs@latest install
+brew install joelfarthing/tap/codex-process-jobs
 ```
 
-The preview reports the exact package version alongside the source, destination, marketplace, agent-policy choice, Codex CLI, source-path safety, client refresh requirement, and active-job check. It does not install or update anything.
+The formula supports Homebrew on macOS and Linux. It installs the immutable GitHub Release bytes verified by SHA-256 and exposes the `codex-process-jobs` command. It does not change Codex configuration, install the plugin, or edit any `AGENTS.md`.
+
+Run the plugin installer's read-only preview:
+
+```bash
+codex-process-jobs install
+```
+
+The preview reports the exact release version alongside the source, destination, marketplace, agent-policy choice, Codex CLI, source-path safety, client refresh requirement, and active-job check. It does not install or update anything.
 
 When Codex performs the installation, it must show and describe this preview, then explicitly ask the user to choose one policy scope: `global`, `project`, or `none`. A request to install the plugin does not imply consent to change any agent instructions.
 
-After reviewing that plan, apply it with the explicit policy choice and the exact version shown by the preview. The least invasive choice for this release is:
+After reviewing that plan, apply it with the explicit policy choice. The least invasive choice is:
 
 ```bash
-npx --yes codex-process-jobs@0.2.0 install --apply --agent-policy none
+codex-process-jobs install --apply --agent-policy none
 ```
 
-Pinning the apply step prevents a newly published `latest` release from changing the reviewed package bytes between preview and installation. npm downloads the package, but CPJ still changes no host files unless `--apply` is present.
+The Homebrew Cellar version cannot change between preview and apply unless the user separately runs `brew upgrade`. CPJ changes no Codex files unless `--apply` is present.
 
 `--apply` performs only the changes shown in the preview:
 
@@ -142,15 +150,15 @@ Skill descriptions make Codex route explicit requests such as “background this
 The optional managed policy is a compact high-priority routing rule; detailed safety and lifecycle guidance stays in the selected skills and loads only when needed. Choose one of three scopes during preview:
 
 ```bash
-npx --yes codex-process-jobs@latest install --agent-policy global
-npx --yes codex-process-jobs@latest install --agent-policy project --project-root /absolute/path/to/project
-npx --yes codex-process-jobs@latest install --agent-policy none
+codex-process-jobs install --agent-policy global
+codex-process-jobs install --agent-policy project --project-root /absolute/path/to/project
+codex-process-jobs install --agent-policy none
 ```
 
-Then apply the same reviewed choice with the exact previewed version, for example:
+Then apply the same reviewed choice, for example:
 
 ```bash
-npx --yes codex-process-jobs@0.2.0 install --apply --agent-policy global
+codex-process-jobs install --apply --agent-policy global
 ```
 
 The managed block is idempotent, upgrades an older CPJ managed block in place, and preserves unrelated instructions. The deprecated `--with-agent-policy` alias still maps to `global`, but new installations should use the explicit scope. See [Agent adoption policy](docs/agent-policy.md).
@@ -163,19 +171,27 @@ Codex App, the local VS Code extension, and Codex CLI share the installation on 
 
 Codex Process Jobs never updates itself. Existing installations are local runtime snapshots and continue using the installed version until the user deliberately previews and applies an update.
 
-Preview the current npm release with the same explicit agent-policy choice used for that host:
+Refresh Homebrew metadata and check whether a formula update is available:
 
 ```bash
-npx --yes codex-process-jobs@latest update --agent-policy none
+brew update
+brew outdated codex-process-jobs
 ```
 
-After reviewing the displayed version and plan, pin that exact version for apply:
+If an update is listed, install the immutable new formula version, then preview the CPJ plugin update with the same explicit agent-policy choice used for that host:
 
 ```bash
-npx --yes codex-process-jobs@0.2.0 update --apply --agent-policy none
+brew upgrade codex-process-jobs
+codex-process-jobs update --agent-policy none
 ```
 
-Replace `0.2.0` with the version shown in the preview. Replace `none` with `global`, or use `--agent-policy project --project-root /absolute/path/to/project`, only when that is the policy scope you want. The updater uses the same transactional installer as a first installation and blocks while tracked jobs are active unless the user separately reviews them and chooses `--allow-active-jobs`.
+After reviewing the displayed plan, apply it:
+
+```bash
+codex-process-jobs update --apply --agent-policy none
+```
+
+Replace `none` with `global`, or use `--agent-policy project --project-root /absolute/path/to/project`, only when that is the policy scope you want. The updater uses the same transactional installer as a first installation and blocks while tracked jobs are active unless the user separately reviews them and chooses `--allow-active-jobs`.
 
 An applied update refreshes the host's snapshot in `~/plugins/codex-process-jobs` and its personal-marketplace installation. It preserves validated older cache generations so already-open tasks can keep resolving the exact skills they originally catalogued; new tasks use the refreshed generation after the client reload. Updating one execution host does not update another.
 
@@ -187,9 +203,9 @@ After every applied update:
 
 To delegate the update safely, tell Codex:
 
-> Update my existing `codex-process-jobs` installation from npm. Run the latest package's read-only preview, describe every local change, and confirm whether I want the global, project, or no-`AGENTS.md` policy scope. Pin the previewed package version for apply, and do not apply the update until I approve that preview and scope.
+> Update my existing `codex-process-jobs` installation from `joelfarthing/tap` with Homebrew. After the formula upgrade, run the plugin updater's read-only preview, describe every local change, and confirm whether I want the global, project, or no-`AGENTS.md` policy scope. Do not apply the plugin update until I approve that preview and scope.
 
-For source review, offline use, or development, clone the repository somewhere other than `~/plugins/codex-process-jobs` and run `node scripts/install.mjs` with the same preview/apply policy. That path remains supported but is no longer required for ordinary installation or updates.
+For source review, systems without Homebrew, offline use, or development, clone the repository somewhere other than `~/plugins/codex-process-jobs` and run `node scripts/install.mjs` with the same preview/apply policy. The GitHub source path remains fully supported.
 
 ## Commands
 
@@ -286,7 +302,7 @@ The test suite covers real detached launches, private Desktop IPC and app-server
 
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 
-Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Public npm releases are immutable, versioned delivery artifacts for the same dependency-free plugin source; they do not introduce a second installer or a runtime npm dependency.
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Immutable GitHub Releases are the source artifacts for the public Homebrew formula; the formula exposes the same dependency-free installer and does not introduce a second plugin installation path. The project intentionally does not use the npm registry; see [Distribution decision](docs/decisions/0001-homebrew-distribution.md).
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes and [Release checklist](docs/releasing.md) for the publication gate.
 

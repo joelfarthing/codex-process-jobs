@@ -8,9 +8,9 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ### Added
 
-- Versioned npm distribution with preview-first `install` and `update` commands, a read-only `doctor`, and exact package-version reporting.
-- An explicit package allowlist so npm artifacts contain only the plugin runtime, installer, user documentation, license, and security policy.
-- A reproducible update path that previews `@latest` and pins the reviewed immutable version for the apply step.
+- Versioned GitHub Release and Homebrew distribution with preview-first `install` and `update` commands, a read-only `doctor`, and exact release-version reporting.
+- An explicit release allowlist so distribution artifacts contain only the plugin runtime, installer, user documentation, license, and security policy.
+- A reproducible macOS and Linux update path through `brew update`, `brew upgrade`, and the transactional CPJ plugin updater.
 
 ### Fixed
 

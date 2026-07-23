@@ -18,7 +18,7 @@ Codex Process Jobs intentionally uses immutable GitHub Releases plus `joelfarthi
 - Search tracked files and history for credentials, tokens, private keys, private logs, absolute user paths, hostnames, and unintended project names.
 - Re-read `SECURITY.md`, hook definitions, fixed synthetic prompts, and every place process output can cross into model context.
 - Confirm the installer previews all persistent changes and still requires explicit `global`, `project`, or `none` agent-policy consent.
-- Confirm hook trust remains an explicit `/hooks` action and no development or automation flag bypasses it.
+- Confirm every update still requires an explicit `/hooks` review, new or changed definitions require approval, retained trust is verified, and no development or automation flag bypasses the consent flow.
 - Review screenshots and examples for information the author does not intend to publish.
 
 ## Packaging and onboarding

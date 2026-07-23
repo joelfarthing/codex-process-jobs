@@ -12,7 +12,7 @@ Policy scope is a separate opt-in decision. After showing the read-only preview,
 
 Permission to install the plugin never implies one of these choices.
 
-Hook consent is also separate and always manual. The installer never writes hook trust. After restarting the client, the user must review and approve the installed `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source through `/hooks` before hook-boundary fallback can run.
+Hook consent is also separate and always manual. The installer never writes hook trust. After every install or update and client restart, the user must review the installed `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source through `/hooks`. Any definition Codex marks new or changed requires approval; if trust persists, the user still verifies that status. Hook-boundary fallback can run only for definitions Codex currently trusts.
 
 Preview any choice without changing anything:
 

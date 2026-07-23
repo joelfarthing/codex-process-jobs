@@ -521,7 +521,7 @@ function planLines(plan, options) {
     `  plugin version: ${plan.installVersion}`,
     `  personal marketplace: ${plan.marketplaceFile}`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
-    "  completion hooks: enable hooks and install PostToolUse, Stop, and UserPromptSubmit definitions; each requires explicit approval in /hooks after restart",
+    "  completion hooks: enable hooks and install PostToolUse, Stop, and UserPromptSubmit definitions; review definitions and referenced source in /hooks after every install or update, and approve any definition Codex marks new or changed",
     "  open-task compatibility: preserve validated prior CPJ cache generations across plugin refresh",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
@@ -778,7 +778,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     `Installed ${result.selector} (${result.version}).`,
     "Restart every open Codex client before testing this install.",
     "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
-    `After restart, open /hooks, review the ${result.selector} PostToolUse, Stop, and UserPromptSubmit definitions and shared source, and approve their exact hashes. The installer never trusts hooks automatically.`,
+    `After restart, open /hooks and review the ${result.selector} PostToolUse, Stop, and UserPromptSubmit definitions and referenced shared source. If Codex marks a definition new or changed, approve its exact hash; if trust persists, verify that status. The installer never writes hook trust.`,
     "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
@@ -791,7 +791,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       ? `Cache generations restored after refresh: ${result.restoredCacheVersions.join(", ")}`
       : null,
     result.agentPolicyMode === "none" ? "AGENTS.md policy: none selected; no AGENTS.md was changed." : null,
-    "Completion hooks: installed but intentionally left for explicit user approval in /hooks.",
+    "Completion hooks: installed; review them in /hooks after every install or update and approve any definition Codex marks new or changed.",
   ].filter(Boolean).join("\n") + "\n");
 }
 

@@ -26,7 +26,7 @@ State directories and files use private permissions, but they are not cryptograp
 
 ## Hook consent
 
-The installer enables Codex's hooks feature and installs `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions, but never writes hook trust. After restarting the client, the user must open `/hooks`, inspect every installed definition and the shared command source, and approve their exact hashes. Changed hook definitions require a new review through Codex's hash-based trust flow. The plugin remains functional through durable state and direct delivery when hooks are untrusted or disabled.
+The installer enables Codex's hooks feature and installs `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions, but never writes hook trust. After every install or update and client restart, the user must open `/hooks` and inspect every installed definition and its referenced shared command source. Codex records trust against the current definition hash: definitions it marks new or changed require approval, while retained trust must still be verified. Referenced script contents can change between plugin versions without necessarily changing the hook-definition hash, so this mandatory review covers both the definition and its referenced source. The plugin remains functional through durable state and direct delivery when hooks are untrusted or disabled.
 
 ## Operational risks
 

@@ -8,6 +8,10 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 - `codex-process-jobs doctor --provenance` reports path-redacted release, runtime snapshot, cache-generation, upstream, and editable-checkout provenance without scanning or changing the host.
 
+### Changed
+
+- Installer and documentation now require a `/hooks` review after every install or update while distinguishing mandatory review from conditional reapproval when Codex marks a definition new or changed.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added

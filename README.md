@@ -28,7 +28,7 @@ Tell Codex:
 
 > Install the latest `codex-process-jobs` release from `joelfarthing/tap` with Homebrew. Run the plugin installer's read-only preview and describe every local change. Then ask whether I want the optional `AGENTS.md` policy globally, in one project, or not at all. Do not apply the plugin installation until I approve the preview and policy scope.
 
-Codex should install the versioned Homebrew formula, follow the plugin's two-phase installation below, and leave hook trust for your explicit review in `/hooks`.
+Codex should install the versioned Homebrew formula, follow the plugin's two-phase installation below, and leave hook trust for your explicit review in `/hooks` after every install or update.
 
 ## Status
 
@@ -145,11 +145,11 @@ The Homebrew Cellar version cannot change between preview and apply unless the u
 
 Existing plugin and configuration files are backed up, and an install failure rolls the local source snapshot, configuration, and prior CPJ cache generations back. Preserved generations are exact snapshots, not aliases to newer code, so their hook and skill contents remain consistent with what an open task originally loaded. They are small and are not pruned automatically; users may remove obsolete generations after every task that references them has ended.
 
-The installer never trusts hooks automatically. After restarting the client, open `/hooks`, inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source, and approve their exact hashes. Direct completion delivery does not depend on hook trust, but hook-boundary fallback remains unavailable until the user approves the definitions.
+The installer never writes hook trust. After restarting the client following every install or update, open `/hooks` and inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source. If Codex marks a definition new or changed, approve its exact hash; if existing trust persists, verify that status. Review remains mandatory because referenced source can change between plugin versions even when the hook definition and its trust hash do not. Direct completion delivery does not depend on hook trust, but hook-boundary fallback remains unavailable for any definition Codex leaves untrusted.
 
 The installer refuses to replace the plugin while tracked jobs are active. `--allow-active-jobs` is an explicit escape hatch after inspecting those jobs.
 
-Restart every open Codex client after installation or update. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After the restart, approve the reviewed hook in `/hooks`, then start a fresh task so the client picks up the new plugin snapshot and hook registry. Starting a new task without restarting the client is not sufficient after a hot reinstall. Already-open tasks may continue using their preserved prior generation; they do not silently switch to the new implementation.
+Restart every open Codex client after installation or update. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After the restart, perform the mandatory `/hooks` review and approve only definitions Codex marks new or changed, then start a fresh task so the client picks up the new plugin snapshot and hook registry. Starting a new task without restarting the client is not sufficient after a hot reinstall. Already-open tasks may continue using their preserved prior generation; they do not silently switch to the new implementation.
 
 ### Encourage automatic use
 
@@ -206,7 +206,7 @@ An applied update refreshes the host's snapshot in `~/plugins/codex-process-jobs
 After every applied update:
 
 1. Restart Codex App and Codex CLI; in VS Code, run **Developer: Reload Window**.
-2. Open `/hooks`, review any changed CPJ hook definitions and shared source, and approve their new exact hashes.
+2. Open `/hooks` and review every CPJ hook definition and its referenced shared source. Approve any definition Codex marks new or changed; if trust persists, verify that status.
 3. Start a fresh Codex task for new-version testing.
 
 To delegate the update safely, tell Codex:

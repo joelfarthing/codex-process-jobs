@@ -1,6 +1,6 @@
 # Codex surface smoke test
 
-Run `npm run smoke` first to verify the process runtime in isolated temporary state. After every install or update, restart the Codex client before testing. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After restart, open `/hooks`, inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and shared source, and approve their exact hashes. A new task inside a client that was already running during installation can retain stale plugin or hook state.
+Run `npm run smoke` first to verify the process runtime in isolated temporary state. After every install or update, restart the Codex client before testing. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After restart, open `/hooks` and inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source. Approve any definition Codex marks new or changed; if trust persists, verify that status. A new task inside a client that was already running during installation can retain stale plugin or hook state.
 
 After that restart, start a fresh persistent task in each installed Codex surface and paste this prompt:
 
@@ -10,7 +10,7 @@ Use $codex-process-jobs:start to launch a harmless direct-argv Node job named su
 
 Pass criteria:
 
-1. The client was restarted after the latest plugin install or update, the hook was explicitly reviewed and approved in `/hooks`, and the fresh task discovers the namespaced skills without being given a filesystem path.
+1. The client was restarted after the latest plugin install or update, every hook and its referenced source was explicitly reviewed in `/hooks`, every definition Codex marked new or changed was approved, retained trust was verified, and the fresh task discovers the namespaced skills without being given a filesystem path.
 2. Start returns a job id in under two seconds.
 3. Without the user prompt coaching this behavior, the launch turn ends while the ordinary OS process remains active. It does not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or another monitor/probe after start returns.
 4. The separate completion turn is durably recorded. In default `auto` mode on local macOS Codex App, the user-friendly automatic notice and the agent's bounded result summary, single recommended next step, and permission question should render live exactly once; the agent must not execute that step. The job should record `notification.transport: desktop-ipc`, while the non-consuming inspection leaves `resultViewedAt` unset. Other clients may use `app-server`, where live rendering remains best-effort. VS Code, CLI, and unknown surfaces retain the lightweight acknowledgment unless completion mode is explicitly overridden.
@@ -42,7 +42,7 @@ Run the same acceptance contract in every row. Record the host OS, Codex client/
 | macOS | Codex CLI | Exit/restart CLI; review `/hooks`; fresh task | Terminal presentation plus durable final recap |
 | Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local job state and extension refresh boundary |
 | Linux | Codex CLI | Reinstall on Linux host; restart CLI; review `/hooks`; fresh task | Portable detached lifecycle and recap |
-| macOS or Linux | ChatGPT mobile/iOS driving the host | Reinstall on execution host; approve `/hooks` through Codex CLI or VS Code attached to that host; reconnect/start fresh mobile task | `ownerSurface: remote`, durable delivery, eligible-turn final retention |
+| macOS or Linux | ChatGPT mobile/iOS driving the host | Reinstall on execution host; review `/hooks` and approve if required through Codex CLI or VS Code attached to that host; reconnect/start fresh mobile task | `ownerSurface: remote`, durable delivery, eligible-turn final retention |
 
 Pulling source commits does not update an installed runtime snapshot. On every execution host with the updated source checkout, run and review the installer preview, then run the authorized apply step before restarting clients. Select the compact managed policy as `global`, `project`, or `none` only after separate user consent. No runtime `npm install`, persistent daemon, or manual `codex plugin marketplace add` is required for the default personal marketplace.
 

@@ -4,6 +4,13 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Changed
+
+- The OpenAI Plugins Directory is now the recommended installation path.
+  Homebrew and the personal marketplace remain a maintained advanced fallback
+  during the Marketplace update transition, and users must choose exactly one
+  provider.
+
 ## [0.2.2] - 2026-07-24
 
 ### Added

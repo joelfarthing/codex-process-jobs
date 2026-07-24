@@ -1,25 +1,39 @@
 # Release checklist
 
-Use this gate for every public Codex Process Jobs release. Preparing a release does not authorize changing repository visibility, creating a public GitHub Release, updating the public Homebrew tap, or submitting to a marketplace.
+Use this gate for every public Codex Process Jobs release. Preparing a release
+does not authorize changing repository visibility, creating a public GitHub
+Release, submitting to or publishing in the OpenAI Plugins Directory, or
+updating the public Homebrew tap.
 
-Codex Process Jobs intentionally uses immutable GitHub Releases plus `joelfarthing/homebrew-tap` for versioned distribution. Do not introduce npm registry publication unless the maintainer explicitly reverses [the accepted distribution decision](decisions/0001-homebrew-distribution.md).
+The OpenAI Plugins Directory is the primary installation surface. Immutable
+GitHub Releases remain the source and provenance artifacts, while
+`joelfarthing/homebrew-tap` is a transitional advanced fallback. Do not
+introduce npm registry publication unless the maintainer explicitly reverses
+[the accepted distribution decision](decisions/0002-marketplace-primary-distribution.md).
 
 This public runbook documents maintainer verification and sequencing; it grants no repository or tap write authority and contains no authentication material. Outside users should follow the README's installation and update paths, while contributors should use ordinary forks and pull requests.
 
 ## Canonical release runway
 
-Treat these as separate, ordered states. Do not describe a merge as a release or a Homebrew formula upgrade as a plugin update.
+Treat these as separate, ordered states. Do not describe a merge as a release,
+a GitHub Release as a Marketplace update, or a Homebrew formula upgrade as a
+plugin update.
 
 | State | Authority | What users receive |
 |---|---|---|
 | Reviewed change | Feature branch or pull request | Nothing |
-| Merged, unreleased | Exact commit on `origin/main` | Nothing through Homebrew |
-| GitHub release published | Immutable `vX.Y.Z` tag and `.tgz` asset | Release bytes exist, but Homebrew still serves its pinned formula version |
-| Tap formula published | `joelfarthing/homebrew-tap` points to the release URL and SHA-256 | `brew update` and `brew upgrade` can install the new management command |
-| Plugin update applied | User runs the previewed `codex-process-jobs update --apply ...` | New Codex plugin snapshot is installed on that execution host |
-| Client refreshed | Codex is restarted, `/hooks` is reviewed, and a fresh task is opened | New tasks use the refreshed plugin generation |
+| Merged, unreleased | Exact commit on `origin/main` | No public installation surface changes |
+| GitHub release published | Immutable `vX.Y.Z` tag and `.tgz` asset | Auditable release bytes and provenance exist |
+| Directory archive verified | Deterministic ZIP built from the exact release commit | Marketplace upload bytes are ready but unpublished |
+| Directory version published | Approved version is explicitly published in the OpenAI portal | The primary provider can serve the new snapshot |
+| Optional tap formula published | `joelfarthing/homebrew-tap` points to the release URL and SHA-256 | Homebrew fallback users can install the new management command |
+| Client refreshed | Codex is restarted or reloaded, `/hooks` is reviewed, and a fresh task is opened | New tasks can be checked for the refreshed provider generation |
 
-A release is complete only after every applicable state above is verified. If publication fails after a tag or GitHub Release exists, preserve the immutable artifact and fix forward with a new patch version; never replace published release bytes in place.
+A primary release is complete only after the GitHub and Marketplace states
+above are verified. Homebrew is applicable only while the transitional fallback
+is being maintained for that version. If publication fails after a tag or
+GitHub Release exists, preserve the immutable artifact and fix forward with a
+new patch version; never replace published release bytes in place.
 
 ## 1. Develop, review, and merge the change
 
@@ -31,7 +45,8 @@ A release is complete only after every applicable state above is verified. If pu
 6. Mark the pull request ready and merge it using the repository's intended strategy.
 7. Fetch `origin/main` and record the exact merged commit. A local feature branch, even one whose pull request was merged, is not the release authority.
 
-At this point the change is public source code but remains unavailable through Homebrew.
+At this point the change is public source code but remains unavailable through
+the Plugins Directory and any maintained Homebrew fallback.
 
 ## 2. Prepare the release on a separate branch
 
@@ -74,23 +89,38 @@ Inside the release worktree, confirm that `HEAD` is the expected `origin/main` c
 
 - Keep `package.json` and `.codex-plugin/plugin.json` versions aligned.
 - Confirm the manifest, skill metadata, license, notice, repository URLs, and supported-platform claims are current.
-- Test the README's Homebrew and source preview, policy-selection, apply, restart, and `/hooks` instructions from a clean account or isolated home.
+- Test the README's primary Plugins Directory installation, restart, `/hooks`,
+  and fresh-task instructions from a clean account or isolated home.
+- While the Homebrew fallback remains maintained, separately test its source
+  preview, policy-selection, apply, restart, and `/hooks` instructions.
 - Verify one local Codex App task and one Linux execution host can start, report, inspect, and cancel harmless jobs.
 - Run `npm pack --dry-run` and inspect the complete file list, sizes, executable entry point, package metadata, and absence of development-only or private material.
-- Exercise the packed tarball in an isolated Node environment, then test `version`, `doctor`, preview-only `install`, and preview-only `update` through the proposed Homebrew formula.
-- Keep package metadata, plugin manifest, Homebrew formula, Git tag, and GitHub Release versions identical.
+- Exercise the packed tarball in an isolated Node environment.
+- Build the deterministic OpenAI-directory ZIP, inspect its allowlist and
+  SHA-256, and validate its extracted runtime.
+- While the Homebrew fallback remains maintained, test `version`, `doctor`,
+  preview-only `install`, and preview-only `update` through the proposed
+  formula.
+- Keep package metadata, plugin manifest, Marketplace archive, Git tag, GitHub
+  Release, and any maintained Homebrew formula versions identical.
 
 ## 3. Publication boundary
 
 - Merge the reviewed release candidate into the default branch.
 - Verify CI on the exact default-branch commit.
 - Prepare the changelog entry and GitHub release notes without publishing them.
-- Obtain explicit approval immediately before any public version tag, GitHub Release, or Homebrew tap update.
+- Obtain explicit approval immediately before any public version tag, GitHub
+  Release, Marketplace upload, submission, publication, or Homebrew tap update.
 - Create the matching signed or annotated version tag and GitHub Release only after the release artifact and exact default-branch commit are verified.
-- Update the tap formula only after the final release-asset URL and SHA-256 are known.
+- Build and verify the Marketplace archive only from the exact release commit.
+- Update the tap formula only when the Homebrew fallback is being maintained for
+  that release and only after the final release-asset URL and SHA-256 are known.
 - Confirm the public clone URL, screenshots, issue tracker, security-reporting route, and installation instructions work while signed out.
 
-Preparation and local validation do not authorize a public write. Obtain explicit maintainer approval immediately before pushing the version tag, creating the GitHub Release, or pushing the Homebrew tap update.
+Preparation and local validation do not authorize a public write. Obtain
+explicit maintainer approval immediately before pushing the version tag,
+creating the GitHub Release, uploading, submitting, or publishing the
+Marketplace version, or pushing a Homebrew tap update.
 
 ## 4. Build and publish the immutable GitHub release
 
@@ -104,9 +134,39 @@ From the clean release worktree:
 6. After the publication approval checkpoint, create an annotated `vX.Y.Z` tag on that exact commit, push the tag, and create the matching GitHub Release with `codex-process-jobs-X.Y.Z.tgz` attached.
 7. Download or otherwise re-read the published asset and confirm its SHA-256 matches the inspected local artifact.
 
-The GitHub Release must be complete before the Homebrew formula is changed because the formula pins the final immutable asset URL and checksum.
+The GitHub Release must be complete before downstream publication. The
+Marketplace ZIP must be built from that exact clean release commit. Any
+maintained Homebrew formula pins the final immutable asset URL and checksum.
 
-## 5. Update and verify the Homebrew tap
+## 5. Publish and verify the OpenAI Plugins Directory version
+
+Follow [OpenAI Plugins Directory packaging](openai-directory-packaging.md):
+
+1. Build the deterministic allowlisted ZIP from the exact clean release commit.
+2. Record its source commit, version, SHA-256, byte size, and complete member
+   list.
+3. Run the official plugin validator, repository suite, portable smoke test,
+   extracted-runtime test, and HOL scanner.
+4. Obtain explicit approval immediately before uploading the ZIP.
+5. Upload the archive and re-enter portal-only metadata that the version form
+   does not retain.
+6. Inspect every scan result and the complete submission preview.
+7. Obtain explicit approval immediately before submitting the version.
+8. After approval, obtain explicit approval immediately before publishing it.
+9. Confirm the public directory page presents the intended version and
+   metadata.
+10. Restart or reload representative clients and verify the version in a fresh
+    Codex App, CLI, and VS Code task on macOS and Linux where available.
+
+For the first release after Marketplace adoption, explicitly record whether the
+new version appeared automatically, required a client restart, exposed an
+update action, or required uninstall/reinstall. That evidence is the gate for a
+later Homebrew deprecation decision.
+
+## 6. Optionally update and verify the Homebrew fallback
+
+Run this section only while the project is maintaining the transitional
+Homebrew fallback for the release.
 
 In a clean checkout of `joelfarthing/homebrew-tap`:
 
@@ -129,9 +189,17 @@ codex-process-jobs install --agent-policy none
 
 The final command is preview-only and must remain non-mutating.
 
-## 6. Update an existing execution host
+## 7. Update an existing execution host
 
-Homebrew and the Codex plugin are deliberately separate layers. On every macOS or Linux execution host:
+For the primary OpenAI-directory provider, use the update action presented by
+the Plugins Directory or uninstall and reinstall that provider if the client
+leaves an older version active. Restart Codex App and CLI, reload VS Code,
+review `/hooks`, and verify the provider and version in a fresh task on every
+representative execution host. Never add the Homebrew/personal provider beside
+an existing directory installation.
+
+For a host deliberately using the Homebrew fallback, Homebrew and the Codex
+plugin are separate layers:
 
 ```bash
 brew update
@@ -146,14 +214,15 @@ Replace `none` with the host's previously selected `global` policy, or with `pro
 codex-process-jobs update --apply --agent-policy none
 ```
 
-After every applied update:
+After every Marketplace or applied fallback update:
 
 1. Restart Codex App and Codex CLI; reload VS Code windows.
 2. Review every CPJ definition and referenced shared source through `/hooks`.
 3. Approve only definitions Codex marks new or changed, and verify retained trust otherwise.
 4. Start a fresh task and run a harmless detached smoke test.
 
-An existing task may continue using a preserved older cache generation. That compatibility behavior does not mean the host update failed.
+An existing task may continue using a preserved older cache generation. That
+compatibility behavior does not mean the host update failed.
 
 ## Claims
 

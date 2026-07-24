@@ -24,15 +24,21 @@ Both screenshots are from Codex App. The before image is a real CUDA build; the 
 
 ## Quick start with Codex
 
-Choose exactly one provider. For the simplest Codex-managed installation, open
-the Plugins Directory, search for **Codex Process Jobs**, and install it there.
+Choose exactly one provider. The recommended installation is the OpenAI Plugins
+Directory: open the directory, search for **Codex Process Jobs**, and choose
+**Install plugin**. This is the simplest Codex-managed path and avoids a
+separate package manager and personal marketplace.
 
-For a versioned, inspectable Homebrew and personal-marketplace installation,
-tell Codex:
+Homebrew and the personal marketplace remain available as an advanced fallback
+for source inspection, development, recovery, offline use, or environments
+where the Plugins Directory is unavailable. They are not a second layer to add
+to a directory installation. To use that fallback, tell Codex:
 
 > Install the latest `codex-process-jobs` release from `joelfarthing/tap` with Homebrew. Run the plugin installer's read-only preview and describe every local change. Then ask whether I want the optional `AGENTS.md` policy globally, in one project, or not at all. Do not apply the plugin installation until I approve the preview and policy scope.
 
-Codex should install the versioned Homebrew formula, follow the plugin's two-phase installation below, and leave hook trust for your explicit review in `/hooks` after every install or update.
+Codex should install the versioned Homebrew formula, follow the plugin's
+two-phase installation below, and leave hook trust for your explicit review in
+`/hooks` after every install or update.
 
 Do not install the OpenAI-directory and Homebrew/personal-marketplace copies in
 the same Codex home. Both expose the same skill IDs, so side-by-side providers
@@ -110,7 +116,7 @@ No third-party runtime packages are required. Missing desktop-notification suppo
 
 ## Installation
 
-### OpenAI Plugins Directory
+### OpenAI Plugins Directory (recommended)
 
 In Codex or ChatGPT's Plugins Directory, search for **Codex Process Jobs** and
 choose **Install plugin**. The directory copy is a reviewed versioned snapshot;
@@ -120,7 +126,14 @@ After installation, restart or reload Codex, review every CPJ definition and
 referenced source through `/hooks`, and begin a fresh task. Do not use this route
 in a Codex home that already contains the Homebrew/personal-marketplace copy.
 
-### Homebrew and personal marketplace
+### Advanced fallback: Homebrew and personal marketplace
+
+This path remains supported during the Marketplace transition, but it is no
+longer the recommended installation for ordinary users. It is useful when the
+Plugins Directory is unavailable, when a user wants an independently managed
+versioned installation, or for source and recovery workflows. The project may
+formally deprecate this distribution path after a Marketplace update has been
+verified end to end.
 
 Install the versioned command-line release from the project's public Homebrew tap:
 
@@ -197,18 +210,32 @@ The managed block is idempotent, upgrades an older CPJ managed block in place, a
 
 ### Host and surface scope
 
-Codex App, the local VS Code extension, and Codex CLI share the installation on one host. If VS Code or ChatGPT mobile drives Codex on another execution host through Remote SSH, remote tasks, a Dev Container, WSL, or another bridge, install the plugin in that execution environment too. On Linux, run the same preview/apply flow under the account that runs Codex.
+Codex App, the local VS Code extension, and Codex CLI share plugin state on one
+host. In current clients, an OpenAI-directory installation can also become
+available through the same signed-in account on another eligible host. Verify
+the provider and version in a fresh task on every actual execution host; jobs
+and their saved results remain machine-scoped.
+
+For the Homebrew/personal fallback, install the plugin separately inside every
+remote execution environment used through Remote SSH, remote tasks, a Dev
+Container, WSL, or another bridge. On Linux, run the same preview/apply flow
+under the account that runs Codex.
 
 ## Updating
 
-Codex Process Jobs never updates itself. The OpenAI Plugins Directory and
-Homebrew/personal marketplace are separate versioned providers.
+Codex Process Jobs never updates itself. The OpenAI Plugins Directory is the
+primary provider. Homebrew/personal marketplace is a separate advanced fallback;
+never update by adding one provider alongside the other.
 
 For an OpenAI-directory installation, use the update action presented by the
 Plugins Directory or uninstall and reinstall that provider if the client leaves
 an older version active. Restart or reload Codex afterward, review `/hooks`, and
 begin a fresh task. Exact update presentation is client-controlled; do not add a
 Homebrew/personal copy alongside an older directory installation.
+
+The project's first post-Marketplace release will be used to verify how updates
+propagate across Codex App, CLI, VS Code, and multiple signed-in hosts. Until
+that test is complete, the Homebrew fallback remains maintained but secondary.
 
 For a Homebrew/personal-marketplace installation, existing local runtime
 snapshots continue using the installed version until the user deliberately
@@ -345,7 +372,12 @@ The test suite covers real detached launches, private Desktop IPC and app-server
 
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 
-Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Immutable GitHub Releases are the source artifacts for the public Homebrew formula; the formula exposes the same dependency-free installer and does not introduce a second plugin installation path. The project intentionally does not use the npm registry; see [Distribution decision](docs/decisions/0001-homebrew-distribution.md).
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). The OpenAI
+Plugins Directory is the recommended installation surface. Immutable GitHub
+Releases remain the public source and provenance artifacts, while the Homebrew
+formula is an advanced fallback during the Marketplace transition. The project
+intentionally does not use the npm registry; see the current
+[distribution decision](docs/decisions/0002-marketplace-primary-distribution.md).
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes and [Release checklist](docs/releasing.md) for the publication gate.
 

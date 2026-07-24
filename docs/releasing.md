@@ -181,7 +181,9 @@ sole active implementation: all five directory skills and all three directory
 hooks are disabled. After every directory update, explicitly re-confirm those
 eight toggles before opening the fresh test task. Do not assume a Marketplace
 update preserved disabled state, even though current clients do not ordinarily
-enable a hook without consent.
+enable a hook without consent. During one observed Codex App update, all five
+disabled directory skills were re-enabled while the three directory hooks
+remained disabled. Treat the two toggle groups as independent.
 
 An existing task may continue using a preserved older cache generation. That
 compatibility behavior does not mean the host update failed.

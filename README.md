@@ -289,7 +289,10 @@ Maintainers who deliberately keep the directory and local development providers
 installed together must disable all directory-provided CPJ skills and hooks
 before testing the local copy. After every directory update, re-confirm that
 those skill and hook toggles remain disabled before opening the test task; do
-not assume that client-controlled update behavior preserved them.
+not assume that client-controlled update behavior preserved them. In one
+observed Codex App update, all five disabled directory skills were re-enabled
+while the three directory hooks remained disabled. Treat skill and hook state
+as independent, and verify all eight toggles.
 
 Homebrew installations do not receive versions after 0.2.2. Migrate them rather
 than waiting for `brew upgrade`. A local development provider can be refreshed

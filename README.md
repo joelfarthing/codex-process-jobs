@@ -24,21 +24,19 @@ Both screenshots are from Codex App. The before image is a real CUDA build; the 
 
 ## Quick start with Codex
 
-Choose exactly one provider. For the simplest Codex-managed installation, open
-the Plugins Directory, search for **Codex Process Jobs**, and install it there.
+Choose exactly one provider. The recommended installation is the OpenAI Plugins
+Directory: open the directory, search for **Codex Process Jobs**, and choose
+**Install plugin**. This is the simplest Codex-managed path and avoids a
+separate package manager and personal marketplace.
 
-For a versioned, inspectable Homebrew and personal-marketplace installation,
-tell Codex:
+Homebrew distribution is deprecated as of July 24, 2026. Existing Homebrew and
+personal-marketplace installations should
+[migrate to the Plugins Directory](#migrating-from-the-deprecated-homebrew-provider);
+the formula is frozen at CPJ 0.2.2 and will not receive later releases.
 
-> Install the latest `codex-process-jobs` release from `joelfarthing/tap` with Homebrew. Run the plugin installer's read-only preview and describe every local change. Then ask whether I want the optional `AGENTS.md` policy globally, in one project, or not at all. Do not apply the plugin installation until I approve the preview and policy scope.
-
-Codex should install the versioned Homebrew formula, follow the plugin's two-phase installation below, and leave hook trust for your explicit review in `/hooks` after every install or update.
-
-Do not install the OpenAI-directory and Homebrew/personal-marketplace copies in
-the same Codex home. Both expose the same skill IDs, so side-by-side providers
-can make routing nondeterministic. When changing providers, uninstall the
-existing copy, restart Codex, and confirm that its skills are gone before
-installing the replacement.
+Do not install the OpenAI-directory and personal-development copies in the same
+Codex home as an ordinary configuration. Both expose the same skill IDs, so
+side-by-side providers can make routing nondeterministic.
 
 ## Status
 
@@ -110,7 +108,7 @@ No third-party runtime packages are required. Missing desktop-notification suppo
 
 ## Installation
 
-### OpenAI Plugins Directory
+### OpenAI Plugins Directory (recommended)
 
 In Codex or ChatGPT's Plugins Directory, search for **Codex Process Jobs** and
 choose **Install plugin**. The directory copy is a reviewed versioned snapshot;
@@ -120,20 +118,36 @@ After installation, restart or reload Codex, review every CPJ definition and
 referenced source through `/hooks`, and begin a fresh task. Do not use this route
 in a Codex home that already contains the Homebrew/personal-marketplace copy.
 
-### Homebrew and personal marketplace
+### Migrating from the deprecated Homebrew provider
 
-Install the versioned command-line release from the project's public Homebrew tap:
+The Homebrew formula remains installable at CPJ 0.2.2 during its warning-stage
+deprecation so existing users can migrate without an abrupt break. It is no
+longer a supported source of CPJ updates.
+
+1. Let tracked jobs finish, or inspect and deliberately cancel any job that is
+   safe to stop.
+2. Remove the personal CPJ provider through the Plugins page or with
+   `codex plugin remove codex-process-jobs@<personal-marketplace-name>`.
+3. Run `brew uninstall codex-process-jobs`. Optionally run
+   `brew untap joelfarthing/tap` if the tap supplies nothing else you use.
+4. Restart or reload Codex and confirm a fresh task no longer catalogs the
+   personal CPJ skills.
+5. Install **Codex Process Jobs** from the OpenAI Plugins Directory, restart or
+   reload again, review `/hooks`, and verify a harmless detached job in a fresh
+   task.
+
+The optional managed `AGENTS.md` block is provider-independent and may remain in
+place. Removing a provider does not delete durable job records or saved logs.
+
+### Local development provider
+
+The source installer remains available for contributor and maintainer testing;
+it is not a second public distribution channel. Clone the repository somewhere
+other than `~/plugins/codex-process-jobs`, then run its read-only preview with
+an explicit agent-policy choice:
 
 ```bash
-brew install joelfarthing/tap/codex-process-jobs
-```
-
-The formula supports Homebrew on macOS and Linux. It installs the immutable GitHub Release bytes verified by SHA-256 and exposes the `codex-process-jobs` command. It does not change Codex configuration, install the plugin, or edit any `AGENTS.md`.
-
-Run the plugin installer's read-only preview:
-
-```bash
-codex-process-jobs install
+node scripts/install.mjs --agent-policy none
 ```
 
 The preview reports the exact release version alongside the source, destination, marketplace, CPJ provider caches, agent-policy choice, Codex CLI, source-path safety, client refresh requirement, and active-job check. It warns when applying a personal installation would leave another CPJ provider cache present, because duplicate skill IDs can make routing nondeterministic. It does not install, remove, disable, or update anything.
@@ -148,13 +162,15 @@ The provenance diagnostic is read-only. It identifies the current command source
 
 When Codex performs the installation, it must show and describe this preview, then explicitly ask the user to choose one policy scope: `global`, `project`, or `none`. A request to install the plugin does not imply consent to change any agent instructions.
 
-After reviewing that plan, apply it with the explicit policy choice. The least invasive choice is:
+After reviewing that plan, apply it with the same explicit policy choice. The
+least invasive choice is:
 
 ```bash
-codex-process-jobs install --apply --agent-policy none
+node scripts/install.mjs --apply --agent-policy none
 ```
 
-The Homebrew Cellar version cannot change between preview and apply unless the user separately runs `brew upgrade`. CPJ changes no Codex files unless `--apply` is present.
+Use the same reviewed checkout for preview and apply. CPJ changes no Codex files
+unless `--apply` is present.
 
 `--apply` performs only the changes shown in the preview:
 
@@ -182,73 +198,61 @@ Routing is based on the underlying workload rather than the latency of a wrapper
 The optional managed policy is a compact high-priority routing rule; detailed safety and lifecycle guidance stays in the selected skills and loads only when needed. Choose one of three scopes during preview:
 
 ```bash
-codex-process-jobs install --agent-policy global
-codex-process-jobs install --agent-policy project --project-root /absolute/path/to/project
-codex-process-jobs install --agent-policy none
+node scripts/install.mjs --agent-policy global
+node scripts/install.mjs --agent-policy project --project-root /absolute/path/to/project
+node scripts/install.mjs --agent-policy none
 ```
 
 Then apply the same reviewed choice, for example:
 
 ```bash
-codex-process-jobs install --apply --agent-policy global
+node scripts/install.mjs --apply --agent-policy global
 ```
 
 The managed block is idempotent, upgrades an older CPJ managed block in place, and preserves unrelated instructions. The deprecated `--with-agent-policy` alias still maps to `global`, but new installations should use the explicit scope. See [Agent adoption policy](docs/agent-policy.md).
 
 ### Host and surface scope
 
-Codex App, the local VS Code extension, and Codex CLI share the installation on one host. If VS Code or ChatGPT mobile drives Codex on another execution host through Remote SSH, remote tasks, a Dev Container, WSL, or another bridge, install the plugin in that execution environment too. On Linux, run the same preview/apply flow under the account that runs Codex.
+Codex App, the local VS Code extension, and Codex CLI share plugin state on one
+host. In current clients, an OpenAI-directory installation can also become
+available through the same signed-in account on another eligible host. Verify
+the provider and version in a fresh task on every actual execution host; jobs
+and their saved results remain machine-scoped.
+
+For local development, install the personal provider separately inside the
+actual macOS or Linux execution environment and under the account that runs
+Codex.
 
 ## Updating
 
-Codex Process Jobs never updates itself. The OpenAI Plugins Directory and
-Homebrew/personal marketplace are separate versioned providers.
+Codex Process Jobs never updates itself. The OpenAI Plugins Directory is the
+supported provider; never update by adding a personal provider alongside it.
 
 For an OpenAI-directory installation, use the update action presented by the
 Plugins Directory or uninstall and reinstall that provider if the client leaves
 an older version active. Restart or reload Codex afterward, review `/hooks`, and
 begin a fresh task. Exact update presentation is client-controlled; do not add a
-Homebrew/personal copy alongside an older directory installation.
+personal copy alongside an older directory installation.
 
-For a Homebrew/personal-marketplace installation, existing local runtime
-snapshots continue using the installed version until the user deliberately
-previews and applies an update.
-
-Refresh Homebrew metadata and check whether a formula update is available:
-
-```bash
-brew update
-brew outdated codex-process-jobs
-```
-
-If an update is listed, install the immutable new formula version, then preview the CPJ plugin update with the same explicit agent-policy choice used for that host:
-
-```bash
-brew upgrade codex-process-jobs
-codex-process-jobs update --agent-policy none
-```
-
-After reviewing the displayed plan, apply it:
-
-```bash
-codex-process-jobs update --apply --agent-policy none
-```
-
-Replace `none` with `global`, or use `--agent-policy project --project-root /absolute/path/to/project`, only when that is the policy scope you want. The updater uses the same transactional installer as a first installation and blocks while tracked jobs are active unless the user separately reviews them and chooses `--allow-active-jobs`.
-
-An applied update refreshes the host's snapshot in `~/plugins/codex-process-jobs` and its personal-marketplace installation. It preserves validated older cache generations so already-open tasks can keep resolving the exact skills they originally catalogued; new tasks use the refreshed generation after the client reload. Updating one execution host does not update another.
-
-After every applied update:
+After every Marketplace update:
 
 1. Restart Codex App and Codex CLI; in VS Code, run **Developer: Reload Window**.
-2. Open `/hooks` and review every CPJ hook definition and its referenced shared source. Approve any definition Codex marks new or changed; if trust persists, verify that status.
-3. Start a fresh Codex task for new-version testing.
+2. Open `/hooks` and review every CPJ hook definition and its referenced shared
+   source. Approve any definition Codex marks new or changed; if trust persists,
+   verify that status.
+3. Check the Plugins page and a fresh task for the intended provider and
+   version, then run a harmless detached smoke test.
 
-To delegate the update safely, tell Codex:
+Maintainers who deliberately keep the directory and local development providers
+installed together must disable all directory-provided CPJ skills and hooks
+before testing the local copy. After every directory update, re-confirm that
+those skill and hook toggles remain disabled before opening the test task; do
+not assume that client-controlled update behavior preserved them.
 
-> Update my existing `codex-process-jobs` installation from `joelfarthing/tap` with Homebrew. After the formula upgrade, run the plugin updater's read-only preview, describe every local change, and confirm whether I want the global, project, or no-`AGENTS.md` policy scope. Do not apply the plugin update until I approve that preview and scope.
-
-For source review, systems without Homebrew, offline use, or development, clone the repository somewhere other than `~/plugins/codex-process-jobs` and run `node scripts/install.mjs` with the same preview/apply policy. The GitHub source path remains fully supported.
+Homebrew installations do not receive versions after 0.2.2. Migrate them rather
+than waiting for `brew upgrade`. A local development provider can be refreshed
+by rerunning `node scripts/install.mjs` from the reviewed source checkout with
+the same two-phase preview/apply and agent-policy choice.
 
 ## Commands
 
@@ -345,7 +349,12 @@ The test suite covers real detached launches, private Desktop IPC and app-server
 
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 
-Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Immutable GitHub Releases are the source artifacts for the public Homebrew formula; the formula exposes the same dependency-free installer and does not introduce a second plugin installation path. The project intentionally does not use the npm registry; see [Distribution decision](docs/decisions/0001-homebrew-distribution.md).
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). The OpenAI
+Plugins Directory is the supported installation surface. Immutable GitHub
+Releases remain the public source and provenance artifacts. The Homebrew formula
+is deprecated and frozen at 0.2.2, and the project intentionally does not use
+the npm registry; see the current
+[distribution decision](docs/decisions/0002-marketplace-primary-distribution.md).
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes and [Release checklist](docs/releasing.md) for the publication gate.
 

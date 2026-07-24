@@ -1,6 +1,7 @@
 # Distribution decision: GitHub Releases and Homebrew
 
-- Status: Accepted
+- Status: Superseded by
+  [0002: Marketplace-primary distribution](0002-marketplace-primary-distribution.md)
 - Date: 2026-07-22
 
 ## Context

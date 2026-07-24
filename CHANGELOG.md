@@ -4,6 +4,13 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Changed
+
+- The OpenAI Plugins Directory is now the supported installation and update
+  path. Homebrew distribution is deprecated and frozen at CPJ 0.2.2; the
+  personal provider remains only for local development, and users should run
+  exactly one active CPJ provider.
+
 ## [0.2.2] - 2026-07-24
 
 ### Added

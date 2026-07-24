@@ -11,8 +11,9 @@ Run the deterministic standard-library packager from the repository root:
 npm run package:openai-directory
 ```
 
-The command validates aligned strict-SemVer versions, portal metadata, regular
-files, and the reviewed runtime allowlist. It writes:
+The command validates aligned strict-SemVer versions, portal metadata
+(including the square logo and manifest-backed website, privacy, and terms
+URLs), regular files, and the reviewed runtime allowlist. It writes:
 
 ```text
 dist/codex-process-jobs-openai-directory-X.Y.Z.zip
@@ -55,3 +56,7 @@ source commit and ZIP SHA-256.
 Uploading a ZIP, submitting it for review, and publishing an approved version
 are separate public actions. Follow `docs/releasing.md` and obtain the
 maintainer's explicit authorization at each boundary.
+
+The portal's support URL is submission metadata rather than a supported
+`plugin.json` interface field. Re-enter `https://filamentlabs.io/CPJ/support`
+when the portal does not retain it across version uploads.

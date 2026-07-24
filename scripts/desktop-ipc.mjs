@@ -9,6 +9,8 @@ import { resolveCodexHome } from "./state.mjs";
 const MAX_FRAME_BYTES = 1024 * 1024;
 const INITIALIZE_VERSION = 0;
 const START_TURN_VERSION = 1;
+const PRIVATE_IPC_SURFACES = new Set(["app", "vscode"]);
+const PRIVATE_IPC_PLATFORMS = new Set(["darwin", "linux"]);
 
 function desktopIpcError(message, { accepted = false } = {}) {
   const error = new Error(message);
@@ -45,7 +47,7 @@ function attachFrameReader(socket, onMessage, onError) {
           if (headerLength < 4) continue;
           const length = header.readUInt32LE(0);
           if (length < 1 || length > MAX_FRAME_BYTES) {
-            throw new Error(`Invalid Desktop IPC frame length: ${length}.`);
+            throw new Error(`Invalid private Codex IPC frame length: ${length}.`);
           }
           body = Buffer.allocUnsafe(length);
           bodyLength = 0;
@@ -73,31 +75,42 @@ function attachFrameReader(socket, onMessage, onError) {
 function validateOwnedPrivatePath(candidate, { socket = false } = {}) {
   const stat = fs.lstatSync(candidate);
   if (socket ? !stat.isSocket() : !stat.isDirectory()) {
-    throw desktopIpcError(`Desktop IPC ${socket ? "endpoint is not a socket" : "parent is not a directory"}.`);
+    throw desktopIpcError(`Private Codex IPC ${socket ? "endpoint is not a socket" : "parent is not a directory"}.`);
   }
   const uid = process.getuid?.();
   if (uid != null && stat.uid !== uid) {
-    throw desktopIpcError(`Desktop IPC ${socket ? "socket" : "directory"} is not owned by the current user.`);
+    throw desktopIpcError(`Private Codex IPC ${socket ? "socket" : "directory"} is not owned by the current user.`);
   }
   if ((stat.mode & 0o077) !== 0) {
-    throw desktopIpcError(`Desktop IPC ${socket ? "socket" : "directory"} is accessible by other users.`);
+    throw desktopIpcError(`Private Codex IPC ${socket ? "socket" : "directory"} is accessible by other users.`);
   }
 }
 
-export function resolveDesktopIpcSocket(job, env = process.env) {
-  if (env.CODEX_PROCESS_JOBS_DISABLE_DESKTOP_IPC === "1") return null;
-  if (job.ownerSurface !== "app") return null;
-  const override = String(env.CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET ?? "").trim();
-  if (!override && process.platform !== "darwin") return null;
+export function validatePrivateIpcSocket(socketPath) {
+  validateOwnedPrivatePath(path.dirname(socketPath));
+  validateOwnedPrivatePath(socketPath, { socket: true });
+  return socketPath;
+}
+
+export function resolveDesktopIpcSocket(job, env = process.env, platform = process.platform) {
+  if (
+    env.CODEX_PROCESS_JOBS_DISABLE_PRIVATE_IPC === "1"
+    || env.CODEX_PROCESS_JOBS_DISABLE_DESKTOP_IPC === "1"
+  ) return null;
+  if (!PRIVATE_IPC_SURFACES.has(job.ownerSurface)) return null;
+  const override = String(
+    env.CODEX_PROCESS_JOBS_PRIVATE_IPC_SOCKET
+    ?? env.CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET
+    ?? "",
+  ).trim();
+  if (!override && !PRIVATE_IPC_PLATFORMS.has(platform)) return null;
   const socketPath = override || path.join(resolveCodexHome(env), "ipc", "ipc.sock");
   try {
-    validateOwnedPrivatePath(path.dirname(socketPath));
-    validateOwnedPrivatePath(socketPath, { socket: true });
-    return socketPath;
+    return validatePrivateIpcSocket(socketPath);
   } catch (error) {
     if (error?.desktopIpcUnavailable) throw error;
     if (["ENOENT", "ENOTDIR", "EACCES"].includes(error?.code)) return null;
-    throw desktopIpcError(`Desktop IPC endpoint validation failed: ${error.message}`);
+    throw desktopIpcError(`Private Codex IPC endpoint validation failed: ${error.message}`);
   }
 }
 
@@ -108,7 +121,7 @@ function sendRequest(socket, clientId, method, params, version, timeoutMs) {
     const timeout = setTimeout(() => {
       cleanup();
       reject(desktopIpcError(
-        `Desktop IPC ${method} timed out after ${timeoutMs}ms.`,
+        `Private Codex IPC ${method} timed out after ${timeoutMs}ms.`,
         { accepted: acceptanceUncertain },
       ));
     }, timeoutMs);
@@ -116,7 +129,7 @@ function sendRequest(socket, clientId, method, params, version, timeoutMs) {
       if (message?.type !== "response" || message.requestId !== requestId) return;
       cleanup();
       if (message.resultType === "error") {
-        reject(desktopIpcError(`Desktop IPC ${method} failed: ${message.error ?? "unknown error"}.`));
+        reject(desktopIpcError(`Private Codex IPC ${method} failed: ${message.error ?? "unknown error"}.`));
       } else {
         resolve(message);
       }
@@ -124,14 +137,14 @@ function sendRequest(socket, clientId, method, params, version, timeoutMs) {
     const onSocketError = (error) => {
       cleanup();
       reject(desktopIpcError(
-        `Desktop IPC ${method} connection failed: ${error.message}`,
+        `Private Codex IPC ${method} connection failed: ${error.message}`,
         { accepted: acceptanceUncertain },
       ));
     };
     const onSocketClose = () => {
       cleanup();
       reject(desktopIpcError(
-        `Desktop IPC ${method} connection closed before a response.`,
+        `Private Codex IPC ${method} connection closed before a response.`,
         { accepted: acceptanceUncertain },
       ));
     };
@@ -156,10 +169,10 @@ function sendRequest(socket, clientId, method, params, version, timeoutMs) {
   });
 }
 
-function desktopTurnInput(input) {
+function privateTurnInput(input) {
   const items = typeof input === "string" ? [{ type: "text", text: input }] : input;
   if (!Array.isArray(items) || items.length === 0) {
-    throw desktopIpcError("Desktop IPC notification input must be a non-empty array.");
+    throw desktopIpcError("Private Codex IPC notification input must be a non-empty array.");
   }
   return items.map((item) => {
     if (item?.type === "text" && typeof item.text === "string") {
@@ -172,7 +185,7 @@ function desktopTurnInput(input) {
     ) {
       return { type: "skill", name: item.name, path: item.path };
     }
-    throw desktopIpcError("Desktop IPC notification input contains an unsupported item.");
+    throw desktopIpcError("Private Codex IPC notification input contains an unsupported item.");
   });
 }
 
@@ -186,7 +199,24 @@ export async function startDesktopNotificationTurn(
 ) {
   const socketPath = resolveDesktopIpcSocket(job, env);
   if (!socketPath) return null;
+  return await startPrivateIpcNotificationTurn(input, threadId, timeoutMs, socketPath, {
+    beforeStart,
+    transport: job.ownerSurface === "vscode" ? "vscode-ipc" : "desktop-ipc",
+  });
+}
 
+export async function startPrivateIpcNotificationTurn(
+  input,
+  threadId,
+  timeoutMs,
+  socketPath,
+  {
+    beforeStart = async () => {},
+    clientType = "codex-process-jobs",
+    transport = "private-ipc",
+  } = {},
+) {
+  validatePrivateIpcSocket(socketPath);
   const socket = net.createConnection(socketPath);
   let readerError = null;
   const detachReader = attachFrameReader(
@@ -204,7 +234,7 @@ export async function startDesktopNotificationTurn(
     };
     const onError = (error) => {
       socket.off("connect", onConnect);
-      reject(desktopIpcError(`Unable to connect to Desktop IPC: ${error.message}`));
+      reject(desktopIpcError(`Unable to connect to private Codex IPC: ${error.message}`));
     };
     socket.once("connect", onConnect);
     socket.once("error", onError);
@@ -215,12 +245,12 @@ export async function startDesktopNotificationTurn(
       socket,
       "initializing-client",
       "initialize",
-      { clientType: "codex-process-jobs" },
+      { clientType },
       INITIALIZE_VERSION,
       Math.min(timeoutMs, 15_000),
     );
     const clientId = initialized.result?.clientId;
-    if (!clientId) throw desktopIpcError("Desktop IPC initialize returned no client ID.");
+    if (!clientId) throw desktopIpcError("Private Codex IPC initialize returned no client ID.");
     await beforeStart();
 
     const started = await sendRequest(
@@ -230,7 +260,7 @@ export async function startDesktopNotificationTurn(
       {
         conversationId: threadId,
         turnStartParams: {
-          input: desktopTurnInput(input),
+          input: privateTurnInput(input),
         },
       },
       START_TURN_VERSION,
@@ -239,11 +269,11 @@ export async function startDesktopNotificationTurn(
     if (readerError) throw readerError;
     const turnId = started.result?.result?.turn?.id;
     if (typeof turnId !== "string" || !/^[A-Za-z0-9_-]{8,160}$/.test(turnId)) {
-      throw desktopIpcError("Desktop IPC returned no valid turn ID.", { accepted: true });
+      throw desktopIpcError("Private Codex IPC returned no valid turn ID.", { accepted: true });
     }
-    return { threadId, turnId, status: "accepted", transport: "desktop-ipc" };
+    return { threadId, turnId, status: "accepted", transport };
   } catch (error) {
-    if (error?.desktopIpcUnavailable || error?.turnAccepted) throw error;
+    if (error?.desktopIpcUnavailable || error?.turnAccepted || error?.retryWhenIdle) throw error;
     throw desktopIpcError(error instanceof Error ? error.message : String(error));
   } finally {
     detachReader();

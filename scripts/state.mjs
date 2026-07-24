@@ -38,7 +38,7 @@ const NOTIFICATION_PRESENTATIONS = new Set([
   "status-only",
   "disabled",
 ]);
-const NOTIFICATION_TRANSPORTS = new Set(["app-server", "desktop-ipc"]);
+const NOTIFICATION_TRANSPORTS = new Set(["app-server", "desktop-ipc", "vscode-ipc"]);
 const OWNER_SURFACES = new Set(["app", "cli", "vscode", "remote", "unknown"]);
 
 const LOCK_TIMEOUT_MS = 5_000;

@@ -397,7 +397,7 @@ async function handleStart(args, env = process.env) {
     parsed.goalMode && job.notification.status === "pending"
       ? "Completion is recorded durably. Automatic Goal continuation should pick up the terminal result; direct completion delivery remains an idle-thread fallback, and status is available on request."
       : job.notification.status === "pending" && job.notification.presentation === "durable-refresh-required"
-      ? "Completion will be recorded in the owning Codex task. A live completion may appear, but the separate notification transport cannot guarantee this client's context refresh. After the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up; status/result remain available when requested later."
+      ? "Completion will be recorded in the owning Codex task, and the notifier will attempt to deliver it live. If this client cannot render that turn, after the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up; status/result remain available when requested later."
       : job.notification.status === "pending"
         ? "The owning Codex task will receive a conversational completion notification."
       : job.notification.status === "disabled"

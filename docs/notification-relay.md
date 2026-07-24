@@ -6,10 +6,27 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 
 1. `$codex-process-jobs:start` records the owning `CODEX_THREAD_ID` and launches the ordinary OS command in a detached process group.
 2. The worker records the terminal state before attempting notification, so status and result remain available even if notification fails.
-3. For a local macOS Codex App task, a separate lightweight notifier first attempts the App's private same-user IPC router so the already-open renderer receives the turn live. It verifies private socket ownership and permissions, waits for a settled idle boundary, and confirms the returned turn ID reaches durable `task_complete`.
-4. If guarded Desktop IPC is unavailable before acceptance, the notifier automatically falls back to a separate local `codex app-server` connection. Linux, CLI, VS Code, remote, and unsupported App versions continue to use this portable path.
+3. For a local macOS Codex App task or a macOS or Linux VS Code task, a separate
+   lightweight notifier first attempts Codex's private same-user IPC router so
+   the already-open renderer can receive the turn live. It verifies private
+   socket ownership and permissions, targets the validated owning task ID,
+   waits for a settled idle boundary, and confirms the returned turn ID reaches
+   durable `task_complete`.
+4. If guarded private IPC or its private start-turn method is unavailable
+   before possible acceptance, the notifier automatically falls back to a
+   separate local `codex app-server` connection. CLI, remote/mobile,
+   unsupported clients, and clients without a live private router continue to
+   use this portable path.
 5. A notifier may atomically claim up to 20 compatible terminal siblings owned by the same task and deliver them in one turn. The automatic user-facing notice contains one sanitized job id, terminal status, and exit code per record plus a single fixed instruction selected from a finite completion mode. It never interpolates the command, working directory, job label, environment, stdout, or stderr.
-6. In the default `auto` mode, App and remote surfaces ask Codex to inspect bounded saved output with `result --peek`, summarize the evidence, recommend one next step, and ask permission without executing it. VS Code, CLI, and unknown surfaces request only a short acknowledgment because their synthetic turn may remain hidden. A durable execution-host preference at `$CODEX_HOME/process-jobs/config.json` can select `report`, `inspect`, or `auto`; set it with `node scripts/job.mjs config --completion-mode <mode>`. `CODEX_PROCESS_JOBS_COMPLETION_MODE` has higher precedence. Invalid environment values or invalid preference files fail closed to `report`.
+6. In the default `auto` mode, App, VS Code, and remote surfaces ask Codex to
+   inspect bounded saved output with `result --peek`, summarize the evidence,
+   recommend one next step, and ask permission without executing it. CLI and
+   unknown surfaces request only a short acknowledgment. A durable
+   execution-host preference at `$CODEX_HOME/process-jobs/config.json` can
+   select `report`, `inspect`, or `auto`; set it with `node scripts/job.mjs
+   config --completion-mode <mode>`. `CODEX_PROCESS_JOBS_COMPLETION_MODE` has
+   higher precedence. Invalid environment values or invalid preference files
+   fail closed to `report`.
    Direct proactive relays include the plugin-owned `result` skill as a structured `turn/start` input. Codex therefore receives the already-selected skill in the first completion-model invocation instead of discovering and reading `SKILL.md` in a separate invocation. The skill path is fixed inside the installed plugin, is never derived from job state or process output, and falls back to ordinary skill discovery if that regular file is unavailable.
    For jobs explicitly launched with `--goal-mode`, the fixed Goal instruction takes precedence over this surface preference: inspect `result --peek`, then continue already-authorized in-scope work if the Goal remains active; otherwise recommend one next step and ask.
 7. Consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks share the same terminal-result claim logic. A terminal job can therefore surface after a supported local tool call during an active turn, as a one-time stop continuation, or on the first eligible ordinary non-status prompt. After successful direct delivery settles, the hooks also inject one transport-independent mandatory recap at the next eligible boundary. Codex gives that recap even when the synthetic assistant completion is already present in model context, because a recorded message is not proof that the assigning client rendered it. Explicit status/result user prompts bypass the prompt-submit recap because they retrieve durable state directly. Separately, `PostToolUse` recognizes the validated result of this installed plugin's own `start` controller and atomically injects one hard-release reminder for that newly created same-thread job.
@@ -39,19 +56,68 @@ A live `delivering` attempt is protected from prompt fallback. If its notifier p
 
 ## Separate-transport presentation note
 
-The completion turn is persisted in the owning task independently of the client that launched it. A separate app-server process can leave an already-open client stale. Codex App on the local Mac, an already-open Codex VS Code webview, and a ChatGPT mobile client driving a remote Linux task have all demonstrated that behavior. In the original App test, the completion turn finished 16 seconds before the next ordinary turn began, ruling out a busy-turn race.
+The completion turn is persisted in the owning task independently of the client
+that launched it. A separate app-server process can leave an already-open
+client stale. Codex App on the local Mac, an already-open Codex VS Code webview,
+and a ChatGPT mobile client driving a remote Linux task have all demonstrated
+that behavior. In the original App test, the completion turn finished 16
+seconds before the next ordinary turn began, ruling out a busy-turn race.
 
-The guarded macOS Desktop path closes that presentation gap by routing the same start-turn request through the App-owned IPC client. A controlled test injected while another turn was active rendered an optimistic duplicate, even though the rollout contained only one persisted notification. Production delivery therefore retains the existing settled-idle guard. A second controlled test waited until `task_complete`, held the 1.5-second settle window, then injected through Desktop IPC; the notice and model response rendered immediately and exactly once. The IPC-returned turn ID matched the rollout's `task_started` and `task_complete` IDs.
+The guarded private path closes that presentation gap by routing the same
+start-turn request through the IPC router already serving the owning client. A
+controlled App test injected while another turn was active rendered an
+optimistic duplicate, even though the rollout contained only one persisted
+notification. Production delivery therefore retains the settled-idle guard and
+rechecks the owning lifecycle immediately before dispatch.
 
-This is a private, experimental App protocol. The notifier validates the socket and protocol response, records `notification.transport: desktop-ipc` only after matching durable completion, and falls back to `app-server` when IPC is unavailable before acceptance. If acceptance becomes uncertain, it records `accepted` and leaves the next-prompt fallback available instead of attempting a second direct turn.
+A settled App test then rendered the notice and model response immediately and
+exactly once. On July 24, 2026, a version-gated proof against the OpenAI VS Code
+extension `26.721.41059` sent the same private
+`thread-follower-start-turn` version 1 request to one explicit idle VS Code
+task. The already-open panel rendered both the synthetic completion and the
+single assistant response without reload, reopening, or a user prompt. The
+returned turn ID matched one durable `task_started` and `task_complete` pair.
 
-Set `CODEX_PROCESS_JOBS_DISABLE_DESKTOP_IPC=1` to force the portable app-server path for diagnosis or compatibility testing. `CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET` exists only as an explicit test/integration override; normal operation resolves the socket under the active `$CODEX_HOME`.
+This remains a private, experimental Codex protocol. The notifier validates the
+socket and protocol response, records `notification.transport: desktop-ipc` for
+App or `vscode-ipc` for VS Code only after matching durable completion, and
+falls back to `app-server` when IPC is unavailable or rejects the method before
+possible acceptance. If acceptance becomes uncertain, it records `accepted`
+and leaves the next-prompt fallback available instead of attempting a second
+direct turn. If the owner becomes active after initialization but before
+dispatch, the retry-when-idle signal is preserved and no competing app-server
+turn starts.
+
+Set `CODEX_PROCESS_JOBS_DISABLE_PRIVATE_IPC=1` to force the portable app-server
+path for diagnosis or compatibility testing.
+`CODEX_PROCESS_JOBS_DISABLE_DESKTOP_IPC=1` remains a backward-compatible alias.
+`CODEX_PROCESS_JOBS_PRIVATE_IPC_SOCKET` and its legacy
+`CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET` alias exist only as explicit
+test/integration overrides; normal operation resolves the socket under the
+active `$CODEX_HOME`.
 
 Start therefore records `notification.presentation` as `durable-refresh-required` for every owning client and discloses that live presentation is best-effort. Surface detection remains diagnostic metadata; it does not decide whether recap fallback is required. After delivery settles, the hook injects sanitized completion state into the assigning agent's first eligible ordinary non-status turn once per job and requires a user-facing recap. That recap may duplicate a separately rendered synthetic completion once because the plugin has no trustworthy rendered-visibility signal.
 
 Codex App can present a tool-using response in two useful phases: live commentary while work continues, followed by a final answer that causes commentary to auto-collapse. The hook tells Codex to announce completion in commentary when commentary is used, and independently requires a concise recap in the final answer. Commentary or a synthetic completion turn cannot satisfy that final-answer requirement. This intentional within-turn repetition keeps the durable visible answer complete and is distinct from the possible cross-turn duplicate caused by an independently rendered synthetic completion.
 
-The automatic notice is deliberately plain text because synthetic user turns receive inconsistent Markdown treatment across clients: macOS Codex App renders block Markdown, while the iOS ChatGPT client has rendered headings, emphasis, and blockquotes literally even when it recognized inline code. The visible, user-friendly `Codex Process Jobs notice:` line identifies the prompt for the hook, which explicitly excludes it from ordinary-turn fallback checks. Legacy Markdown notices, hidden `<!-- codex-process-jobs:notification ... -->` comments, and `<process_job_notification>` envelopes remain recognized after upgrades. Successful direct delivery remains `delivered`; `notification.transport` records `desktop-ipc` or `app-server`. The separate `ordinaryPromptRecapInjectedAt` timestamp records only that the hook injected its one recap instruction. It does not claim the model complied or that the client rendered the response. The legacy `awarenessCheckedAt` and `surfaceFallbackNotifiedAt` markers are still honored after upgrades so historical jobs do not resurface. That migration choice cannot retroactively prove old client rendering; it deliberately applies the stronger recap contract to jobs completed under the new implementation without replaying an arbitrary backlog.
+The automatic notice is deliberately plain text because synthetic user turns
+receive inconsistent Markdown treatment across clients: macOS Codex App
+renders block Markdown, while the iOS ChatGPT client has rendered headings,
+emphasis, and blockquotes literally even when it recognized inline code. The
+visible, user-friendly `Codex Process Jobs notice:` line identifies the prompt
+for the hook, which explicitly excludes it from ordinary-turn fallback checks.
+Legacy Markdown notices, hidden `<!-- codex-process-jobs:notification ... -->`
+comments, and `<process_job_notification>` envelopes remain recognized after
+upgrades. Successful direct delivery remains `delivered`;
+`notification.transport` records `desktop-ipc`, `vscode-ipc`, or `app-server`.
+The separate `ordinaryPromptRecapInjectedAt` timestamp records only that the
+hook injected its one recap instruction. It does not claim the model complied
+or that the client rendered the response. The legacy `awarenessCheckedAt` and
+`surfaceFallbackNotifiedAt` markers are still honored after upgrades so
+historical jobs do not resurface. That migration choice cannot retroactively
+prove old client rendering; it deliberately applies the stronger recap
+contract to jobs completed under the new implementation without replaying an
+arbitrary backlog.
 
 Both direct notifications and hook context can carry up to 20 sanitized compatible completion records. Direct batching requires the same owning task and the same Goal/completion instruction profile; incompatible jobs remain for another batch. A larger backlog remains unclaimed and drains across later boundaries. Every job is claimed and finalized under its own lock, so a concurrent hook or notifier can exclude one sibling without losing the others, and every delivered member records the same turn ID.
 

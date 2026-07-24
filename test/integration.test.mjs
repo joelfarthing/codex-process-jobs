@@ -247,7 +247,7 @@ test("invalid owner thread ids fail closed to status-only notification", (t) => 
   assert.equal(waitJson(job.id, context.env).job.status, "completed");
 });
 
-test("marks VS Code jobs as durable completions that may require panel refresh", (t) => {
+test("marks VS Code jobs for live delivery with a durable recap fallback", (t) => {
   const context = makeEnv(t, {
     CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "codex_vscode",
   });
@@ -261,7 +261,8 @@ test("marks VS Code jobs as durable completions that may require panel refresh",
     "-e",
     "process.exit(0)",
   ], context.env);
-  assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
+  assert.match(started.stdout, /notifier will attempt to deliver it live/i);
+  assert.match(started.stdout, /if this client cannot render that turn/i);
   assert.match(started.stdout, /do not monitor this job from its launch turn/i);
   assert.match(started.stdout, /status\/result belong to a later user-initiated turn/i);
   assert.match(started.stdout, /only an explicit request to keep this exact turn open and wait overrides this boundary/i);
@@ -298,7 +299,7 @@ test("marks local Codex App jobs for the same transport-independent next-turn re
     "-e",
     "process.exit(0)",
   ], context.env);
-  assert.match(started.stdout, /a live completion may appear/i);
+  assert.match(started.stdout, /notifier will attempt to deliver it live/i);
   assert.match(started.stdout, /after the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
@@ -331,7 +332,8 @@ test("marks mobile-to-remote Cartesian jobs for durable next-turn refresh", (t) 
     "-e",
     "process.exit(0)",
   ], context.env);
-  assert.match(started.stdout, /separate notification transport cannot guarantee this client's context refresh/i);
+  assert.match(started.stdout, /notifier will attempt to deliver it live/i);
+  assert.match(started.stdout, /if this client cannot render that turn/i);
   assert.match(started.stdout, /after the process finishes, the assigning agent will recap the outcome as soon as the conversation can pick it up/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);

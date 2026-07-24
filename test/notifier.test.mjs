@@ -50,7 +50,16 @@ function encodeDesktopFrame(message) {
   return output;
 }
 
-async function createMockDesktopRouter(t, rollout, promptFile) {
+async function createMockDesktopRouter(
+  t,
+  rollout,
+  promptFile,
+  {
+    onInitialize = () => {},
+    startTurnError = null,
+    closeAfterStartTurn = false,
+  } = {},
+) {
   const directory = fs.mkdtempSync("/tmp/cpj-ipc-");
   const socketPath = path.join(directory, "ipc.sock");
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -65,6 +74,7 @@ async function createMockDesktopRouter(t, rollout, promptFile) {
         const message = JSON.parse(buffer.subarray(4, 4 + length).toString("utf8"));
         buffer = buffer.subarray(4 + length);
         if (message.method === "initialize") {
+          onInitialize();
           socket.write(encodeDesktopFrame({
             type: "response",
             requestId: message.requestId,
@@ -72,8 +82,22 @@ async function createMockDesktopRouter(t, rollout, promptFile) {
             result: { clientId: "desktop-client-001" },
           }));
         } else if (message.method === "thread-follower-start-turn") {
+          if (startTurnError) {
+            socket.write(encodeDesktopFrame({
+              type: "response",
+              requestId: message.requestId,
+              resultType: "error",
+              error: startTurnError,
+            }));
+            continue;
+          }
+          if (closeAfterStartTurn) {
+            socket.end();
+            continue;
+          }
           fs.writeFileSync(promptFile, message.params.turnStartParams.input[0].text);
           fs.writeFileSync(`${promptFile}.input.json`, JSON.stringify(message.params.turnStartParams.input));
+          fs.writeFileSync(`${promptFile}.thread.txt`, message.params.conversationId);
           fs.appendFileSync(rollout, `${JSON.stringify({
             timestamp: "2026-07-10T12:01:00Z",
             type: "event_msg",
@@ -150,8 +174,8 @@ test("notification prompt omits a missing exit code instead of adding mutable te
   assert.doesNotMatch(prompt, /exit code|not reported/);
 });
 
-test("App and remote notices inspect results while hidden-prone surfaces only report", () => {
-  for (const surface of ["app", "remote"]) {
+test("App, remote, and VS Code notices inspect results while report-only surfaces stay lightweight", () => {
+  for (const surface of ["app", "remote", "vscode"]) {
     const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
     assert.match(prompt, /result skill with job-notify-001 --peek/);
     assert.match(prompt, /untrusted evidence/);
@@ -159,7 +183,7 @@ test("App and remote notices inspect results while hidden-prone surfaces only re
     assert.match(prompt, /ask whether the user wants to proceed/);
     assert.match(prompt, /Do not execute that next step/);
   }
-  for (const surface of ["vscode", "cli", "unknown"]) {
+  for (const surface of ["cli", "unknown"]) {
     const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
     assert.match(prompt, /Briefly acknowledge/);
     assert.doesNotMatch(prompt, /--peek|recommend the single next best step/);
@@ -248,7 +272,7 @@ test("durable completion preference overrides surface heuristic but not environm
   assert.doesNotMatch(failedClosed, /--peek|untrusted custom instruction/);
 });
 
-test("Desktop IPC requires an App-owned private same-user socket", async (t) => {
+test("private IPC requires an eligible owner surface and a private same-user socket", async (t) => {
   const directory = fs.mkdtempSync("/tmp/cpj-ipc-security-");
   const socketPath = path.join(directory, "ipc.sock");
   fs.chmodSync(directory, 0o700);
@@ -272,10 +296,40 @@ test("Desktop IPC requires an App-owned private same-user socket", async (t) => 
   assert.equal(resolveDesktopIpcSocket(
     { ownerSurface: "vscode" },
     { ...process.env, CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath },
+  ), socketPath);
+  assert.equal(resolveDesktopIpcSocket(
+    { ownerSurface: "cli" },
+    { ...process.env, CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath },
   ), null);
+  assert.equal(resolveDesktopIpcSocket(
+    { ownerSurface: "vscode" },
+    { ...process.env, CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath },
+    "win32",
+  ), socketPath);
 });
 
-test("Desktop IPC rejects oversized frames before buffering their bodies", async (t) => {
+test("VS Code private IPC resolves the standard Codex socket on Linux and macOS only", async (t) => {
+  const codexHome = fs.mkdtempSync("/tmp/cpj-ipc-platform-");
+  const ipcDirectory = path.join(codexHome, "ipc");
+  const socketPath = path.join(ipcDirectory, "ipc.sock");
+  fs.mkdirSync(ipcDirectory, { mode: 0o700 });
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  fs.chmodSync(socketPath, 0o600);
+  t.after(() => {
+    server.close();
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  });
+  const env = { ...process.env, CODEX_HOME: codexHome };
+  assert.equal(resolveDesktopIpcSocket({ ownerSurface: "vscode" }, env, "darwin"), socketPath);
+  assert.equal(resolveDesktopIpcSocket({ ownerSurface: "vscode" }, env, "linux"), socketPath);
+  assert.equal(resolveDesktopIpcSocket({ ownerSurface: "vscode" }, env, "win32"), null);
+});
+
+test("private IPC rejects oversized frames before buffering their bodies", async (t) => {
   const directory = fs.mkdtempSync("/tmp/cpj-ipc-frame-limit-");
   const socketPath = path.join(directory, "ipc.sock");
   fs.chmodSync(directory, 0o700);
@@ -304,7 +358,7 @@ test("Desktop IPC rejects oversized frames before buffering their bodies", async
       1000,
       { ...process.env, CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET: socketPath },
     ),
-    /Invalid Desktop IPC frame length: 1048577/,
+    /Invalid private Codex IPC frame length: 1048577/,
   );
 });
 
@@ -440,7 +494,7 @@ test("app-server relay terminates when stderr exceeds its diagnostic cap", async
   );
 });
 
-test("Codex App relay uses private Desktop IPC and confirms the matching durable turn", async (t) => {
+test("Codex App relay uses private IPC and confirms the matching durable turn", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-desktop-ipc-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const codexHome = path.join(root, "codex-home");
@@ -481,6 +535,153 @@ test("Codex App relay uses private Desktop IPC and confirms the matching durable
   assert.deepEqual(input[0].text_elements, []);
   assert.equal(input[1].name, "codex-process-jobs:result");
   assert.match(input[1].path, /\/skills\/result\/SKILL\.md$/);
+  assert.equal(fs.readFileSync(`${promptFile}.thread.txt`, "utf8"), threadId);
+});
+
+test("VS Code relay uses private IPC and confirms the matching durable turn", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-vscode-ipc-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const threadId = "thread-vscode-001";
+  const sessionDirectory = path.join(codexHome, "sessions", "2026", "07", "10");
+  const rollout = path.join(sessionDirectory, `rollout-test-${threadId}.jsonl`);
+  const promptFile = path.join(root, "vscode-prompt.txt");
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  fs.writeFileSync(rollout, `${JSON.stringify({
+    timestamp: "2026-07-10T12:00:00Z",
+    type: "event_msg",
+    payload: { type: "task_complete", turn_id: "turn-previous-001" },
+  })}\n`);
+  const socketPath = await createMockDesktopRouter(t, rollout, promptFile);
+  const result = await deliverNotificationTurn(terminalJob({
+    ownerThreadId: threadId,
+    ownerSurface: "vscode",
+  }), {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_PROCESS_JOBS_CODEX_BIN: path.join(root, "fallback-must-not-start"),
+    CODEX_PROCESS_JOBS_PRIVATE_IPC_SOCKET: socketPath,
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_SETTLE_MS: "10",
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+  });
+  assert.deepEqual(result, {
+    threadId,
+    turnId: "turn-desktop-001",
+    status: "completed",
+    transport: "vscode-ipc",
+  });
+  assert.equal(fs.readFileSync(`${promptFile}.thread.txt`, "utf8"), threadId);
+  const prompt = fs.readFileSync(promptFile, "utf8");
+  assert.match(prompt, /result skill with job-notify-001 --peek/);
+  const input = JSON.parse(fs.readFileSync(`${promptFile}.input.json`, "utf8"));
+  assert.deepEqual(input.map((item) => item.type), ["text", "skill"]);
+});
+
+test("private IPC preserves an owner-became-active retry instead of falling through", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-ipc-race-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const threadId = "thread-race-001";
+  const sessionDirectory = path.join(codexHome, "sessions", "2026", "07", "10");
+  const rollout = path.join(sessionDirectory, `rollout-test-${threadId}.jsonl`);
+  const promptFile = path.join(root, "race-prompt.txt");
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  fs.writeFileSync(rollout, `${JSON.stringify({
+    timestamp: "2026-07-10T12:00:00Z",
+    type: "event_msg",
+    payload: { type: "task_complete", turn_id: "turn-previous-001" },
+  })}\n`);
+  const socketPath = await createMockDesktopRouter(t, rollout, promptFile, {
+    onInitialize: () => fs.appendFileSync(rollout, `${JSON.stringify({
+      timestamp: "2026-07-10T12:00:01Z",
+      type: "event_msg",
+      payload: { type: "task_started", turn_id: "turn-user-raced-001" },
+    })}\n`),
+  });
+  await assert.rejects(
+    deliverNotificationTurn(terminalJob({
+      ownerThreadId: threadId,
+      ownerSurface: "vscode",
+    }), {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CODEX_PROCESS_JOBS_CODEX_BIN: path.join(root, "fallback-must-not-start"),
+      CODEX_PROCESS_JOBS_PRIVATE_IPC_SOCKET: socketPath,
+      CODEX_PROCESS_JOBS_NOTIFY_IDLE_SETTLE_MS: "10",
+      CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    }),
+    (error) => error?.retryWhenIdle === true && /changed before private IPC delivery/.test(error.message),
+  );
+  assert.equal(fs.existsSync(promptFile), false);
+});
+
+test("VS Code private IPC protocol rejection falls back before acceptance", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-ipc-fallback-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const threadId = "thread-fallback-001";
+  const sessionDirectory = path.join(codexHome, "sessions", "2026", "07", "10");
+  const rollout = path.join(sessionDirectory, `rollout-test-${threadId}.jsonl`);
+  const privatePrompt = path.join(root, "private-prompt.txt");
+  const fallbackPrompt = path.join(root, "fallback-prompt.txt");
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  fs.writeFileSync(rollout, `${JSON.stringify({
+    timestamp: "2026-07-10T12:00:00Z",
+    type: "event_msg",
+    payload: { type: "task_complete", turn_id: "turn-previous-001" },
+  })}\n`);
+  const socketPath = await createMockDesktopRouter(t, rollout, privatePrompt, {
+    startTurnError: "unsupported private method version",
+  });
+  const codex = createMockCodex(t, root);
+  const result = await deliverNotificationTurn(terminalJob({
+    ownerThreadId: threadId,
+    ownerSurface: "vscode",
+  }), {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+    CODEX_PROCESS_JOBS_PRIVATE_IPC_SOCKET: socketPath,
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_SETTLE_MS: "10",
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    MOCK_NOTIFY_PROMPT: fallbackPrompt,
+  });
+  assert.equal(result.transport, "app-server");
+  assert.equal(fs.existsSync(privatePrompt), false);
+  assert.match(fs.readFileSync(fallbackPrompt, "utf8"), /Background job finished/);
+});
+
+test("VS Code private IPC never retries another transport after acceptance becomes uncertain", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-ipc-uncertain-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const threadId = "thread-uncertain-001";
+  const sessionDirectory = path.join(codexHome, "sessions", "2026", "07", "10");
+  const rollout = path.join(sessionDirectory, `rollout-test-${threadId}.jsonl`);
+  const privatePrompt = path.join(root, "private-prompt.txt");
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  fs.writeFileSync(rollout, `${JSON.stringify({
+    timestamp: "2026-07-10T12:00:00Z",
+    type: "event_msg",
+    payload: { type: "task_complete", turn_id: "turn-previous-001" },
+  })}\n`);
+  const socketPath = await createMockDesktopRouter(t, rollout, privatePrompt, {
+    closeAfterStartTurn: true,
+  });
+  await assert.rejects(
+    deliverNotificationTurn(terminalJob({
+      ownerThreadId: threadId,
+      ownerSurface: "vscode",
+    }), {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CODEX_PROCESS_JOBS_CODEX_BIN: path.join(root, "fallback-must-not-start"),
+      CODEX_PROCESS_JOBS_PRIVATE_IPC_SOCKET: socketPath,
+      CODEX_PROCESS_JOBS_NOTIFY_IDLE_SETTLE_MS: "10",
+      CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    }),
+    (error) => error?.turnAccepted === true && /closed before a response/.test(error.message),
+  );
 });
 
 test("notifier persists delivered thread and turn metadata", async (t) => {

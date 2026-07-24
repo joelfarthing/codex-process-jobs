@@ -24,7 +24,7 @@ const MAX_APP_SERVER_PROTOCOL_LINE_BYTES = 1024 * 1024;
 const MAX_APP_SERVER_STDERR_BYTES = 64 * 1024;
 const MAX_NOTIFICATION_BATCH = 20;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "cancel_failed"]);
-const INSPECT_SURFACES = new Set(["app", "remote"]);
+const INSPECT_SURFACES = new Set(["app", "remote", "vscode"]);
 const RESULT_SKILL_NAME = "codex-process-jobs:result";
 const RESULT_SKILL_PATH = fileURLToPath(new URL("../skills/result/SKILL.md", import.meta.url));
 
@@ -185,18 +185,24 @@ function relayError(message, { accepted = false, retryWhenIdle = false } = {}) {
   return error;
 }
 
-export async function waitForNotificationTurnComplete(job, turnId, timeoutMs, env = process.env) {
+export async function waitForNotificationTurnComplete(
+  job,
+  turnId,
+  timeoutMs,
+  env = process.env,
+  transport = "desktop-ipc",
+) {
   const rolloutFile = resolveOwnerRolloutFile(job.ownerThreadId, env);
-  if (!rolloutFile) throw relayError("Owning Codex session transcript was not found after Desktop IPC accepted the turn.", { accepted: true });
+  if (!rolloutFile) throw relayError("Owning Codex session transcript was not found after private IPC accepted the turn.", { accepted: true });
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const lifecycle = readLatestTaskLifecycle(rolloutFile);
     if (lifecycle?.type === "task_complete" && lifecycle.turnId === turnId) {
-      return { threadId: sanitizeThreadId(job.ownerThreadId), turnId, status: "completed", transport: "desktop-ipc" };
+      return { threadId: sanitizeThreadId(job.ownerThreadId), turnId, status: "completed", transport };
     }
     await delay(100);
   }
-  throw relayError(`Desktop IPC notification turn timed out after ${timeoutMs}ms (turn ${turnId}).`, { accepted: true });
+  throw relayError(`Private IPC notification turn timed out after ${timeoutMs}ms (turn ${turnId}).`, { accepted: true });
 }
 
 async function deliverAppServerNotificationTurn(job, threadId, input, timeoutMs, env) {
@@ -401,13 +407,21 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
           latest?.type !== "task_complete"
           || latest.turnId !== idle.turnId
         ) {
-          throw relayError("Owning Codex thread changed before Desktop IPC delivery could start.", { retryWhenIdle: true });
+          throw relayError("Owning Codex thread changed before private IPC delivery could start.", { retryWhenIdle: true });
         }
       },
     });
-    if (accepted) return await waitForNotificationTurnComplete(job, accepted.turnId, timeoutMs, env);
+    if (accepted) {
+      return await waitForNotificationTurnComplete(
+        job,
+        accepted.turnId,
+        timeoutMs,
+        env,
+        accepted.transport,
+      );
+    }
   } catch (error) {
-    if (error?.turnAccepted) throw error;
+    if (error?.turnAccepted || error?.retryWhenIdle) throw error;
   }
 
   return await deliverAppServerNotificationTurn(job, threadId, input, timeoutMs, env);

@@ -8,7 +8,13 @@ assigning client context × execution host
 
 Examples include Codex App controlling the local Mac, VS Code controlling a local or remote extension host, and the ChatGPT mobile app controlling Codex on a remote Linux host. A completion can be durable on the execution host and visible in an exported transcript while still being absent from the assigning agent's next live context.
 
-Client identity and execution host are useful diagnostic axes, but refresh reliability is governed by another boundary: the notifier appends through a separate app-server transport from the assigning client. No detected client is assumed to observe that external append immediately.
+Client identity and execution host are useful diagnostic axes, but refresh
+reliability also depends on the delivery transport. A separate app-server
+append may leave an assigning client stale. Local Codex App and VS Code tasks
+can instead use a guarded same-user private IPC path that routes through the
+owning client and may repaint the already-open task immediately. No live render
+is treated as authoritative; durable state and later recap remain the
+compatibility baseline.
 
 ## Observed mobile-to-remote result
 
@@ -62,7 +68,27 @@ All owning surfaces now receive `notification.presentation: durable-refresh-requ
 
 ## Completion contract
 
-For every owning surface, successful direct delivery remains `delivered`. Consent-gated `PostToolUse` and `Stop` hooks may surface a terminal completion at supported active-turn boundaries, while `UserPromptSubmit` supplies the later ordinary-turn fallback. The first boundary that wins the per-job claim receives one sanitized mandatory recap instruction unless `ordinaryPromptRecapInjectedAt` or a legacy marker is already present. Codex gives the recap even if a synthetic assistant completion appears in model context, because that message may not have rendered in the assigning client. If commentary is used, it announces completion live; the final answer must independently retain a concise recap because App may auto-collapse commentary. A possible one-time cross-turn duplicate is intentional. Explicit status/result requests read durable state directly. Hooks never inject process output.
+For every owning surface, successful direct delivery remains `delivered`.
+App and VS Code may record `desktop-ipc` or `vscode-ipc` after a matching
+owner-routed private turn completes; other paths record `app-server`.
+Consent-gated `PostToolUse` and `Stop` hooks may surface a terminal completion
+at supported active-turn boundaries, while `UserPromptSubmit` supplies the
+later ordinary-turn fallback. The first boundary that wins the per-job claim
+receives one sanitized mandatory recap instruction unless
+`ordinaryPromptRecapInjectedAt` or a legacy marker is already present. Codex
+gives the recap even if a synthetic assistant completion appears in model
+context, because that message may not have rendered in the assigning client.
+If commentary is used, it announces completion live; the final answer must
+independently retain a concise recap because App may auto-collapse commentary.
+A possible one-time cross-turn duplicate is intentional. Explicit status/result
+requests read durable state directly. Hooks never inject process output.
+
+The July 24 local VS Code proof routed one deterministic completion to one
+explicit idle task through the active extension's private owner path. The open
+panel rendered one synthetic notice and one assistant response immediately,
+with one matching durable task lifecycle and no reload, navigation, or user
+prompt. This closes that Cartesian cell for the tested macOS extension build;
+VS Code Remote SSH on Linux remains a separate execution-host acceptance test.
 
 User-facing wording is intentionally client-neutral and temporally precise: completion will be recorded, a live notification may appear, after the process finishes the agent will recap the outcome as soon as an ordinary exchange can pick it up, and status remains available at any time. Ordinary exchanges before terminal state continue normally and do not promise an outcome that does not yet exist. An ordinary prompt submitted during an active notifier-owned delivery attempt also continues without racing it; the first eligible non-status prompt after delivery settles receives the recap.
 

@@ -76,6 +76,8 @@ These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the exi
 ## Structurally unfillable — do not attempt
 
 - **A free, guaranteed arbitrary-time wake.** Direct delivery costs a Codex turn and requires an idle owning thread. Hook pickup occurs only at supported boundaries and requires explicit trust. Only an upstream task-notification primitive fully closes this gap; see [vscode-wake-research-and-process.md](vscode-wake-research-and-process.md).
-- **Arbitrary mid-turn injection via app-server or Desktop IPC.** Controlled testing produced optimistic duplicates; the settled-idle guard stays. `PostToolUse` is the supported boundary-based approximation.
+- **Arbitrary mid-turn injection via app-server or private IPC.** Controlled
+  testing produced optimistic duplicates; the settled-idle guard stays.
+  `PostToolUse` is the supported boundary-based approximation.
 - **Polling resistance as a tool contract.** Codex must be instructed not to poll; the launch-turn contract test pins the wording that earned passing acceptance runs. Keep guarding it.
 - **The 55-second wait ceiling.** Codex tool-timeout bound; one bounded wait per continuation remains the right approximation of event-driven waiting.

@@ -4,14 +4,18 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-24
+
 ### Added
 
 - Installer preview and `doctor` now report distinct CPJ provider caches and warn when duplicate skill providers may make routing nondeterministic.
 - A task-agnostic routing acceptance matrix covers emitted detached launchers, persistent servers, externally owned remote jobs, and quick foreground tests.
+- A deterministic, allowlisted OpenAI Plugins Directory packager, repository privacy policy, and extracted-runtime package test make Marketplace updates reproducible from the exact release commit.
 
 ### Changed
 
 - Model-facing policy now classifies the underlying workload instead of wrapper latency and explicitly composes task-specific correctness workflows with CPJ lifecycle ownership.
+- The source manifest now uses the portal-accepted `Developer Tools` category, and installation guidance requires choosing one CPJ provider instead of installing directory and personal copies side by side.
 
 ### Fixed
 
@@ -73,7 +77,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/joelfarthing/codex-process-jobs/releases/tag/v0.1.0

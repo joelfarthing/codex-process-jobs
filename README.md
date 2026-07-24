@@ -114,7 +114,7 @@ Run the plugin installer's read-only preview:
 codex-process-jobs install
 ```
 
-The preview reports the exact release version alongside the source, destination, marketplace, agent-policy choice, Codex CLI, source-path safety, client refresh requirement, and active-job check. It does not install or update anything.
+The preview reports the exact release version alongside the source, destination, marketplace, CPJ provider caches, agent-policy choice, Codex CLI, source-path safety, client refresh requirement, and active-job check. It warns when applying a personal installation would leave another CPJ provider cache present, because duplicate skill IDs can make routing nondeterministic. It does not install, remove, disable, or update anything.
 
 For a path-redacted view of the package, runtime snapshot, validated cache generations, upstream repository, and editable-checkout status, run:
 
@@ -154,6 +154,8 @@ Restart every open Codex client after installation or update. In VS Code, run **
 ### Encourage automatic use
 
 Skill descriptions make Codex route explicit requests such as “background this build” or “keep working while this runs” to the plugin even with no `AGENTS.md` policy. After a successful CPJ start, the approved `PostToolUse` hook also supplies a one-time hard-release reminder so the assigning agent does not independently poll the new job.
+
+Routing is based on the underlying workload rather than the latency of a wrapper. Task-specific skills retain ownership of preflight checks, arguments, and correctness gates; CPJ owns execution lifecycle for qualifying finite local work. A detached launcher must be replaced with its foreground payload or a supported mode that remains alive and propagates terminal status. See the [workload lifecycle routing acceptance test](docs/routing-acceptance-test.md).
 
 The optional managed policy is a compact high-priority routing rule; detailed safety and lifecycle guidance stays in the selected skills and loads only when needed. Choose one of three scopes during preview:
 
@@ -306,7 +308,7 @@ npm run check
 npm run smoke
 ```
 
-The test suite covers real detached launches, private Desktop IPC and app-server completion relays, cheap idle watching, sibling batching, prompt-data isolation, matching durable turn confirmation, structured post-tool/stop/next-prompt hook output, one-shot launch-boundary reinforcement, persisted security-field validation, tampered log-path rejection, bounded incremental model-facing output, optional argv-only OS notifications, critical cancellation, Bash/POSIX shell selection with legacy-schema compatibility, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, explicit global/project/none policy consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs `npm run check` on macOS and Ubuntu with Node.js 18 and 22.
+The test suite covers real detached launches, private Desktop IPC and app-server completion relays, cheap idle watching, sibling batching, prompt-data isolation, matching durable turn confirmation, structured post-tool/stop/next-prompt hook output, one-shot launch-boundary reinforcement, persisted security-field validation, tampered log-path rejection, bounded incremental model-facing output, optional argv-only OS notifications, critical cancellation, Bash/POSIX shell selection with legacy-schema compatibility, atomic concurrent state updates, Darwin/Linux process-identity parsing, installer rollback boundaries, task-workflow routing composition, duplicate-provider diagnostics, explicit global/project/none policy consent, marketplace preservation, and idempotent agent-policy insertion. GitHub Actions runs `npm run check` on macOS and Ubuntu with Node.js 18 and 22.
 
 Use [the surface smoke test](docs/surface-smoke-test.md) after installation to verify skill discovery independently in Codex App, VS Code, CLI, and mobile-to-remote tasks.
 

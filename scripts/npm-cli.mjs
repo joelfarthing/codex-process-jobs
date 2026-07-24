@@ -211,6 +211,7 @@ function runDoctor(env, { provenance = false } = {}) {
   const metadata = readPackage();
   const plan = resolveInstallPlan({ env });
   const installedVersion = readInstalledVersion(plan.destination);
+  const providers = plan.pluginProviders;
   const status = installedVersion == null
     ? "not installed"
     : baseVersion(installedVersion) === metadata.version
@@ -223,9 +224,24 @@ function runDoctor(env, { provenance = false } = {}) {
     `  installation status: ${status}`,
     `  plugin destination: ${plan.destination}`,
     `  personal marketplace: ${fs.existsSync(plan.marketplaceFile) ? "present" : "not present"}`,
+    `  CPJ provider caches: ${
+      providers.status === "invalid" ? "invalid" : providers.providers.join(", ") || "none"
+    }`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
     `  active tracked jobs: ${plan.activeJobs.length}`,
     "  supported platform: yes",
+    ...(providers.providers.length > 1
+      ? [
+          "",
+          `Warning: multiple CPJ provider caches are present (${providers.providers.join(", ")}).`,
+          "Verify that only one provider is enabled because duplicate skill IDs can make routing nondeterministic.",
+        ]
+      : providers.status === "invalid"
+        ? [
+            "",
+            "Warning: CPJ provider caches could not be validated. Inspect plugin state before installing or updating.",
+          ]
+        : []),
     "",
     "Doctor is read-only and made no changes.",
   ];

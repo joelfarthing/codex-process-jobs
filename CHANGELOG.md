@@ -4,6 +4,19 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Added
+
+- Installer preview and `doctor` now report distinct CPJ provider caches and warn when duplicate skill providers may make routing nondeterministic.
+- A task-agnostic routing acceptance matrix covers emitted detached launchers, persistent servers, externally owned remote jobs, and quick foreground tests.
+
+### Changed
+
+- Model-facing policy now classifies the underlying workload instead of wrapper latency and explicitly composes task-specific correctness workflows with CPJ lifecycle ownership.
+
+### Fixed
+
+- Task workflows that emit a quick detached launcher no longer make the underlying finite local workload appear ineligible for CPJ. Agents must route the foreground payload or a launcher mode that waits for completion, rather than tracking a fire-and-exit wrapper.
+
 ## [0.2.1] - 2026-07-23
 
 ### Added

@@ -209,6 +209,73 @@ export function inspectPluginCache(codexHome, marketplaceName) {
   }
 }
 
+export function inspectPluginProviders(codexHome) {
+  const cacheRoot = path.join(path.resolve(codexHome), "plugins", "cache");
+  try {
+    const rootStat = fs.lstatSync(cacheRoot);
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+      return { status: "invalid", providers: [] };
+    }
+
+    const providers = [];
+    for (const marketplaceEntry of fs.readdirSync(cacheRoot, { withFileTypes: true })) {
+      let marketplaceName;
+      try {
+        marketplaceName = validatePathComponent(marketplaceEntry.name, "marketplace cache name");
+      } catch {
+        return { status: "invalid", providers: [] };
+      }
+      if (!marketplaceEntry.isDirectory() || marketplaceEntry.isSymbolicLink()) continue;
+
+      const providerRoot = path.join(cacheRoot, marketplaceName, PLUGIN_NAME);
+      let providerStat;
+      try {
+        providerStat = fs.lstatSync(providerRoot);
+      } catch (error) {
+        if (error?.code === "ENOENT") continue;
+        return { status: "invalid", providers: [] };
+      }
+      if (providerStat.isSymbolicLink() || !providerStat.isDirectory()) {
+        return { status: "invalid", providers: [] };
+      }
+
+      let validGeneration = false;
+      for (const generationEntry of fs.readdirSync(providerRoot, { withFileTypes: true })) {
+        if (!generationEntry.isDirectory() || generationEntry.isSymbolicLink()) continue;
+        const manifestFile = path.join(
+          providerRoot,
+          generationEntry.name,
+          ".codex-plugin",
+          "plugin.json"
+        );
+        try {
+          const manifestStat = fs.lstatSync(manifestFile);
+          if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) continue;
+          const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+          if (
+            manifest?.name === PLUGIN_NAME
+            && typeof manifest.version === "string"
+            && manifest.version === generationEntry.name
+          ) {
+            validGeneration = true;
+            break;
+          }
+        } catch {}
+      }
+      if (validGeneration) providers.push(marketplaceName);
+    }
+
+    providers.sort((left, right) => left.localeCompare(right));
+    return {
+      status: providers.length > 0 ? "present" : "absent",
+      providers,
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { status: "absent", providers: [] };
+    return { status: "invalid", providers: [] };
+  }
+}
+
 function snapshotPluginCache(codexHome, marketplaceName) {
   const cacheRoot = pluginCacheRoot(codexHome, marketplaceName);
   if (!fs.existsSync(cacheRoot)) return { cacheRoot, temporaryRoot: null, versions: [] };
@@ -475,6 +542,7 @@ export function resolveInstallPlan({ env = process.env, now = new Date(), source
     timestamp,
     activeJobs: listActiveJobs(paths.codexHome),
     codex: detectCodex(env),
+    pluginProviders: inspectPluginProviders(paths.codexHome),
   };
 }
 
@@ -509,6 +577,23 @@ export function resolveAgentPolicySelection(plan, options) {
 
 function planLines(plan, options) {
   const policy = resolveAgentPolicySelection(plan, options);
+  let plannedMarketplaceName = "personal";
+  try {
+    const existingMarketplace = readJson(plan.marketplaceFile, "personal marketplace");
+    if (existingMarketplace != null) {
+      plannedMarketplaceName = validatePathComponent(
+        existingMarketplace.name,
+        "personal marketplace name"
+      );
+    }
+  } catch {
+    plannedMarketplaceName = null;
+  }
+  const currentProviders = plan.pluginProviders?.providers ?? [];
+  const postInstallProviders = plannedMarketplaceName == null
+    ? currentProviders
+    : [...new Set([...currentProviders, plannedMarketplaceName])]
+      .sort((left, right) => left.localeCompare(right));
   let policyLine;
   if (policy.mode === "global") policyLine = `global; update ${policy.target}`;
   else if (policy.mode === "project") policyLine = `project; update ${policy.target}`;
@@ -520,6 +605,11 @@ function planLines(plan, options) {
     `  plugin destination: ${plan.destination}`,
     `  plugin version: ${plan.installVersion}`,
     `  personal marketplace: ${plan.marketplaceFile}`,
+    `  current CPJ provider caches: ${
+      plan.pluginProviders?.status === "invalid"
+        ? "invalid"
+        : currentProviders.join(", ") || "none"
+    }`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
     "  completion hooks: enable hooks and install PostToolUse, Stop, and UserPromptSubmit definitions; review definitions and referenced source in /hooks after every install or update, and approve any definition Codex marks new or changed",
     "  open-task compatibility: preserve validated prior CPJ cache generations across plugin refresh",
@@ -530,6 +620,15 @@ function planLines(plan, options) {
     `  agent policy: ${policyLine}`,
     `  active tracked jobs: ${plan.activeJobs.length}`,
   ];
+  if (postInstallProviders.length > 1) {
+    lines.push(
+      `  routing warning: applying this install would leave multiple CPJ provider caches (${postInstallProviders.join(", ")}); verify that only one provider is enabled because duplicate skill IDs can make routing nondeterministic`
+    );
+  } else if (plan.pluginProviders?.status === "invalid") {
+    lines.push(
+      "  routing warning: CPJ provider caches could not be validated; inspect plugin state before applying"
+    );
+  }
   for (const job of plan.activeJobs) {
     lines.push(`    - ${job.id} [${job.status}]${job.name ? ` ${job.name}` : ""}`);
   }

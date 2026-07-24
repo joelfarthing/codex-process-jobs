@@ -8,16 +8,23 @@ description: Safely request termination of a tracked detached process group usin
 Resolve `<plugin-root>` as two directories above this `SKILL.md` and run:
 
 ```text
-node "<plugin-root>/scripts/job.mjs" cancel <job-id> [--force] [--json]
+node "<plugin-root>/scripts/job.mjs" cancel <job-id> [--force] --json
 ```
 
-## Cancellation rules
+If `${CODEX_HOME:-$HOME/.codex}/process-jobs` is not writable in the current
+sandbox, request narrow controller escalation on the first call; do not probe
+for a predictable `EPERM`.
 
-- Never cancel a job merely because a Codex task, client, terminal, or session is closing.
-- Require a specific job id. Inspect `$status <job-id>` first if identity or current state is uncertain.
-- For a non-critical job, the user's direct request to stop that job authorizes normal cancellation.
-- For a `CRITICAL` job, explain that interruption can worsen partial state and obtain explicit approval immediately before passing `--force`.
-- `--force` bypasses the critical-job guard; it does not skip the graceful phase. The controller sends SIGTERM to the validated process group, waits up to five seconds, then uses SIGKILL only if necessary.
-- If PID identity does not match, the controller refuses to signal the process. Do not work around that protection with an untracked `kill` unless the user separately authorizes manual recovery after inspection.
+Never cancel because a Codex task, client, or terminal is closing. Require a
+specific job id; use `$status <job-id>` first only if identity/state is unclear.
+A direct request authorizes normal cancellation of a non-critical job.
 
-For filesystem or device repair, cancellation can leave metadata partially rewritten. Prefer waiting unless continued execution presents a greater concrete risk.
+For a `CRITICAL` job, explain that interruption can worsen partial state and
+obtain explicit approval immediately before `--force`. This bypasses only the
+critical guard: the controller still validates PID identity, sends SIGTERM to
+the process group, waits up to five seconds, and uses SIGKILL only if needed.
+Never bypass an identity refusal with untracked `kill` without separate
+authorization after inspection.
+
+Filesystem/device repair can leave metadata partially rewritten. Prefer waiting
+unless continued execution presents a greater concrete risk.

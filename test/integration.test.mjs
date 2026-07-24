@@ -183,6 +183,30 @@ test("launches a detached command, returns immediately, and stores its result", 
   assert.match(result.stderr, /warning/);
 });
 
+test("documented shell option order launches successfully on the first invocation", (t) => {
+  const context = makeEnv(t);
+  const started = runCli([
+    "start",
+    "--name",
+    "documented shell order",
+    "--cwd",
+    ROOT,
+    "--shell",
+    "--json",
+    "--",
+    "printf 'canonical-first-launch\\n'",
+  ], context.env);
+  const payload = JSON.parse(started.stdout);
+  context.startedIds.push(payload.job.id);
+
+  const completed = waitJson(payload.job.id, context.env).job;
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.exitCode, 0);
+
+  const result = JSON.parse(runCli(["result", payload.job.id, "--peek", "--json"], context.env).stdout);
+  assert.match(result.stdout, /canonical-first-launch/);
+});
+
 test("result --peek reads bounded evidence without consuming completion fallback", (t) => {
   const context = makeEnv(t);
   const job = startJson([

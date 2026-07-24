@@ -4,6 +4,8 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-24
+
 ### Added
 
 - A guarded same-user private IPC path can now deliver completion turns through
@@ -16,6 +18,9 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
   path. Homebrew distribution is deprecated and frozen at CPJ 0.2.2; the
   personal provider remains only for local development, and users should run
   exactly one active CPJ provider.
+- All five model-facing skills are substantially shorter while retaining their
+  routing, safety, hard-turn, progress, result, and cancellation contracts.
+  Canonical launch examples also put every controller option before `--`.
 - Default `auto` completion mode now gives VS Code the same bounded proactive
   result inspection, summary, recommended next step, and permission question as
   Codex App.
@@ -28,6 +33,9 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 - A private-protocol rejection falls back only before possible acceptance;
   connection loss or timeout after start-turn dispatch remains accepted-but-
   unconfirmed and never retries another transport.
+- Skill guidance now directs the first controller call through the required
+  scoped permission context when the durable state directory is outside the
+  active sandbox, avoiding a predictable failed probe and retry.
 
 ## [0.2.2] - 2026-07-24
 
@@ -102,7 +110,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.1.0...v0.2.0

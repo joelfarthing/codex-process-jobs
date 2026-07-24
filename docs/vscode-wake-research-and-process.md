@@ -1,7 +1,9 @@
 # Completion Wake: VS Code and Cartesian Surface Research
 
-- Status: transport-independent post-tool, stop, and next-prompt pickup implemented; arbitrary-time live refresh remains an upstream integration gap
-- Research dates: 2026-07-10 through 2026-07-20
+- Status: guarded private-IPC live rendering verified in an already-open local
+  VS Code task; transport-independent post-tool, stop, and next-prompt pickup
+  remains the compatibility fallback
+- Research dates: 2026-07-10 through 2026-07-24
 
 ## Goal
 
@@ -14,14 +16,26 @@ This document records the research process, evidence, current product contract, 
 The detached process and durable completion turn work. The remaining limitation on stale-capable clients is presentation and next-turn context refresh, not job tracking or persistence.
 
 - Codex App and Codex CLI can sometimes display the synthetic completion turn live, but that presentation is not guaranteed.
-- A separate `codex app-server` process can append the same completion turn to a task opened in the Codex VS Code extension.
-- The VS Code extension's already-open panel does not receive that other app-server process's event stream. The turn is durable and becomes visible after a full window reload and task reopen.
+- A separate `codex app-server` process can append the same completion turn to
+  a task opened in the Codex VS Code extension, but the already-open panel does
+  not receive that other process's event stream.
+- The extension also participates in Codex's private same-user IPC router. A
+  guarded `thread-follower-start-turn` request routed through that owner
+  rendered the completion and assistant response immediately in the exact
+  already-open task.
 - Consent-gated hooks can supply sanitized completion state after a supported local tool call, at the turn's stop boundary, or on the assigning agent's next eligible ordinary non-status turn. Explicit status/result requests retrieve durable state directly instead.
 - The same stale-context behavior was observed when ChatGPT mobile drove Codex on a remote Linux host: the durable transcript contained the completion, but the agent handling the next request did not.
 - Local Codex App exposed both failure variants. In one test, a synthetic completion turn finished 16 seconds before the next unrelated turn yet was absent from assigning-agent context. In a later test, the hidden completion was present in model context but absent from the rendered and exported conversation, proving that context presence is not evidence of user-visible presentation.
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
-The supported behavior is therefore transport-aware rather than surface-dependent. On App, CLI, VS Code, remote, and unknown clients, the plugin promises durable completion, opportunistic pickup at supported agent-loop boundaries, one mandatory later-turn recap fallback, and direct retrieval for status/result requests. It does not promise a live repaint at the instant the process exits. Because the plugin cannot prove whether a synthetic turn rendered, a live completion may be recapped once.
+The supported behavior is therefore transport-aware rather than
+surface-dependent. App and VS Code may use guarded private IPC for a live
+owner-routed turn; CLI, remote, unsupported clients, and any private-path
+failure retain the separate app-server relay. Every surface still receives
+durable completion, opportunistic pickup at supported agent-loop boundaries,
+one mandatory later-turn recap fallback, and direct status/result retrieval.
+Because the plugin cannot prove whether a synthetic turn rendered, a live
+completion may be recapped once.
 
 ## 2026-07-20 supported hook-boundary upgrade
 
@@ -68,7 +82,12 @@ The investigation used multiple independent paths:
 14. Repeated the same App flow and observed a presentation split: Codex reported completion in live commentary but omitted it from the final answer, so App auto-collapse removed the outcome from the durable rendered answer. This established final-answer retention as a separate requirement.
 15. Repeated the App flow after enforcing final-answer retention and passed the full acceptance contract: completion appeared in commentary, unrelated local inspection continued, and the rendered final answer retained both the requested result and the successful detached-job outcome.
 
-The investigation did not modify either vendor extension, write to a private IPC socket, restart the extension host, or install a persistent daemon.
+The initial investigation did not modify either vendor extension, restart an
+extension host, or install a persistent daemon. The later July 24 proof wrote
+one deterministic harmless completion request to Codex's same-user private IPC
+socket after verifying ownership, permissions, the exact active extension
+version, and the method-version literal in its bundle. No vendor files or
+settings were changed.
 
 ## Installed VS Code verification
 
@@ -162,14 +181,18 @@ It does not persist the inherited environment or raw rollout metadata. `CODEX_PR
 
 | Surface | Completion behavior | Launch wording |
 |---|---|---|
-| Codex App | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. |
+| Codex App | Guarded private IPC can render the completion live; durable delivery and the first eligible non-status recap remain the fallback | Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. |
 | Codex CLI | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Same transport-honest wording as App. |
-| Codex VS Code | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap; the open panel may require reload to display the separate completion turn | Same transport-honest wording, with status available any time. |
+| Codex VS Code | Guarded private IPC can render the completion and response in the already-open task; unsupported clients safely retain durable delivery and the first eligible non-status recap | Same transport-honest wording, with status available any time. |
 | Mobile/remote | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Same transport-honest wording, with status available any time. |
 | Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; live presentation is best-effort; the same eligible recap applies | Same transport-honest wording, with status available any time. |
 | No owning thread | No conversational relay | Use status/result to check completion. |
 
-The distinction is deliberately between a backend wake, visible transcript presentation, and the context loaded into the next assigning agent. These have now diverged in VS Code, mobile-driven remote tasks, and local Codex App.
+The distinction is deliberately between a backend wake, visible transcript
+presentation, and the context loaded into the next assigning agent. These have
+diverged in VS Code, mobile-driven remote tasks, and local Codex App. The
+private owner-routed VS Code proof closed the first presentation gap for one
+verified build without erasing those independent fallback layers.
 
 ## Why Claude's extension behaves differently
 
@@ -183,7 +206,13 @@ The transferable lesson is straightforward: durable state and a live subscriptio
 
 ### 1. Transport-independent durable completion
 
-This is the current supported default. It is portable, requires no vendor-private protocol, preserves job state across client exit, injects one mandatory recap on the first eligible ordinary non-status prompt after delivery settles on every owning surface, and tells the user exactly what to expect. It intentionally accepts a possible one-time duplicate because durable/model context does not prove rendered visibility.
+This remains the compatibility foundation. It is portable, preserves job state
+across client exit, injects one mandatory recap on the first eligible ordinary
+non-status prompt after delivery settles on every owning surface, and tells the
+user exactly what to expect. The private App/VS Code path is an opportunistic
+presentation enhancement above it. The foundation intentionally accepts a
+possible one-time duplicate because durable/model context does not prove
+rendered visibility.
 
 ### 2. Companion VS Code extension
 
@@ -199,9 +228,30 @@ The extension's development-only CLI executable override might be used to protot
 
 ### 4. Private Codex IPC
 
-The installed extension contains an undocumented local IPC router with internal thread-follower and cache-invalidation methods. A version-gated experiment might be able to route a turn through the extension owner or invalidate its query cache.
+The installed extension contains an undocumented local IPC router with internal
+thread-follower methods. Both inspected builds (`26.721.30844` and the active
+`26.721.41059`) advertised `thread-follower-start-turn` protocol version 1 and
+used the same length-prefixed JSON handshake.
 
-This is not suitable for a publishable default. Method names, payloads, ownership rules, socket paths, and security expectations are private and may change without notice. Sending a malformed private message could target the wrong window or corrupt UI state.
+A one-shot proof targeted one explicit idle VS Code task through the standard
+private `$CODEX_HOME/ipc/ipc.sock`. The router returned one turn ID; the rollout
+contained one matching synthetic user notice, one `task_started`, one assistant
+response, and one `task_complete`; and the already-open panel rendered the
+notice and response without reload, reopening, navigation, or another user
+prompt.
+
+The production path therefore uses the same guarded transport already proven
+for local Codex App, extended to VS Code on macOS and Linux. It validates a
+same-user private socket, sends only the sanitized task-bound completion input,
+checks the returned turn ID, and confirms matching durable completion.
+Unsupported or changed private methods fall back to app-server only before
+possible acceptance. Connection loss or timeout after dispatch fails closed as
+accepted-but-unconfirmed rather than risking a duplicate.
+
+This remains experimental rather than an OpenAI compatibility guarantee.
+Method names, payloads, ownership rules, and socket behavior may change without
+notice. Durable state, status/result, consent-gated hooks, and the ordinary-turn
+recap remain authoritative fallbacks.
 
 ### 5. Upstream refresh API
 
@@ -212,11 +262,13 @@ The ideal fix is an official command, exported extension API, or app-server cros
 - Surface detection prefers inherited environment metadata and uses bounded rollout metadata only for the exact refresh-uncertain remote fallback; it requires no macOS-specific process inspection.
 - The process broker remains limited to macOS and Linux because process-group management and shell behavior are POSIX-specific.
 - The same VS Code origin marker is set in the inspected native and WSL launch paths, but each future extension version should remain covered by smoke testing.
-- No companion extension, daemon, socket service, or vendor-extension patch is required for the supported default.
+- No companion extension, daemon, socket service, vendor-extension patch, or
+  VS Code setting override is required. CPJ uses a router already created by the
+  active Codex client and starts no persistent IPC service.
 
 ## Verification requirements
 
-Before claiming true VS Code live wake, an implementation must pass all of these:
+The production implementation retains these release checks:
 
 1. Completion appears without reload in the exact owning task.
 2. Multiple VS Code windows and multiple Codex tasks cannot receive each other's completion.
@@ -224,6 +276,17 @@ Before claiming true VS Code live wake, an implementation must pass all of these
 4. Concurrent job completions do not duplicate or reorder conversational turns.
 5. No process output is injected into the synthetic prompt; only sanitized job metadata crosses the boundary.
 6. macOS and Linux/WSL behavior is covered.
-7. The mechanism uses a documented API, or is clearly labeled as an opt-in, version-pinned experiment with an automatic safe fallback.
+7. The private mechanism is explicitly labeled experimental and has an
+   automatic safe fallback before possible acceptance.
 
-Until then, `durable-refresh-required` plus one-shot recap injection on the first eligible ordinary non-status prompt after delivery settles is the supported contract for every owning Codex surface.
+The local macOS proof establishes requirements 1 and 5 directly. Unit coverage
+binds the request to the owning task ID, preserves settled-idle races, validates
+batch/exactly-once state claims, accepts macOS and Linux socket locations,
+falls back on a rejected private method, and forbids a second transport after
+uncertain acceptance. The release smoke matrix still requires a real VS Code
+Remote SSH run on Linux and representative restart/multi-task checks.
+
+`durable-refresh-required` plus one-shot recap injection on the first eligible
+ordinary non-status prompt remains the compatibility contract even when private
+IPC renders live, because CPJ has no trustworthy client-rendered visibility
+receipt.

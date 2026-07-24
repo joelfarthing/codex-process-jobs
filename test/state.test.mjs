@@ -160,6 +160,14 @@ test("accepts only known persisted notification transports", (t) => {
     logs: resolveJobLogs("job-desktop-transport", env),
   }, env);
   assert.equal(created.notification.transport, "desktop-ipc");
+
+  const vscode = createJob({
+    id: "job-vscode-transport",
+    status: "completed",
+    notification: { status: "delivered", transport: "vscode-ipc" },
+    logs: resolveJobLogs("job-vscode-transport", env),
+  }, env);
+  assert.equal(vscode.notification.transport, "vscode-ipc");
 });
 
 test("validates persisted launch-boundary claim metadata", (t) => {

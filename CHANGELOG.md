@@ -4,12 +4,30 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Added
+
+- A guarded same-user private IPC path can now deliver completion turns through
+  the owning Codex VS Code extension transport on macOS and Linux, allowing the
+  already-open task to render the sanitized completion and Codex response live.
+
 ### Changed
 
 - The OpenAI Plugins Directory is now the supported installation and update
   path. Homebrew distribution is deprecated and frozen at CPJ 0.2.2; the
   personal provider remains only for local development, and users should run
   exactly one active CPJ provider.
+- Default `auto` completion mode now gives VS Code the same bounded proactive
+  result inspection, summary, recommended next step, and permission question as
+  Codex App.
+
+### Fixed
+
+- Private IPC delivery now preserves the settled-idle retry signal when the
+  owning task becomes active between initialization and start-turn dispatch,
+  instead of falling through to a competing app-server turn.
+- A private-protocol rejection falls back only before possible acceptance;
+  connection loss or timeout after start-turn dispatch remains accepted-but-
+  unconfirmed and never retries another transport.
 
 ## [0.2.2] - 2026-07-24
 

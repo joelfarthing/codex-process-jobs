@@ -10,10 +10,14 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
+function normalizeProse(value) {
+  return value.replace(/\\\s+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 test("model-facing launch contracts require release without same-turn monitoring", () => {
-  const startSkill = read("skills/start/SKILL.md");
-  const statusSkill = read("skills/status/SKILL.md");
-  const agentPolicy = read("assets/agent-policy.md");
+  const startSkill = normalizeProse(read("skills/start/SKILL.md"));
+  const statusSkill = normalizeProse(read("skills/status/SKILL.md"));
+  const agentPolicy = normalizeProse(read("assets/agent-policy.md"));
 
   assert.match(startSkill, /hard launch-turn release boundary/i);
   assert.match(startSkill, /do not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`/i);
@@ -35,7 +39,7 @@ test("model-facing launch contracts require release without same-turn monitoring
   assert.match(statusSkill, /Apply the host Goal blocked audit/i);
   assert.match(statusSkill, /Count the immediately preceding launch turn when it ended with this same job as the sole blocker/i);
   assert.match(statusSkill, /continue the next already-authorized in-scope Goal step/i);
-  assert.match(statusSkill, /inspect the bounded result in the same turn only if the job becomes terminal/i);
+  assert.match(statusSkill, /Treat only an explicit terminal CPJ state as permission to inspect the bounded result/i);
   assert.match(agentPolicy, /successful start is a hard turn boundary/i);
   assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
   assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
@@ -48,8 +52,8 @@ test("model-facing launch contracts require release without same-turn monitoring
 });
 
 test("model-facing routing contract composes task workflows without tracking quick wrappers", () => {
-  const startSkill = read("skills/start/SKILL.md");
-  const routingTest = read("docs/routing-acceptance-test.md");
+  const startSkill = normalizeProse(read("skills/start/SKILL.md"));
+  const routingTest = normalizeProse(read("docs/routing-acceptance-test.md"));
 
   assert.match(startSkill, /Task-specific skills own command construction, preflight checks, arguments, and correctness gates/i);
   assert.match(startSkill, /CPJ owns execution lifecycle for qualifying finite local workloads/i);
@@ -63,6 +67,34 @@ test("model-facing routing contract composes task workflows without tracking qui
   assert.match(routingTest, /Persistent development server/i);
   assert.match(routingTest, /Externally owned remote batch job/i);
   assert.match(routingTest, /Focused quick test/i);
+});
+
+test("skill launch examples prevent parser and sandbox discovery retries", () => {
+  const skillPaths = [
+    "skills/start/SKILL.md",
+    "skills/status/SKILL.md",
+    "skills/tail/SKILL.md",
+    "skills/result/SKILL.md",
+    "skills/cancel/SKILL.md",
+  ];
+  const skills = skillPaths.map((skillPath) => read(skillPath));
+  const startSkill = normalizeProse(skills[0]);
+
+  assert.match(startSkill, /--shell --json -- '<single finite foreground command>'/);
+  assert.match(startSkill, /All controller options, including `--json`, MUST precede `--`/);
+  assert.doesNotMatch(startSkill, /-- '<single finite foreground command>' --json/);
+  assert.match(startSkill, /sandbox_permissions: "require_escalated".*on the first call/i);
+
+  for (const skill of skills) {
+    const normalized = normalizeProse(skill);
+    assert.match(normalized, /do not probe for a predictable `EPERM`|Do not waste a call on a predictable `EPERM`/i);
+  }
+
+  const totalWords = skills
+    .flatMap((skill) => skill.split(/\s+/))
+    .filter(Boolean)
+    .length;
+  assert.ok(totalWords <= 2_000, `skill corpus grew to ${totalWords} words`);
 });
 
 test("surface smoke prompt does not coach the release behavior it evaluates", () => {

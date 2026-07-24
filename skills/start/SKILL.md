@@ -5,80 +5,111 @@ description: Launch an ordinary finite local workload as a durable detached proc
 
 # Start Process Job
 
-Resolve `<plugin-root>` as two directories above this `SKILL.md`. Run the job controller from that active plugin root:
+Resolve `<plugin-root>` as two directories above this `SKILL.md`.
 
-```text
-node "<plugin-root>/scripts/job.mjs" start [options] -- <command> [args...]
-```
+## Launch exactly once
 
-## When to route here
-
-Use this skill instead of a blocking shell call when any of these is true:
-
-- The user asks to background, detach, or keep working while a command runs.
-- A local command is likely to take longer than about 60 seconds or its duration is uncertain.
-- The user is likely to want lightweight progress checks while the command runs.
-- A build, test, inference, evaluation, data-processing, or repair process should survive the current Codex client closing.
-
-Do not route quick commands here merely because detachment is possible. Do not use it for a persistent server or watch process, when the command requires interactive stdin, when it intentionally daemonizes, or when it only starts work in an external service and then exits.
-
-## Compose with task-specific workflows
-
-Task-specific skills own command construction, preflight checks, arguments, and correctness gates. CPJ owns execution lifecycle for qualifying finite local workloads. Follow the task workflow through command validation, then launch the validated workload through CPJ unless that workflow explicitly requires another lifecycle owner for correctness.
-
-Classify the underlying workload, not the latency of its wrapper:
-
-- If a workflow emits the actual finite foreground command, preserve its argv and run it through CPJ.
-- If it emits a shell string for finite foreground work, pass that validated string literally with `--shell`; never use `eval`.
-- If it emits a detached or fire-and-exit launcher, do not pass that launcher through CPJ unchanged. Prefer the underlying foreground payload. When correctness requires the launcher, use only a supported mode that remains alive until the workload finishes and propagates its terminal status. Otherwise, leave the workload with its external lifecycle owner and explain that CPJ cannot track it faithfully.
-
-Generic emitted-command shape, only after confirming that the emitted command remains in the foreground for the workload's full lifetime:
+Prefer direct argv:
 
 ```text
 node "<plugin-root>/scripts/job.mjs" start \
-  --name "<label>" \
-  --cwd "<working-directory>" \
-  --shell \
-  -- '<validated finite foreground shell command emitted by the task workflow>'
+  --name "<label>" --cwd "<working-directory>" --json -- \
+  <command> [args...]
 ```
 
-## Launch workflow
+Use fixed non-login Bash only for a validated shell composition:
 
-1. Require a concrete command and working directory. Do not invent consequential arguments.
-2. Preserve direct argv exactly and shell-quote only when presenting it. Do not use `eval`.
-3. Use direct argv mode by default. Use `--shell -- '<single command string>'` for Bash composition such as `set -o pipefail`, pipes, redirection, globbing, `[[ ... ]]`, or process substitution. `--shell` is fixed non-login `/bin/bash -c`; on macOS, remain compatible with the system Bash 3.2. Use `--posix-sh` only when the complete command is intentionally limited to portable POSIX `sh` syntax.
-4. Add `--name <label>` when a concise recognizable label is useful.
-5. Add `--critical` for filesystem/device repair, firmware operations, database migrations, destructive conversions, or any command whose interruption could worsen state.
-6. Add `--goal-mode` only when this command belongs to an explicitly active Codex Goal. The visible Goal context is sufficient; if Goal activity is suggested but unclear and the supported `get_goal` tool is available, check it once. Never inspect Codex's private Goal database or infer Goal mode merely from repeated turns.
-7. Run the controller once and return its job id, status, and log paths. A successful detached launch completes the job-launch work for this Codex turn even when the higher-level task will eventually depend on the result.
-8. Report the launch and end the turn. If the same user request includes independent work, continue only that independent work without monitoring the job, then end the turn.
+```text
+node "<plugin-root>/scripts/job.mjs" start \
+  --name "<label>" --cwd "<working-directory>" --shell --json -- \
+  '<single finite foreground command>'
+```
 
-Supported options before `--`:
+All controller options, including `--json`, MUST precede `--`; that separator
+ends controller parsing. Shell mode requires exactly one command string after
+it. Never use `eval`.
 
-- `--name <label>`
-- `--cwd <absolute-or-relative-directory>`
-- `--critical`
-- `--goal-mode`
-- `--shell`
-- `--posix-sh`
-- `--no-notify` to opt out of the owning-thread completion turn
-- `--notify-user` to request a best-effort OS notification for this job
-- `--no-notify-user` to override a durable OS-notification preference for this job
-- `--json`
+CPJ writes private durable state under
+`${CODEX_HOME:-$HOME/.codex}/process-jobs`. Before the first controller call,
+use the host permission context instead of probing the filesystem. If that
+directory is not writable in the current sandbox, request
+`sandbox_permissions: "require_escalated"` on the first call with a narrow
+justification and, when supported, prefix
+`["node", "<plugin-root>/scripts/job.mjs"]`. Do not waste a call on a
+predictable `EPERM`, weaken the sandbox, or edit Codex configuration.
 
-## Safety and lifecycle
+## Route and compose
 
-- Detached jobs receive no interactive stdin. If `sudo`, Polkit, a password, a confirmation, or any other prompt may be required, resolve that requirement in the foreground first. Prefer explicitly non-interactive forms such as `sudo -n` when appropriate.
-- The launched command must remain in the foreground until its finite work is complete. Do not append `&`, use a daemonizing mode, or route a persistent server/watch process through CPJ. If a command merely asks an external service to begin work and then exits, track that service through its own blocking/status interface instead.
-- `--shell` requires executable `/bin/bash`; CPJ checks this before creating the job. It never falls back to `/bin/sh` or the user's `$SHELL`. New shell jobs use non-login `-c` and ignore `BASH_ENV`/`ENV`; `--posix-sh` explicitly uses `/bin/sh -c`.
-- A job is machine-scoped and survives Codex App, IDE, or CLI exit. Never add session-exit cleanup.
-- Treat a successful controller return as a hard launch-turn release boundary. Do not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or any other polling or process probe for that job in the launch turn. Defer result-dependent work to the completion relay, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. General instructions to finish the higher-level task, persist, or not stop do not authorize same-turn monitoring; durable job state and the completion relay provide persistence. Only an explicit user request to keep this exact Codex turn open and wait for this process overrides the boundary. Under that override, follow the status skill's one-wait limit and yielded-session rule; inspect a result only after an explicit terminal CPJ state, otherwise end the turn without a replacement probe.
-- For an ordinary pending-notification launch, the response MUST state all four facts: the recognizable job label/id and that it is running in the background; completion will be recorded and a live notification may appear; after it finishes, recap the outcome as soon as the conversation can pick it up; the user can request status any time. Paraphrase naturally, but do not omit any fact. Example: “I've started that <job label> in the background as <job-id>. Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. You can ask me to check status any time.” The completion relay uses a separate transport, so do not promise an immediate live wake, imply that an exchange before completion can report the outcome, or guarantee the first post-terminal prompt while notification delivery is still in flight.
-- For a `--goal-mode` launch, say instead that the job is running under the active Goal, completion is recorded durably, automatic Goal continuation or direct idle-thread delivery will pick up the terminal result, and status remains available on explicit user request. Do not imply that CPJ can suppress Goal's automatic `Continue` turns. On those continuations, work independently when possible; when result-gated, do not monitor the job and apply the host Goal blocked audit rather than narrating progress.
-- When notification is `disabled` or `unavailable`, explain the status/result fallback instead.
-- OS-level user notification is independent of the conversational completion relay. It is opt-in, best-effort, and may be unavailable in a headless Linux session even when conversational completion works.
-- Do not place secrets in argv or redirect secrets into tracked logs. The controller stores argv and cwd, but never persists the inherited environment.
-- Critical jobs refuse cancellation unless the user later gives explicit approval and `$cancel` is invoked with `--force`.
-- The notification relay resumes the owning persistent Codex thread through guarded Desktop IPC or local app-server and starts a minimal synthetic completion turn containing sanitized job metadata only. It never embeds process output. Consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks can claim a terminal result at the next supported agent-loop boundary and require one short recap for every claimed completion. Give that recap even if a synthetic assistant announcement already appears in model context, because context does not prove the assigning client rendered it. A possible one-time duplicate is intentional. Explicit status/result requests retrieve durable state directly.
+Use CPJ when the user asks to detach/background work, or when a finite local
+workload may exceed about 60 seconds, has uncertain duration, should survive a
+client exit, or merits later lightweight status checks.
 
-For storage repair specifically, preserve the exact target device, mounted/unmounted state, and repair flags supplied by the user or current diagnostic evidence. Never infer a device node from name alone.
+Exclude quick commands, interactive stdin, servers/watchers, intentional
+daemons, remote/external services, and fire-and-exit launchers. The tracked
+process must remain in the foreground until the real workload ends.
+
+Task-specific skills own command construction, preflight checks, arguments, and
+correctness gates. CPJ owns execution lifecycle for qualifying finite local
+workloads. Preserve a validated foreground argv or shell string. If a workflow
+emits a detached launcher, do not pass that launcher through CPJ unchanged:
+prefer its foreground payload, or a supported mode that remains alive until the
+workload finishes and propagates its terminal status. Otherwise leave it with
+its external lifecycle owner.
+
+## Required choices
+
+- Require a concrete command and cwd; never invent consequential arguments.
+- Default to direct argv. Use `--shell` for Bash features and `--posix-sh` only
+  for intentionally portable POSIX syntax.
+- Add `--critical` for repair, firmware, migration, destructive conversion, or
+  any operation whose interruption could worsen state.
+- Add `--goal-mode` only when this command belongs to an explicitly active
+  Codex Goal. If unclear and `get_goal` exists, check once; never inspect private
+  Goal storage or infer Goal mode from repeated turns.
+- Optional controller flags before `--`: `--no-notify`, `--notify-user`,
+  `--no-notify-user`, and `--json`.
+
+Detached work receives no interactive stdin. Resolve passwords, confirmations,
+sudo, or Polkit in the foreground first and prefer non-interactive checks such
+as `sudo -n`. `--shell` requires `/bin/bash` and must remain compatible with
+macOS Bash 3.2. Never put secrets in argv or tracked logs.
+
+For storage repair, preserve the evidenced target device, mount state, and
+flags. Never infer a device node from its name.
+
+## Hard turn boundary
+
+Treat a successful controller return as a hard launch-turn release boundary.
+Do not read the status skill or call status, tail, result, `--wait`,
+`write_stdin`, sleep, `ps`, or another process probe in the launch turn.
+Result-dependent work resumes through completion delivery, a later
+user-initiated turn, or a later automatic continuation of an explicitly active
+Goal. If the same user request includes independent work, continue only that
+independent work.
+
+Only an explicit user request to keep this exact Codex turn open and wait
+overrides the boundary. Then follow the status skill's one-wait and
+yielded-session rule; inspect a result only after an explicit terminal CPJ
+state. Never substitute polling.
+
+## Report and stop
+
+For an ordinary pending notification, state conversationally:
+
+1. the label/id and that it is running in the background;
+2. completion is recorded and a live notification may appear;
+3. after it finishes, recap the outcome as soon as the conversation can pick it
+   up; and
+4. status is available on request.
+
+Do not guarantee an immediate wake. If notification is unavailable or disabled,
+explain the status/result fallback.
+
+For `--goal-mode`, say the job is durably tracked under the Goal and will be
+picked up by completion delivery, a hook, or Goal continuation. Automatic
+continuation is not permission to monitor: do independent work or apply the host
+Goal blocked audit.
+
+A job is machine-scoped and survives Codex App, IDE, or CLI exit. Never add
+session-exit cleanup. Critical jobs later require explicit approval and
+`$cancel --force`.

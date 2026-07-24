@@ -18,6 +18,9 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
   path. Homebrew distribution is deprecated and frozen at CPJ 0.2.2; the
   personal provider remains only for local development, and users should run
   exactly one active CPJ provider.
+- All five model-facing skills are substantially shorter while retaining their
+  routing, safety, hard-turn, progress, result, and cancellation contracts.
+  Canonical launch examples also put every controller option before `--`.
 - Default `auto` completion mode now gives VS Code the same bounded proactive
   result inspection, summary, recommended next step, and permission question as
   Codex App.
@@ -30,6 +33,9 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 - A private-protocol rejection falls back only before possible acceptance;
   connection loss or timeout after start-turn dispatch remains accepted-but-
   unconfirmed and never retries another transport.
+- Skill guidance now directs the first controller call through the required
+  scoped permission context when the durable state directory is outside the
+  active sandbox, avoiding a predictable failed probe and retry.
 
 ## [0.2.2] - 2026-07-24
 

@@ -4,7 +4,7 @@
 [![HOL Plugin Scanner](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml/badge.svg)](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml)
 [![GitHub release](https://img.shields.io/github/v/release/joelfarthing/codex-process-jobs)](https://github.com/joelfarthing/codex-process-jobs/releases/latest)
 
-> **Community beta:** This is an independent project, not an official OpenAI plugin. Detached job state is durable, while automatic conversational completion uses consent-gated hooks and experimental local Codex transports on a best-effort basis.
+> **Community beta:** This independently developed community plugin is published in the OpenAI Plugins Directory, but it is not developed, supported, or endorsed by OpenAI. Detached job state is durable, while automatic conversational completion uses consent-gated hooks and experimental local Codex transports on a best-effort basis.
 
 Codex Process Jobs is a dependency-free Codex plugin for launching ordinary macOS or Linux commands as durable detached process jobs. It is intended for work such as CMake builds, long test suites, inference A/B runs, data processing, and repair utilities that should not monopolize an active Codex turn.
 
@@ -24,11 +24,21 @@ Both screenshots are from Codex App. The before image is a real CUDA build; the 
 
 ## Quick start with Codex
 
-Tell Codex:
+Choose exactly one provider. For the simplest Codex-managed installation, open
+the Plugins Directory, search for **Codex Process Jobs**, and install it there.
+
+For a versioned, inspectable Homebrew and personal-marketplace installation,
+tell Codex:
 
 > Install the latest `codex-process-jobs` release from `joelfarthing/tap` with Homebrew. Run the plugin installer's read-only preview and describe every local change. Then ask whether I want the optional `AGENTS.md` policy globally, in one project, or not at all. Do not apply the plugin installation until I approve the preview and policy scope.
 
 Codex should install the versioned Homebrew formula, follow the plugin's two-phase installation below, and leave hook trust for your explicit review in `/hooks` after every install or update.
+
+Do not install the OpenAI-directory and Homebrew/personal-marketplace copies in
+the same Codex home. Both expose the same skill IDs, so side-by-side providers
+can make routing nondeterministic. When changing providers, uninstall the
+existing copy, restart Codex, and confirm that its skills are gone before
+installing the replacement.
 
 ## Status
 
@@ -99,6 +109,18 @@ The included [three-arm token benchmark](benchmarks/token-savings/README.md) mea
 No third-party runtime packages are required. Missing desktop-notification support does not affect detached jobs, durable state, or conversational completion.
 
 ## Installation
+
+### OpenAI Plugins Directory
+
+In Codex or ChatGPT's Plugins Directory, search for **Codex Process Jobs** and
+choose **Install plugin**. The directory copy is a reviewed versioned snapshot;
+it does not automatically track this repository, GitHub Releases, or Homebrew.
+
+After installation, restart or reload Codex, review every CPJ definition and
+referenced source through `/hooks`, and begin a fresh task. Do not use this route
+in a Codex home that already contains the Homebrew/personal-marketplace copy.
+
+### Homebrew and personal marketplace
 
 Install the versioned command-line release from the project's public Homebrew tap:
 
@@ -179,7 +201,18 @@ Codex App, the local VS Code extension, and Codex CLI share the installation on 
 
 ## Updating
 
-Codex Process Jobs never updates itself. Existing installations are local runtime snapshots and continue using the installed version until the user deliberately previews and applies an update.
+Codex Process Jobs never updates itself. The OpenAI Plugins Directory and
+Homebrew/personal marketplace are separate versioned providers.
+
+For an OpenAI-directory installation, use the update action presented by the
+Plugins Directory or uninstall and reinstall that provider if the client leaves
+an older version active. Restart or reload Codex afterward, review `/hooks`, and
+begin a fresh task. Exact update presentation is client-controlled; do not add a
+Homebrew/personal copy alongside an older directory installation.
+
+For a Homebrew/personal-marketplace installation, existing local runtime
+snapshots continue using the installed version until the user deliberately
+previews and applies an update.
 
 Refresh Homebrew metadata and check whether a formula update is available:
 

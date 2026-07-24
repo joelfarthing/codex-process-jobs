@@ -2,22 +2,20 @@
 
 Use this gate for every public Codex Process Jobs release. Preparing a release
 does not authorize changing repository visibility, creating a public GitHub
-Release, submitting to or publishing in the OpenAI Plugins Directory, or
-updating the public Homebrew tap.
+Release, or submitting to or publishing in the OpenAI Plugins Directory.
 
-The OpenAI Plugins Directory is the primary installation surface. Immutable
-GitHub Releases remain the source and provenance artifacts, while
-`joelfarthing/homebrew-tap` is a transitional advanced fallback. Do not
-introduce npm registry publication unless the maintainer explicitly reverses
+The OpenAI Plugins Directory is the supported installation surface. Immutable
+GitHub Releases remain the source and provenance artifacts. The Homebrew formula
+is deprecated and frozen at CPJ 0.2.2; do not update it for later releases. Do
+not introduce npm registry publication unless the maintainer explicitly reverses
 [the accepted distribution decision](decisions/0002-marketplace-primary-distribution.md).
 
 This public runbook documents maintainer verification and sequencing; it grants no repository or tap write authority and contains no authentication material. Outside users should follow the README's installation and update paths, while contributors should use ordinary forks and pull requests.
 
 ## Canonical release runway
 
-Treat these as separate, ordered states. Do not describe a merge as a release,
-a GitHub Release as a Marketplace update, or a Homebrew formula upgrade as a
-plugin update.
+Treat these as separate, ordered states. Do not describe a merge as a release
+or a GitHub Release as a Marketplace update.
 
 | State | Authority | What users receive |
 |---|---|---|
@@ -26,14 +24,12 @@ plugin update.
 | GitHub release published | Immutable `vX.Y.Z` tag and `.tgz` asset | Auditable release bytes and provenance exist |
 | Directory archive verified | Deterministic ZIP built from the exact release commit | Marketplace upload bytes are ready but unpublished |
 | Directory version published | Approved version is explicitly published in the OpenAI portal | The primary provider can serve the new snapshot |
-| Optional tap formula published | `joelfarthing/homebrew-tap` points to the release URL and SHA-256 | Homebrew fallback users can install the new management command |
 | Client refreshed | Codex is restarted or reloaded, `/hooks` is reviewed, and a fresh task is opened | New tasks can be checked for the refreshed provider generation |
 
-A primary release is complete only after the GitHub and Marketplace states
-above are verified. Homebrew is applicable only while the transitional fallback
-is being maintained for that version. If publication fails after a tag or
-GitHub Release exists, preserve the immutable artifact and fix forward with a
-new patch version; never replace published release bytes in place.
+A release is complete only after the GitHub and Marketplace states above are
+verified. If publication fails after a tag or GitHub Release exists, preserve
+the immutable artifact and fix forward with a new patch version; never replace
+published release bytes in place.
 
 ## 1. Develop, review, and merge the change
 
@@ -46,7 +42,7 @@ new patch version; never replace published release bytes in place.
 7. Fetch `origin/main` and record the exact merged commit. A local feature branch, even one whose pull request was merged, is not the release authority.
 
 At this point the change is public source code but remains unavailable through
-the Plugins Directory and any maintained Homebrew fallback.
+the Plugins Directory.
 
 ## 2. Prepare the release on a separate branch
 
@@ -91,18 +87,13 @@ Inside the release worktree, confirm that `HEAD` is the expected `origin/main` c
 - Confirm the manifest, skill metadata, license, notice, repository URLs, and supported-platform claims are current.
 - Test the README's primary Plugins Directory installation, restart, `/hooks`,
   and fresh-task instructions from a clean account or isolated home.
-- While the Homebrew fallback remains maintained, separately test its source
-  preview, policy-selection, apply, restart, and `/hooks` instructions.
 - Verify one local Codex App task and one Linux execution host can start, report, inspect, and cancel harmless jobs.
 - Run `npm pack --dry-run` and inspect the complete file list, sizes, executable entry point, package metadata, and absence of development-only or private material.
 - Exercise the packed tarball in an isolated Node environment.
 - Build the deterministic OpenAI-directory ZIP, inspect its allowlist and
   SHA-256, and validate its extracted runtime.
-- While the Homebrew fallback remains maintained, test `version`, `doctor`,
-  preview-only `install`, and preview-only `update` through the proposed
-  formula.
-- Keep package metadata, plugin manifest, Marketplace archive, Git tag, GitHub
-  Release, and any maintained Homebrew formula versions identical.
+- Keep package metadata, plugin manifest, Marketplace archive, Git tag, and
+  GitHub Release versions identical.
 
 ## 3. Publication boundary
 
@@ -110,17 +101,15 @@ Inside the release worktree, confirm that `HEAD` is the expected `origin/main` c
 - Verify CI on the exact default-branch commit.
 - Prepare the changelog entry and GitHub release notes without publishing them.
 - Obtain explicit approval immediately before any public version tag, GitHub
-  Release, Marketplace upload, submission, publication, or Homebrew tap update.
+  Release, Marketplace upload, submission, or publication.
 - Create the matching signed or annotated version tag and GitHub Release only after the release artifact and exact default-branch commit are verified.
 - Build and verify the Marketplace archive only from the exact release commit.
-- Update the tap formula only when the Homebrew fallback is being maintained for
-  that release and only after the final release-asset URL and SHA-256 are known.
 - Confirm the public clone URL, screenshots, issue tracker, security-reporting route, and installation instructions work while signed out.
 
 Preparation and local validation do not authorize a public write. Obtain
 explicit maintainer approval immediately before pushing the version tag,
 creating the GitHub Release, uploading, submitting, or publishing the
-Marketplace version, or pushing a Homebrew tap update.
+Marketplace version.
 
 ## 4. Build and publish the immutable GitHub release
 
@@ -135,8 +124,7 @@ From the clean release worktree:
 7. Download or otherwise re-read the published asset and confirm its SHA-256 matches the inspected local artifact.
 
 The GitHub Release must be complete before downstream publication. The
-Marketplace ZIP must be built from that exact clean release commit. Any
-maintained Homebrew formula pins the final immutable asset URL and checksum.
+Marketplace ZIP must be built from that exact clean release commit.
 
 ## 5. Publish and verify the OpenAI Plugins Directory version
 
@@ -158,36 +146,16 @@ Follow [OpenAI Plugins Directory packaging](openai-directory-packaging.md):
 10. Restart or reload representative clients and verify the version in a fresh
     Codex App, CLI, and VS Code task on macOS and Linux where available.
 
-For the first release after Marketplace adoption, explicitly record whether the
-new version appeared automatically, required a client restart, exposed an
-update action, or required uninstall/reinstall. That evidence is the gate for a
-later Homebrew deprecation decision.
+Record whether the new version appeared automatically, required a client
+restart, exposed an update action, or required uninstall/reinstall.
 
-## 6. Optionally update and verify the Homebrew fallback
+## 6. Preserve the deprecated Homebrew migration path
 
-Run this section only while the project is maintaining the transitional
-Homebrew fallback for the release.
-
-In a clean checkout of `joelfarthing/homebrew-tap`:
-
-1. Fetch current `origin/main` and create a dedicated formula-update branch.
-2. Change only `Formula/codex-process-jobs.rb`, preserving the dependency, install, and non-mutating test structure.
-3. Set the release URL to the final `vX.Y.Z` asset and set its exact SHA-256.
-4. Run Homebrew style, strict audit, formula installation, version, doctor, preview-only install, preview-only update, and formula tests on macOS.
-5. Verify Linuxbrew in CI or on a Linux host.
-6. Review the formula diff and ensure unrelated editor, cache, or filesystem artifacts are not staged.
-7. After the publication approval checkpoint, open and merge the tap update pull request.
-8. Run `brew update` from a consumer installation and confirm `brew outdated codex-process-jobs` discovers the intended version.
-9. Verify the public installation path while signed out:
-
-```bash
-brew install joelfarthing/tap/codex-process-jobs
-codex-process-jobs version
-codex-process-jobs doctor
-codex-process-jobs install --agent-policy none
-```
-
-The final command is preview-only and must remain non-mutating.
+The public Homebrew formula is frozen at CPJ 0.2.2 and does not participate in
+later release versioning. Keep its `deprecate!` warning and README migration
+guidance intact. Change the tap only to correct a security, installation, or
+migration defect in that frozen version, and obtain explicit approval before
+the public tap write.
 
 ## 7. Update an existing execution host
 
@@ -195,31 +163,25 @@ For the primary OpenAI-directory provider, use the update action presented by
 the Plugins Directory or uninstall and reinstall that provider if the client
 leaves an older version active. Restart Codex App and CLI, reload VS Code,
 review `/hooks`, and verify the provider and version in a fresh task on every
-representative execution host. Never add the Homebrew/personal provider beside
-an existing directory installation.
+representative execution host. Migrate a Homebrew/personal installation using
+the README; never add it beside an existing directory installation.
 
-For a host deliberately using the Homebrew fallback, Homebrew and the Codex
-plugin are separate layers:
-
-```bash
-brew update
-brew outdated codex-process-jobs
-brew upgrade codex-process-jobs
-codex-process-jobs update --agent-policy none
-```
-
-Replace `none` with the host's previously selected `global` policy, or with `project --project-root /absolute/path`, when applicable. Review the preview, then apply the identical choice:
-
-```bash
-codex-process-jobs update --apply --agent-policy none
-```
-
-After every Marketplace or applied fallback update:
+After every Marketplace update:
 
 1. Restart Codex App and Codex CLI; reload VS Code windows.
 2. Review every CPJ definition and referenced shared source through `/hooks`.
-3. Approve only definitions Codex marks new or changed, and verify retained trust otherwise.
-4. Start a fresh task and run a harmless detached smoke test.
+3. Approve only definitions Codex marks new or changed, and verify retained
+   trust otherwise.
+4. Check the Plugins page for the intended provider, version, and skill state.
+5. Start a fresh task, verify that it catalogs exactly one active CPJ skill
+   provider, and run a harmless detached smoke test.
+
+In the maintainer-only side-by-side development setup, the local provider is the
+sole active implementation: all five directory skills and all three directory
+hooks are disabled. After every directory update, explicitly re-confirm those
+eight toggles before opening the fresh test task. Do not assume a Marketplace
+update preserved disabled state, even though current clients do not ordinarily
+enable a hook without consent.
 
 An existing task may continue using a preserved older cache generation. That
 compatibility behavior does not mean the host update failed.

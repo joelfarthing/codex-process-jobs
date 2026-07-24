@@ -67,6 +67,25 @@ function copyMinimalCommandSource(destination, { includeManifest = true } = {}) 
   return path.join(scripts, "npm-cli.mjs");
 }
 
+function seedProviderCache(home, provider, version) {
+  const manifestFile = path.join(
+    home,
+    ".codex",
+    "plugins",
+    "cache",
+    provider,
+    "codex-process-jobs",
+    version,
+    ".codex-plugin",
+    "plugin.json"
+  );
+  fs.mkdirSync(path.dirname(manifestFile), { recursive: true });
+  fs.writeFileSync(manifestFile, `${JSON.stringify({
+    name: "codex-process-jobs",
+    version,
+  }, null, 2)}\n`);
+}
+
 test("version reports the release version", () => {
   const result = run(["version"]);
   assert.equal(result.status, 0, result.stderr);
@@ -93,6 +112,18 @@ test("doctor reports package and installation state without changing the host", 
   assert.match(result.stdout, /installed version: not installed/);
   assert.match(result.stdout, /Doctor is read-only and made no changes/);
   assert.equal(fs.existsSync(path.join(home, "plugins", "codex-process-jobs")), false);
+});
+
+test("doctor warns about multiple CPJ provider caches", (t) => {
+  const { home, env } = temporaryHome(t);
+  seedProviderCache(home, "personal", "0.2.1+codex.local-test");
+  seedProviderCache(home, "openai-curated-remote", "0.2.1");
+
+  const result = run(["doctor"], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CPJ provider caches: openai-curated-remote, personal/i);
+  assert.match(result.stdout, /Warning: multiple CPJ provider caches are present/i);
+  assert.match(result.stdout, /duplicate skill IDs can make routing nondeterministic/i);
 });
 
 test("provenance doctor reports source layers without exposing local paths", (t) => {

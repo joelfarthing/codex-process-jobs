@@ -40,8 +40,29 @@ test("model-facing launch contracts require release without same-turn monitoring
   assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
   assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
   assert.match(agentPolicy, /follow the selected Codex Process Jobs skills/i);
-  assert.match(agentPolicy, /persistent servers or watchers/i);
+  assert.match(agentPolicy, /servers\/watchers/i);
+  assert.match(agentPolicy, /Classify workload, not wrapper latency/i);
+  assert.match(agentPolicy, /Task skills own preflight\/correctness; CPJ owns lifecycle/i);
+  assert.match(agentPolicy, /detached launchers, route foreground payload through CPJ/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140);
+});
+
+test("model-facing routing contract composes task workflows without tracking quick wrappers", () => {
+  const startSkill = read("skills/start/SKILL.md");
+  const routingTest = read("docs/routing-acceptance-test.md");
+
+  assert.match(startSkill, /Task-specific skills own command construction, preflight checks, arguments, and correctness gates/i);
+  assert.match(startSkill, /CPJ owns execution lifecycle for qualifying finite local workloads/i);
+  assert.match(startSkill, /do not pass that launcher through CPJ unchanged/i);
+  assert.match(startSkill, /remains alive until the workload finishes and propagates its terminal status/i);
+  assert.match(startSkill, /never use `eval`/i);
+
+  assert.match(routingTest, /job-runner --detach/);
+  assert.match(routingTest, /avoid tracking the quick `job-runner --detach` wrapper unchanged/i);
+  assert.match(routingTest, /release the assigning turn after the successful CPJ start/i);
+  assert.match(routingTest, /Persistent development server/i);
+  assert.match(routingTest, /Externally owned remote batch job/i);
+  assert.match(routingTest, /Focused quick test/i);
 });
 
 test("surface smoke prompt does not coach the release behavior it evaluates", () => {

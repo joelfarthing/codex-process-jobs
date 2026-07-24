@@ -10,6 +10,7 @@ import {
   POLICY_BEGIN,
   POLICY_END,
   applyInstall,
+  inspectPluginProviders,
   mergeMarketplace,
   sourceConflictsWithDestination,
   upsertAgentPolicy,
@@ -71,6 +72,24 @@ function cacheRoot(home) {
   return path.join(home, ".codex", "plugins", "cache", "personal", "codex-process-jobs");
 }
 
+function seedProviderCache(home, provider, version) {
+  const generation = path.join(
+    home,
+    ".codex",
+    "plugins",
+    "cache",
+    provider,
+    "codex-process-jobs",
+    version
+  );
+  fs.mkdirSync(path.join(generation, ".codex-plugin"), { recursive: true });
+  fs.writeFileSync(path.join(generation, ".codex-plugin", "plugin.json"), `${JSON.stringify({
+    name: "codex-process-jobs",
+    version,
+  }, null, 2)}\n`);
+  return generation;
+}
+
 function seedCacheGeneration(home, version, marker = version) {
   const generation = path.join(cacheRoot(home), version);
   fs.mkdirSync(path.join(generation, ".codex-plugin"), { recursive: true });
@@ -108,6 +127,29 @@ test("adds or refreshes only the expected personal marketplace entry", () => {
     category: "Coding",
   });
   assert.equal(existing.plugins.length, 1, "input should not be mutated");
+});
+
+test("detects distinct provider caches without treating historical generations as providers", (t) => {
+  const home = temporaryHome(t);
+  seedProviderCache(home, "personal", "0.2.0+codex.local-old");
+  seedProviderCache(home, "personal", "0.2.1+codex.local-current");
+  seedProviderCache(home, "openai-curated-remote", "0.2.1");
+
+  assert.deepEqual(inspectPluginProviders(path.join(home, ".codex")), {
+    status: "present",
+    providers: ["openai-curated-remote", "personal"],
+  });
+});
+
+test("preview warns when apply would create a second CPJ provider cache", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  seedProviderCache(home, "openai-curated-remote", "0.2.1");
+
+  const result = runInstaller(["--agent-policy", "none"], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /multiple CPJ provider caches \(openai-curated-remote, personal\)/i);
+  assert.match(result.stdout, /duplicate skill IDs can make routing nondeterministic/i);
 });
 
 test("refuses to hijack a marketplace entry with another source", () => {
@@ -177,7 +219,9 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.equal(JSON.parse(fs.readFileSync(marketplaceFile, "utf8")).plugins.length, 1);
   const agentPolicy = fs.readFileSync(agentFile, "utf8");
   assert.match(agentPolicy, /\$codex-process-jobs:start/);
-  assert.match(agentPolicy, /persistent servers or watchers/i);
+  assert.match(agentPolicy, /servers\/watchers/i);
+  assert.match(agentPolicy, /Classify workload, not wrapper latency/i);
+  assert.match(agentPolicy, /Task skills own preflight\/correctness; CPJ owns lifecycle/i);
   assert.match(agentPolicy, /successful start is a hard turn boundary/i);
   assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
   assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);

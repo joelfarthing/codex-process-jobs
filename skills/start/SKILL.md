@@ -1,6 +1,6 @@
 ---
 name: start
-description: Launch a long-running local command as a durable detached process job, then release the assigning Codex turn instead of monitoring it. Use proactively when the user says background, detach, don't block, or keep working; when a command may take over 60 seconds or has uncertain duration; and for CMake builds, test suites, inference/model A/B runs, data processing, or device repair that should survive Codex App, VS Code, or CLI exit.
+description: Launch an ordinary finite local workload as a durable detached process job, then release the assigning Codex turn instead of monitoring it. Use proactively for builds, test suites, evaluations, benchmarks, inference/model A/B runs, data jobs, and repairs whose underlying work may exceed 60 seconds or has uncertain duration, even when a task-specific workflow emits a quick wrapper or launcher.
 ---
 
 # Start Process Job
@@ -21,6 +21,26 @@ Use this skill instead of a blocking shell call when any of these is true:
 - A build, test, inference, evaluation, data-processing, or repair process should survive the current Codex client closing.
 
 Do not route quick commands here merely because detachment is possible. Do not use it for a persistent server or watch process, when the command requires interactive stdin, when it intentionally daemonizes, or when it only starts work in an external service and then exits.
+
+## Compose with task-specific workflows
+
+Task-specific skills own command construction, preflight checks, arguments, and correctness gates. CPJ owns execution lifecycle for qualifying finite local workloads. Follow the task workflow through command validation, then launch the validated workload through CPJ unless that workflow explicitly requires another lifecycle owner for correctness.
+
+Classify the underlying workload, not the latency of its wrapper:
+
+- If a workflow emits the actual finite foreground command, preserve its argv and run it through CPJ.
+- If it emits a shell string for finite foreground work, pass that validated string literally with `--shell`; never use `eval`.
+- If it emits a detached or fire-and-exit launcher, do not pass that launcher through CPJ unchanged. Prefer the underlying foreground payload. When correctness requires the launcher, use only a supported mode that remains alive until the workload finishes and propagates its terminal status. Otherwise, leave the workload with its external lifecycle owner and explain that CPJ cannot track it faithfully.
+
+Generic emitted-command shape, only after confirming that the emitted command remains in the foreground for the workload's full lifetime:
+
+```text
+node "<plugin-root>/scripts/job.mjs" start \
+  --name "<label>" \
+  --cwd "<working-directory>" \
+  --shell \
+  -- '<validated finite foreground shell command emitted by the task workflow>'
+```
 
 ## Launch workflow
 

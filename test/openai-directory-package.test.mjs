@@ -46,6 +46,7 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
       first.entries.includes("codex-process-jobs/.codex-plugin/plugin.json"),
     );
     assert.ok(first.entries.includes("codex-process-jobs/PRIVACY.md"));
+    assert.ok(first.entries.includes("codex-process-jobs/assets/icon.png"));
     assert.ok(first.entries.includes("codex-process-jobs/scripts/job.mjs"));
     assert.ok(
       first.entries.includes("codex-process-jobs/skills/start/SKILL.md"),
@@ -83,6 +84,26 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     assert.equal(extraction.status, 0, extraction.stderr || extraction.stdout);
 
     const packagedRoot = path.join(extracted, "codex-process-jobs");
+    const packagedManifest = JSON.parse(
+      fs.readFileSync(
+        path.join(packagedRoot, ".codex-plugin", "plugin.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(packagedManifest.interface.logo, "./assets/icon.png");
+    assert.equal(
+      packagedManifest.interface.websiteURL,
+      "https://filamentlabs.io/CPJ/",
+    );
+    assert.equal(
+      packagedManifest.interface.privacyPolicyURL,
+      "https://filamentlabs.io/CPJ/privacy",
+    );
+    assert.equal(
+      packagedManifest.interface.termsOfServiceURL,
+      "https://filamentlabs.io/CPJ/terms",
+    );
+
     const isolatedEnv = {
       ...process.env,
       CODEX_HOME: path.join(temporary, "codex-home"),

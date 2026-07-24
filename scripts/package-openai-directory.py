@@ -113,6 +113,16 @@ def validate_metadata() -> str:
         raise ValueError("plugin manifest must contain interface metadata")
     if interface.get("category") != "Developer Tools":
         raise ValueError("Marketplace category must be 'Developer Tools'")
+    if interface.get("logo") != "./assets/icon.png":
+        raise ValueError("Marketplace logo must reference './assets/icon.png'")
+    expected_urls = {
+        "websiteURL": "https://filamentlabs.io/CPJ/",
+        "privacyPolicyURL": "https://filamentlabs.io/CPJ/privacy",
+        "termsOfServiceURL": "https://filamentlabs.io/CPJ/terms",
+    }
+    for field, expected in expected_urls.items():
+        if interface.get(field) != expected:
+            raise ValueError(f"Marketplace {field} must be {expected!r}")
 
     display_name = interface.get("displayName")
     short_description = interface.get("shortDescription")

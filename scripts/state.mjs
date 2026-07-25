@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { isExecutionDescriptor } from "./execution.mjs";
+import { STATE_DIRECTORY_NAME } from "./plugin-identity.mjs";
 
 export const SCHEMA_VERSION = 2;
 const SUPPORTED_SCHEMA_VERSIONS = new Set([1, SCHEMA_VERSION]);
@@ -54,7 +55,7 @@ export function resolveCodexHome(env = process.env) {
 }
 
 export function resolveStateRoot(env = process.env) {
-  return path.join(resolveCodexHome(env), "process-jobs");
+  return path.join(resolveCodexHome(env), STATE_DIRECTORY_NAME);
 }
 
 export function resolveJobsDir(env = process.env) {

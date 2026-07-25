@@ -49,6 +49,9 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     assert.ok(first.entries.includes("codex-process-jobs/assets/icon.png"));
     assert.ok(first.entries.includes("codex-process-jobs/scripts/job.mjs"));
     assert.ok(
+      first.entries.includes("codex-process-jobs/scripts/plugin-identity.mjs"),
+    );
+    assert.ok(
       first.entries.includes("codex-process-jobs/skills/start/SKILL.md"),
     );
 
@@ -89,6 +92,14 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
         path.join(packagedRoot, ".codex-plugin", "plugin.json"),
         "utf8",
       ),
+    );
+    assert.equal(packagedManifest.name, "codex-process-jobs");
+    assert.equal(packagedManifest.interface.displayName, "Codex Process Jobs");
+    assert.equal(
+      fs.existsSync(
+        path.join(packagedRoot, ".codex-plugin", "dev-install.json"),
+      ),
+      false,
     );
     assert.equal(packagedManifest.interface.logo, "./assets/icon.png");
     assert.equal(

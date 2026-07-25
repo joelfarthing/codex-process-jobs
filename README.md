@@ -262,14 +262,27 @@ available through the same signed-in account on another eligible host. Verify
 the provider and version in a fresh task on every actual execution host; jobs
 and their saved results remain machine-scoped.
 
-For local development, install the personal provider separately inside the
-actual macOS or Linux execution environment and under the account that runs
-Codex.
+For local development, use the installer's isolated development identity inside
+the actual macOS or Linux execution environment and under the account that runs
+Codex:
+
+```text
+node scripts/install.mjs --dev --agent-policy none
+```
+
+Preview first, review the exact paths and identity, and add `--apply` only after
+approval. The generated snapshot is named `codex-process-jobs-dev`, exposes
+`$codex-process-jobs-dev:*` skills, writes state under
+`$CODEX_HOME/process-jobs-dev`, and carries an explicit generated development
+marker. The checked-in manifest and Marketplace package remain production-only.
 
 ## Updating
 
 Codex Process Jobs never updates itself. The OpenAI Plugins Directory is the
-supported provider; never update by adding a personal provider alongside it.
+supported provider; never update by adding another personal provider with the
+production `codex-process-jobs` identity alongside it. The separately named
+`codex-process-jobs-dev` identity is a maintainer testing surface, not an update
+path for users.
 
 For an OpenAI-directory installation, use the update action presented by the
 Plugins Directory or uninstall and reinstall that provider if the client leaves
@@ -286,16 +299,18 @@ After every Marketplace update:
 3. Check the Plugins page and a fresh task for the intended provider and
    version, then run a harmless detached smoke test.
 
-Maintainers who deliberately keep the directory and local development providers
-installed together must disable all directory-provided CPJ skills and hooks
-before testing the local copy. After every directory update, re-confirm that
-those skill and hook toggles remain disabled before opening the test task; do
-not assume that client-controlled update behavior preserved them.
+Maintainers who deliberately keep the directory and
+`codex-process-jobs-dev` providers installed together must disable all
+directory-provided CPJ skills and hooks before testing the dev copy. After every
+directory update, re-confirm that those skill and hook toggles remain disabled
+before opening the test task; do not assume that client-controlled update
+behavior preserved them. Do not enable both implementations for the same
+behavioral test.
 
 Homebrew installations do not receive versions after 0.2.2. Migrate them rather
 than waiting for `brew upgrade`. A local development provider can be refreshed
-by rerunning `node scripts/install.mjs` from the reviewed source checkout with
-the same two-phase preview/apply and agent-policy choice.
+by rerunning `node scripts/install.mjs --dev` from the reviewed source checkout
+with the same two-phase preview/apply and agent-policy choice.
 
 ## Commands
 

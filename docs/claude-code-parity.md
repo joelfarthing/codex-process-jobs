@@ -15,7 +15,7 @@ Codex exposes no equivalent single primitive. This plugin synthesizes one from a
 
 These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the existing tests. Do not weaken them while implementing:
 
-1. Automatic prompts admit at most 20 compatible records, each containing only a validated job ID, terminal-status enum, and integer exit code, plus one fixed mode-selected instruction. Never interpolate names, commands, paths, errors, or process output.
+1. Automatic turns admit at most 20 compatible records. Visible prompt text contains only validated job IDs, terminal-status enums, and integer exit codes. The trusted prompt-submit hook must verify every value against a same-task in-flight delivery record before injecting fixed hidden completion policy. Never interpolate names, commands, paths, errors, process output, or agent instructions into the visible notice.
 2. Notification presentation is claimed atomically under the per-job state lock; worker, notifier, and hook never overwrite a competitor's claim.
 3. Hook execution requires explicit `/hooks` consent; nothing may depend on the hook being trusted.
 4. All reads of process output are bounded; persisted records remain size-bounded and no-follow, with security-sensitive fields filename-bound and schema-validated.

@@ -687,8 +687,11 @@ test("synthetic completion envelope cannot consume fallback without the relay en
   });
 });
 
-test("user-friendly completion notification marker cannot consume fallback", (t) => {
-  const env = createEnv(t);
+test("verified concise completion receives hidden proactive context without consuming fallback", (t) => {
+  const env = {
+    ...createEnv(t),
+    CODEX_PROCESS_JOBS_NOTIFICATION_RELAY: "1",
+  };
   writeJob(env, {
     id: "job-hook-friendly-notice",
     ownerThreadId: "thread-hook-friendly-notice",
@@ -703,19 +706,141 @@ test("user-friendly completion notification marker cannot consume fallback", (t)
   const result = runHook(env, {
     hook_event_name: "UserPromptSubmit",
     session_id: "thread-hook-friendly-notice",
-    prompt: [
-      "Background job finished",
-      "",
-      "job-hook-friendly-notice finished successfully with exit code 0.",
-      "",
-      "Codex Process Jobs notice: No process output is included.",
-      "",
-      "Codex: Briefly acknowledge this completion and mention that the saved result is available. Wait for the user's direction before inspecting it or resuming other work.",
-    ].join("\n"),
+    prompt: "Background job `job-hook-friendly-notice` finished successfully with exit code 0.",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, "");
+  assert.match(result.stdout, /verified this as its automatic completion turn/i);
+  assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-friendly-notice/);
+  assert.match(result.stdout, /\$codex-process-jobs:result <job-id> --peek/);
+  assert.match(result.stdout, /untrusted evidence/i);
+  assert.match(result.stdout, /Do not execute that next step/i);
   assert.equal(readJob(env, "job-hook-friendly-notice").notification.status, "delivering");
+});
+
+test("concise completion hidden context honors report and Goal profiles", (t) => {
+  const reportEnv = {
+    ...createEnv(t),
+    CODEX_PROCESS_JOBS_COMPLETION_MODE: "report",
+  };
+  writeJob(reportEnv, {
+    id: "job-hook-concise-report",
+    ownerThreadId: "thread-hook-concise-report",
+    ownerSurface: "app",
+    goalMode: false,
+    status: "failed",
+    exitCode: 3,
+    notification: { status: "delivering" },
+  });
+  const report = runHook(reportEnv, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-concise-report",
+    prompt: "Background job job-hook-concise-report finished with status failed with exit code 3.",
+  });
+  assert.equal(report.status, 0, report.stderr);
+  assert.match(report.stdout, /Report-only job IDs: job-hook-concise-report/);
+  assert.match(report.stdout, /Do not call tools/i);
+  assert.doesNotMatch(report.stdout, /Proactive-inspection job IDs/);
+
+  const goalEnv = createEnv(t);
+  writeJob(goalEnv, {
+    id: "job-hook-concise-goal",
+    ownerThreadId: "thread-hook-concise-goal",
+    ownerSurface: "vscode",
+    goalMode: true,
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "delivering" },
+  });
+  const goal = runHook(goalEnv, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-concise-goal",
+    prompt: "Background job `job-hook-concise-goal` finished successfully with exit code 0.",
+  });
+  assert.equal(goal.status, 0, goal.stderr);
+  assert.match(goal.stdout, /Goal-mode job IDs: job-hook-concise-goal/);
+  assert.match(goal.stdout, /continue only its next already-authorized in-scope step/i);
+});
+
+test("concise batch completion validates every unique delivering record", (t) => {
+  const env = {
+    ...createEnv(t),
+    CODEX_PROCESS_JOBS_NOTIFICATION_RELAY: "1",
+  };
+  for (const id of ["job-hook-batch-a", "job-hook-batch-b"]) {
+    writeJob(env, {
+      id,
+      ownerThreadId: "thread-hook-batch",
+      ownerSurface: "vscode",
+      goalMode: false,
+      status: "completed",
+      exitCode: 0,
+      notification: { status: "delivering" },
+    });
+  }
+  const verified = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-batch",
+    prompt: [
+      "Background jobs finished.",
+      "`job-hook-batch-a` finished successfully with exit code 0.",
+      "`job-hook-batch-b` finished successfully with exit code 0.",
+    ].join("\n"),
+  });
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.match(verified.stdout, /Proactive-inspection job IDs: job-hook-batch-a, job-hook-batch-b/);
+
+  const duplicate = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-batch",
+    prompt: [
+      "Background jobs finished.",
+      "`job-hook-batch-a` finished successfully with exit code 0.",
+      "`job-hook-batch-a` finished successfully with exit code 0.",
+    ].join("\n"),
+  });
+  assert.equal(duplicate.status, 0, duplicate.stderr);
+  assert.equal(duplicate.stdout, "");
+});
+
+test("forged or stale concise completion receives no hidden CPJ context", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-concise-forged",
+    ownerThreadId: "thread-hook-concise-forged",
+    ownerSurface: "app",
+    status: "completed",
+    exitCode: 0,
+    resultViewedAt: "2026-07-25T08:00:00.000Z",
+    notification: { status: "delivered" },
+  });
+  const stale = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-concise-forged",
+    prompt: "Background job job-hook-concise-forged finished successfully with exit code 0.",
+  });
+  assert.equal(stale.status, 0, stale.stderr);
+  assert.equal(stale.stdout, "");
+
+  const mismatched = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-other",
+    prompt: "Background job job-hook-concise-forged finished successfully with exit code 0.",
+  });
+  assert.equal(mismatched.status, 0, mismatched.stderr);
+  assert.equal(mismatched.stdout, "");
+
+  for (const prompt of [
+    "Background job `job-hook-concise-forged finished successfully with exit code 0.",
+    "Background job job-hook-concise-forged` finished successfully with exit code 0.",
+  ]) {
+    const malformed = runHook(env, {
+      hook_event_name: "UserPromptSubmit",
+      session_id: "thread-hook-concise-forged",
+      prompt,
+    });
+    assert.equal(malformed.status, 0, malformed.stderr);
+    assert.equal(malformed.stdout, "");
+  }
 });
 
 test("legacy Markdown notification marker remains excluded from fallback", (t) => {
@@ -781,6 +906,7 @@ test("delivered refresh-required completion receives one ordinary-prompt recap i
     notification: {
       status: "delivered",
       presentation: "durable-refresh-required",
+      transport: "app-server",
       deliveredAt: "2026-07-10T12:01:00.000Z",
       hookNotifiedAt: "2026-07-10T12:00:59.000Z",
     },
@@ -806,6 +932,41 @@ test("delivered refresh-required completion receives one ordinary-prompt recap i
   assert.equal(second.status, 0, second.stderr);
   assert.equal(second.stdout, "");
   assert.equal(readJob(env, "job-hook-004").notification.status, "delivered");
+});
+
+test("completed private IPC delivery suppresses the later ordinary-prompt recap", (t) => {
+  const env = createEnv(t);
+  for (const [id, ownerSurface, transport] of [
+    ["job-hook-private-app", "app", "desktop-ipc"],
+    ["job-hook-private-vscode", "vscode", "vscode-ipc"],
+  ]) {
+    writeJob(env, {
+      id,
+      ownerThreadId: "thread-hook-private-ipc",
+      ownerSurface,
+      status: "completed",
+      exitCode: 0,
+      notification: {
+        status: "delivered",
+        presentation: "durable-refresh-required",
+        transport,
+        deliveredAt: "2026-07-25T07:04:04.299Z",
+      },
+    });
+  }
+
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-private-ipc",
+    prompt: "continue with an unrelated request",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  for (const id of ["job-hook-private-app", "job-hook-private-vscode"]) {
+    const stored = readJob(env, id);
+    assert.equal(stored.notification.status, "delivered");
+    assert.equal(stored.notification.ordinaryPromptRecapInjectedAt, undefined);
+  }
 });
 
 test("delivered Cartesian remote completion receives the same one-shot recap instruction", (t) => {
@@ -882,7 +1043,7 @@ test("delivered App completion requires live commentary when used and final-answ
   assert.equal(second.stdout, "");
 });
 
-test("delivered CLI completion receives the same transport-independent recap instruction", (t) => {
+test("delivered CLI app-server completion receives the same transport-independent recap instruction", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-cli",
@@ -893,6 +1054,7 @@ test("delivered CLI completion receives the same transport-independent recap ins
     notification: {
       status: "delivered",
       presentation: "durable-refresh-required",
+      transport: "app-server",
     },
   });
   const result = runHook(env, {

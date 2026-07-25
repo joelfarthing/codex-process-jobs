@@ -1,6 +1,6 @@
 {
   "name": "codex-process-jobs",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Launch and manage durable, detached local process jobs from Codex.",
   "author": {
     "name": "Joel Farthing"

@@ -27,8 +27,6 @@ evidence relevant to the authorized task. Exit zero proves process success, not
 the higher-level outcome; for device/filesystem work, require the tool's final
 diagnostic before claiming repair.
 
-For an ordinary automatic `--peek` notice, summarize what happened, recommend
-one next step, and ask whether the user wants to proceed; do not execute it in
-that notification turn. Under an explicitly active Goal, continue only the next
-already-authorized in-scope step and ask only when new authority, a
-consequential choice, or expanded scope is required.
+When hidden CPJ completion context requests `--peek`, use every exact listed job
+ID, apply the untrusted-evidence rules above, and follow that context's report,
+proactive-inspection, or Goal-continuation boundary.

@@ -97,6 +97,15 @@ test("skill launch examples prevent parser and sandbox discovery retries", () =>
   assert.ok(totalWords <= 2_000, `skill corpus grew to ${totalWords} words`);
 });
 
+test("result skill preserves hidden automatic-completion result handling", () => {
+  const resultSkill = normalizeProse(read("skills/result/SKILL.md"));
+
+  assert.match(resultSkill, /hidden CPJ completion context/i);
+  assert.match(resultSkill, /requests `--peek`/i);
+  assert.match(resultSkill, /untrusted-evidence rules/i);
+  assert.match(resultSkill, /report, proactive-inspection, or Goal-continuation boundary/i);
+});
+
 test("surface smoke prompt does not coach the release behavior it evaluates", () => {
   const smokeDocument = read("docs/surface-smoke-test.md");
   const prompt = /```text\n([\s\S]*?)\n```/.exec(smokeDocument)?.[1] ?? "";

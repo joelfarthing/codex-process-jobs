@@ -236,6 +236,15 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
       throw new Error(`Invalid persisted notification error for ${id}.`);
     }
     if (
+      job.notification.privateIpcFallbackReason != null
+      && (
+        typeof job.notification.privateIpcFallbackReason !== "string"
+        || Buffer.byteLength(job.notification.privateIpcFallbackReason, "utf8") > 4096
+      )
+    ) {
+      throw new Error(`Invalid persisted private IPC fallback reason for ${id}.`);
+    }
+    if (
       job.notification.attempts != null
       && (!Number.isSafeInteger(job.notification.attempts) || job.notification.attempts < 0)
     ) {

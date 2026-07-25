@@ -10,6 +10,7 @@ import { writePreferences } from "../scripts/preferences.mjs";
 import {
   buildNotificationInput,
   buildNotificationPrompt,
+  completionMode,
   deliverNotificationTurn,
   readLatestTaskLifecycle,
   resolveOwnerRolloutFile,
@@ -154,15 +155,12 @@ async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
   throw new Error(`Timed out waiting for ${jobId} notification status ${status}.`);
 }
 
-test("notification prompt contains only sanitized state, never job name or output", () => {
+test("notification prompt is one concise user-facing sentence with only sanitized state", () => {
   const prompt = buildNotificationPrompt(terminalJob(), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
-  assert.match(prompt, /^Background job finished$/m);
-  assert.match(prompt, /^Codex Process Jobs notice: No process output is included\.$/m);
-  assert.match(prompt, /^Codex: Briefly acknowledge/m);
-  assert.match(prompt, /Wait for the user's direction/);
-  assert.doesNotMatch(prompt, /<!--|-->|(?:^|\n)[#>]|[*_`]/);
-  assert.match(prompt, /job-notify-001/);
-  assert.match(prompt, /finished successfully/);
+  assert.equal(prompt, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.equal((prompt.match(/`/g) ?? []).length, 2);
+  assert.match(prompt, /`job-notify-001`/);
+  assert.doesNotMatch(prompt, /Codex:|notice:|--peek|untrusted|<!--|-->|(?:^|\n)[#>]|[*_]/);
   assert.doesNotMatch(prompt, /malicious/);
   assert.doesNotMatch(prompt, /untrusted process output/);
   assert.doesNotMatch(prompt, /ignore prior instructions/);
@@ -170,80 +168,57 @@ test("notification prompt contains only sanitized state, never job name or outpu
 
 test("notification prompt omits a missing exit code instead of adding mutable text", () => {
   const prompt = buildNotificationPrompt(terminalJob({ status: "failed", exitCode: null }));
-  assert.match(prompt, /job-notify-001 finished with status failed\./);
+  assert.match(prompt, /`job-notify-001` finished with status failed\./);
   assert.doesNotMatch(prompt, /exit code|not reported/);
 });
 
-test("App, remote, and VS Code notices inspect results while report-only surfaces stay lightweight", () => {
-  for (const surface of ["app", "remote", "vscode"]) {
-    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
-    assert.match(prompt, /result skill with job-notify-001 --peek/);
-    assert.match(prompt, /untrusted evidence/);
-    assert.match(prompt, /recommend the single next best step/);
-    assert.match(prompt, /ask whether the user wants to proceed/);
-    assert.match(prompt, /Do not execute that next step/);
-  }
-  for (const surface of ["cli", "unknown"]) {
-    const prompt = buildNotificationPrompt(terminalJob({ ownerSurface: surface }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
-    assert.match(prompt, /Briefly acknowledge/);
-    assert.doesNotMatch(prompt, /--peek|recommend the single next best step/);
+test("all surfaces receive only the concise visible completion text", () => {
+  for (const surface of ["app", "remote", "vscode", "cli", "unknown"]) {
+    const input = buildNotificationInput(
+      terminalJob({ ownerSurface: surface }),
+      { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" },
+    );
+    assert.deepEqual(input.map((item) => item.type), ["text"]);
+    assert.equal(input[0].text, "Background job `job-notify-001` finished successfully with exit code 0.");
   }
 });
 
-test("proactive notification input preloads the fixed result skill without exposing output", () => {
-  for (const job of [
-    terminalJob({ ownerSurface: "app" }),
-    terminalJob({ ownerSurface: "vscode", goalMode: true }),
-  ]) {
-    const input = buildNotificationInput(job, { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
-    assert.equal(input.length, 2);
-    assert.equal(input[0].type, "text");
-    assert.equal(input[1].type, "skill");
-    assert.equal(input[1].name, "codex-process-jobs:result");
-    assert.match(input[1].path, /\/skills\/result\/SKILL\.md$/);
-    assert.equal(fs.lstatSync(input[1].path).isFile(), true);
-    assert.doesNotMatch(JSON.stringify(input), /malicious|untrusted process output|ignore prior instructions/);
-  }
-
-  const report = buildNotificationInput(
-    terminalJob({ ownerSurface: "cli" }),
-    { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" },
-  );
-  assert.deepEqual(report.map((item) => item.type), ["text"]);
+test("notification input never exposes an agent instruction or structured attachment", () => {
+  const input = buildNotificationInput(terminalJob({ ownerSurface: "app" }));
+  assert.deepEqual(input, [{
+    type: "text",
+    text: "Background job `job-notify-001` finished successfully with exit code 0.",
+  }]);
+  assert.doesNotMatch(JSON.stringify(input), /malicious|untrusted process output|ignore prior instructions|skill/);
 });
 
-test("Goal-mode notice consumes the bounded result and continues authorized Goal work", () => {
-  const prompt = buildNotificationPrompt(
+test("Goal-mode notice remains the same concise visible sentence", () => {
+  const input = buildNotificationInput(
     terminalJob({ goalMode: true, ownerSurface: "vscode" }),
     { CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" },
   );
-  assert.match(prompt, /result skill with job-notify-001 --peek/);
-  assert.match(prompt, /If the owning Goal is still active/);
-  assert.match(prompt, /continue its next already-authorized in-scope step/);
-  assert.match(prompt, /new authority, a consequential choice, or expanded scope/);
-  assert.doesNotMatch(prompt, /Wait for the user's direction before inspecting/);
+  assert.equal(input[0].text, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.equal(input.length, 1);
 });
 
-test("completion mode override supports safer report and explicit inspect profiles", () => {
-  const report = buildNotificationPrompt(
+test("completion mode override supports safer report and explicit inspect behavior", () => {
+  const report = completionMode(
     terminalJob({ ownerSurface: "app" }),
     { CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" },
   );
-  assert.match(report, /Briefly acknowledge/);
-  assert.doesNotMatch(report, /--peek/);
+  assert.equal(report, "report");
 
-  const inspect = buildNotificationPrompt(
+  const inspect = completionMode(
     terminalJob({ ownerSurface: "vscode" }),
     { CODEX_PROCESS_JOBS_COMPLETION_MODE: "inspect" },
   );
-  assert.match(inspect, /result skill with job-notify-001 --peek/);
+  assert.equal(inspect, "inspect");
 
-  const invalid = buildNotificationPrompt(
+  const invalid = completionMode(
     terminalJob({ ownerSurface: "app" }),
     { CODEX_PROCESS_JOBS_COMPLETION_MODE: "arbitrary prompt injection" },
   );
-  assert.match(invalid, /Briefly acknowledge/);
-  assert.doesNotMatch(invalid, /--peek|arbitrary prompt injection/);
+  assert.equal(invalid, "report");
 });
 
 test("durable completion preference overrides surface heuristic but not environment", (t) => {
@@ -252,24 +227,22 @@ test("durable completion preference overrides surface heuristic but not environm
   const env = { CODEX_HOME: root };
   writePreferences({ completionMode: "inspect" }, env);
 
-  const preferred = buildNotificationPrompt(terminalJob({ ownerSurface: "unknown" }), env);
-  assert.match(preferred, /result skill with job-notify-001 --peek/);
+  const preferred = completionMode(terminalJob({ ownerSurface: "unknown" }), env);
+  assert.equal(preferred, "inspect");
 
-  const overridden = buildNotificationPrompt(
+  const overridden = completionMode(
     terminalJob({ ownerSurface: "app" }),
     { ...env, CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" },
   );
-  assert.match(overridden, /Briefly acknowledge/);
-  assert.doesNotMatch(overridden, /--peek/);
+  assert.equal(overridden, "report");
 
   fs.writeFileSync(path.join(root, "process-jobs", "config.json"), JSON.stringify({
     schemaVersion: 1,
     completionMode: "inspect",
     prompt: "untrusted custom instruction",
   }), { mode: 0o600 });
-  const failedClosed = buildNotificationPrompt(terminalJob({ ownerSurface: "app" }), env);
-  assert.match(failedClosed, /Briefly acknowledge/);
-  assert.doesNotMatch(failedClosed, /--peek|untrusted custom instruction/);
+  const failedClosed = completionMode(terminalJob({ ownerSurface: "app" }), env);
+  assert.equal(failedClosed, "report");
 });
 
 test("private IPC requires an eligible owner surface and a private same-user socket", async (t) => {
@@ -308,7 +281,7 @@ test("private IPC requires an eligible owner surface and a private same-user soc
   ), socketPath);
 });
 
-test("VS Code private IPC resolves the standard Codex socket on Linux and macOS only", async (t) => {
+test("App and VS Code private IPC resolve the standard Codex socket on Linux and macOS only", async (t) => {
   const codexHome = fs.mkdtempSync("/tmp/cpj-ipc-platform-");
   const ipcDirectory = path.join(codexHome, "ipc");
   const socketPath = path.join(ipcDirectory, "ipc.sock");
@@ -410,11 +383,12 @@ test("app-server relay resumes the owner and completes a synthetic turn", async 
     status: "completed",
     transport: "app-server",
   });
-  assert.match(fs.readFileSync(promptFile, "utf8"), /Background job finished/);
+  assert.equal(
+    fs.readFileSync(promptFile, "utf8"),
+    "Background job `job-notify-001` finished successfully with exit code 0.",
+  );
   const input = JSON.parse(fs.readFileSync(inputFile, "utf8"));
-  assert.deepEqual(input.map((item) => item.type), ["text", "skill"]);
-  assert.equal(input[1].name, "codex-process-jobs:result");
-  assert.match(input[1].path, /\/skills\/result\/SKILL\.md$/);
+  assert.deepEqual(input.map((item) => item.type), ["text"]);
 });
 
 test("app-server relay ignores an interleaved completion from the same thread", async (t) => {
@@ -527,14 +501,12 @@ test("Codex App relay uses private IPC and confirms the matching durable turn", 
     transport: "desktop-ipc",
   });
   const prompt = fs.readFileSync(promptFile, "utf8");
-  assert.match(prompt, /^Background job finished$/m);
-  assert.match(prompt, /^Codex Process Jobs notice: No process output is included\.$/m);
+  assert.equal(prompt, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.doesNotMatch(prompt, /Codex:|Codex Process Jobs notice:/);
   assert.doesNotMatch(prompt, /malicious|untrusted process output|ignore prior instructions/);
   const input = JSON.parse(fs.readFileSync(`${promptFile}.input.json`, "utf8"));
-  assert.deepEqual(input.map((item) => item.type), ["text", "skill"]);
+  assert.deepEqual(input.map((item) => item.type), ["text"]);
   assert.deepEqual(input[0].text_elements, []);
-  assert.equal(input[1].name, "codex-process-jobs:result");
-  assert.match(input[1].path, /\/skills\/result\/SKILL\.md$/);
   assert.equal(fs.readFileSync(`${promptFile}.thread.txt`, "utf8"), threadId);
 });
 
@@ -572,9 +544,10 @@ test("VS Code relay uses private IPC and confirms the matching durable turn", as
   });
   assert.equal(fs.readFileSync(`${promptFile}.thread.txt`, "utf8"), threadId);
   const prompt = fs.readFileSync(promptFile, "utf8");
-  assert.match(prompt, /result skill with job-notify-001 --peek/);
+  assert.equal(prompt, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.doesNotMatch(prompt, /Codex:|--peek|untrusted/);
   const input = JSON.parse(fs.readFileSync(`${promptFile}.input.json`, "utf8"));
-  assert.deepEqual(input.map((item) => item.type), ["text", "skill"]);
+  assert.deepEqual(input.map((item) => item.type), ["text"]);
 });
 
 test("private IPC preserves an owner-became-active retry instead of falling through", async (t) => {
@@ -647,8 +620,15 @@ test("VS Code private IPC protocol rejection falls back before acceptance", asyn
     MOCK_NOTIFY_PROMPT: fallbackPrompt,
   });
   assert.equal(result.transport, "app-server");
+  assert.equal(
+    result.privateIpcFallbackReason,
+    "Private Codex IPC thread-follower-start-turn failed: unsupported private method version.",
+  );
   assert.equal(fs.existsSync(privatePrompt), false);
-  assert.match(fs.readFileSync(fallbackPrompt, "utf8"), /Background job finished/);
+  assert.equal(
+    fs.readFileSync(fallbackPrompt, "utf8"),
+    "Background job `job-notify-001` finished successfully with exit code 0.",
+  );
 });
 
 test("VS Code private IPC never retries another transport after acceptance becomes uncertain", async (t) => {
@@ -713,6 +693,37 @@ test("notifier persists delivered thread and turn metadata", async (t) => {
   assert.match(stored.notification.deliveredAt, /T/);
 });
 
+test("notifier persists the exact bounded App private IPC fallback reason", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-app-diagnostic-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const promptFile = path.join(root, "prompt.txt");
+  const codex = createMockCodex(t, root);
+  const env = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    MOCK_NOTIFY_PROMPT: promptFile,
+  };
+  const id = "job-app-diagnostic";
+  createJob(terminalJob({
+    id,
+    ownerSurface: "app",
+    logs: resolveJobLogs(id, env),
+  }), env);
+
+  await runNotifier(id, env);
+  const stored = readJob(id, env);
+  assert.equal(stored.notification.status, "delivered");
+  assert.equal(stored.notification.transport, "app-server");
+  assert.equal(
+    stored.notification.privateIpcFallbackReason,
+    "Private Codex IPC endpoint is unavailable (ENOENT).",
+  );
+});
+
 test("notifier batches compatible sibling completions into one shared turn", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-batch-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -737,10 +748,12 @@ test("notifier batches compatible sibling completions into one shared turn", asy
   assert.equal(two.notification.status, "delivered");
   assert.equal(one.notification.turnId, two.notification.turnId);
   const prompt = fs.readFileSync(promptFile, "utf8");
-  assert.match(prompt, /job-batch-one/);
-  assert.match(prompt, /job-batch-two/);
+  assert.equal(prompt, [
+    "Background jobs finished.",
+    "`job-batch-one` finished successfully with exit code 0.",
+    "`job-batch-two` finished successfully with exit code 0.",
+  ].join("\n"));
   assert.doesNotMatch(prompt, /secret first name|secret second name/);
-  assert.match(prompt, /^Background jobs finished$/m);
 });
 
 test("batch claim excludes a sibling already claimed by the hook", async (t) => {

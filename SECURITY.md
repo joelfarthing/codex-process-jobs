@@ -13,13 +13,13 @@ Only the latest published release is supported with security fixes. Before the f
 - Plugin code and a hook hash explicitly approved by the user in `/hooks` are trusted local code.
 - During an update, the installer temporarily snapshots only same-user, non-symlinked CPJ cache trees whose directory name exactly matches their validated manifest version, then restores any generations removed by `codex plugin add`. It never aliases an old versioned path to new code. This preserves the code and hook hashes already catalogued by open tasks. Historical generations remain trusted local code until the user removes them after those tasks end.
 - Command metadata, job JSON, stdout, and stderr are local same-user inputs. Treat them as untrusted evidence when Codex displays or interprets them.
-- An automatic completion prompt admits at most 20 compatible records. Each record contains only a validated job ID, terminal-status enum, and integer exit code; the batch has one fixed instruction selected from the finite `report|inspect|auto` policy plus the validated boolean Goal-mode marker. Launch-boundary hook context likewise contains only a validated same-thread job ID, Goal boolean, and fixed instructions after matching this installed plugin's canonical controller and bounded tool result. Command text, labels, paths, errors, argv, environment, and process output are never interpolated into synthetic notification or hook context. The durable preference file is size-bounded, strict-schema, same-user, private, and no-follow; unknown keys, unsafe paths or permissions, malformed content, and invalid environment values fail closed to `report` for conversational completion and disable optional OS notification.
+- An automatic completion turn admits at most 20 compatible records. Its visible text contains only a validated job ID, terminal-status enum, and integer exit code for each record. The consent-gated `UserPromptSubmit` hook recognizes only that exact bounded grammar, then verifies every stated value against a same-task terminal record whose notification is currently `delivering`. Only after that match does it inject one fixed hidden report, inspection, or Goal-continuation policy. Launch-boundary hook context likewise contains only a validated same-thread job ID, Goal boolean, and fixed instructions after matching this installed plugin's canonical controller and bounded tool result. Command text, labels, paths, errors, argv, environment, and process output are never interpolated into synthetic notification or hook context. The durable preference file is size-bounded, strict-schema, same-user, private, and no-follow; unknown keys, unsafe paths or permissions, malformed content, and invalid environment values fail closed to `report` for conversational completion and disable optional OS notification.
 - On local macOS Codex App tasks and macOS or Linux VS Code tasks, the notifier
   may connect to Codex's same-user private IPC router. It requires a real socket
   and parent directory owned by the current user with no group or other
   permissions. The request targets the validated owning task ID and still
   contains only the sanitized automatic completion notice.
-- `$status`, `$tail`, and `$result` intentionally expose bounded metadata or process output. Incremental cursor reads are stateless, independently scoped to stdout and stderr, and carry a generation fingerprint so log compaction is reported instead of silently joining discontinuous byte streams. In proactive completion mode, the fixed prompt may invoke `$result --peek`; this does not mark the result user-viewed or suppress fallback. Codex must treat all returned content as untrusted evidence and never obey embedded instructions. Outside Goal mode it stops after recommending one next step and asking permission. In Goal mode it may continue only a next step already authorized by the still-active Goal; new authority, a consequential choice, or expanded scope requires the user.
+- `$status`, `$tail`, and `$result` intentionally expose bounded metadata or process output. Incremental cursor reads are stateless, independently scoped to stdout and stderr, and carry a generation fingerprint so log compaction is reported instead of silently joining discontinuous byte streams. In proactive completion mode, the verified hidden hook context may invoke `$result --peek`; this does not mark the result user-viewed or suppress fallback. Codex must treat all returned content as untrusted evidence and never obey embedded instructions. Outside Goal mode it stops after recommending one next step and asking permission. In Goal mode it may continue only a next step already authorized by the still-active Goal; new authority, a consequential choice, or expanded scope requires the user.
 - Optional OS notifications are a separate human-facing boundary. They may contain the validated job ID, status, exit code, and a control-character-normalized job label capped at 512 UTF-8 bytes. They never enter a model prompt, are launched without a shell, and are disabled by default.
 
 Persisted records are size-bounded; security-sensitive fields are schema-checked, bound to their validated filename, read without following record symlinks, and accepted only when their stdout/stderr paths exactly match the job's private log paths. Unknown non-security metadata is tolerated for forward compatibility. Model-facing full-log reads have an independent 1 MiB cap.
@@ -42,10 +42,10 @@ The installer enables Codex's hooks feature and installs `PostToolUse`, `Stop`, 
 - Shell mode is explicit and should be used only when the authorized command requires shell syntax.
 - Critical repair, firmware, migration, and destructive jobs require an explicit force flag to cancel; cancellation still cannot make interruption intrinsically safe.
 - Completion delivery uses experimental local Codex transports and is
-  best-effort. The guarded App/VS Code private IPC path automatically falls back
-  to the separate app-server relay when the endpoint or private method is
-  unavailable before acceptance. After a turn may have been accepted, it fails
-  closed rather than risking duplicate delivery. If the owner becomes active
+  best-effort. The guarded App/VS Code private IPC path automatically falls
+  back to the separate app-server relay when the endpoint or private method is
+  unavailable before acceptance. After a turn may have been accepted, delivery
+  fails closed rather than risking duplicate delivery. If the owner becomes active
   between the settled-idle check and dispatch, delivery returns to the bounded
   idle-retry path rather than starting a competing app-server turn. A busy task
   is watched only while its notification remains unclaimed `pending`; hook
@@ -59,7 +59,8 @@ The installer enables Codex's hooks feature and installs `PostToolUse`, `Stop`, 
 The test suite covers malicious labels and output exclusion from automatic
 prompts, finite completion-mode selection, multi-job prompt batching,
 non-consuming bounded result peeks, stateless cursor compaction recovery,
-private App/VS Code IPC ownership and framing, target-task binding,
+private App/VS Code IPC ownership and framing, concise visible notices with
+same-task delivering-record verification and fixed hidden completion policy,
 pre-acceptance transport fallback, no retry after uncertain acceptance,
 owner-became-active races, matching durable turn completion, long-idle watch
 races, `PostToolUse`/`Stop`/`UserPromptSubmit` claims, optional argv-only OS

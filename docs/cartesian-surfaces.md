@@ -12,9 +12,10 @@ Client identity and execution host are useful diagnostic axes, but refresh
 reliability also depends on the delivery transport. A separate app-server
 append may leave an assigning client stale. Local Codex App and VS Code tasks
 can instead use a guarded same-user private IPC path that routes through the
-owning client and may repaint the already-open task immediately. No live render
-is treated as authoritative; durable state and later recap remain the
-compatibility baseline.
+owning client and may repaint the already-open task immediately. CLI and other
+paths retain the portable relay and later recap. No unverified live render is
+treated as authoritative; durable state and later recap remain the compatibility
+baseline.
 
 ## Observed mobile-to-remote result
 

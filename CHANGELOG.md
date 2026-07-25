@@ -4,6 +4,28 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-25
+
+### Added
+
+- Pre-acceptance private IPC fallback now records one bounded internal
+  `privateIpcFallbackReason` in the durable job notification metadata so
+  compatibility failures can be diagnosed without exposing process output.
+
+### Fixed
+
+- Completed private-IPC delivery in Codex App or VS Code now suppresses the
+  later ordinary-turn fallback recap. Portable app-server delivery and
+  uncertain or failed private delivery retain the one-shot recap.
+- Direct completion turns now show only concise sanitized terminal metadata to
+  the user. The trusted `UserPromptSubmit` hook validates that exact notice
+  against the same task's in-flight delivery record before injecting fixed
+  hidden report, inspection, Goal-continuation, and untrusted-output policy.
+  Disabled or untrusted hooks degrade safely to a status-only completion turn.
+- Visible completion notices format each validated job ID as inline code for
+  clearer App and VS Code rendering while retaining compatibility with
+  already-generated unquoted notices.
+
 ## [0.2.3] - 2026-07-24
 
 ### Added
@@ -110,7 +132,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.0...v0.2.1

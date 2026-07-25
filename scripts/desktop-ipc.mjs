@@ -12,6 +12,12 @@ const START_TURN_VERSION = 1;
 const PRIVATE_IPC_SURFACES = new Set(["app", "vscode"]);
 const PRIVATE_IPC_PLATFORMS = new Set(["darwin", "linux"]);
 
+function privateIpcTransport(ownerSurface) {
+  if (ownerSurface === "app") return "desktop-ipc";
+  if (ownerSurface === "vscode") return "vscode-ipc";
+  return null;
+}
+
 function desktopIpcError(message, { accepted = false } = {}) {
   const error = new Error(message);
   error.desktopIpcUnavailable = !accepted;
@@ -92,26 +98,53 @@ export function validatePrivateIpcSocket(socketPath) {
   return socketPath;
 }
 
-export function resolveDesktopIpcSocket(job, env = process.env, platform = process.platform) {
+export function inspectPrivateIpcSocket(job, env = process.env, platform = process.platform) {
   if (
     env.CODEX_PROCESS_JOBS_DISABLE_PRIVATE_IPC === "1"
     || env.CODEX_PROCESS_JOBS_DISABLE_DESKTOP_IPC === "1"
-  ) return null;
-  if (!PRIVATE_IPC_SURFACES.has(job.ownerSurface)) return null;
+  ) {
+    return {
+      socketPath: null,
+      reason: "Private Codex IPC is disabled by configuration.",
+    };
+  }
+  if (!PRIVATE_IPC_SURFACES.has(job.ownerSurface)) {
+    return {
+      socketPath: null,
+      reason: `Private Codex IPC does not support owner surface ${String(job.ownerSurface ?? "unknown")}.`,
+    };
+  }
   const override = String(
     env.CODEX_PROCESS_JOBS_PRIVATE_IPC_SOCKET
     ?? env.CODEX_PROCESS_JOBS_DESKTOP_IPC_SOCKET
     ?? "",
   ).trim();
-  if (!override && !PRIVATE_IPC_PLATFORMS.has(platform)) return null;
+  if (!override && !PRIVATE_IPC_PLATFORMS.has(platform)) {
+    return {
+      socketPath: null,
+      reason: `Private Codex IPC is unavailable on platform ${platform}.`,
+    };
+  }
   const socketPath = override || path.join(resolveCodexHome(env), "ipc", "ipc.sock");
   try {
-    return validatePrivateIpcSocket(socketPath);
+    return {
+      socketPath: validatePrivateIpcSocket(socketPath),
+      reason: null,
+    };
   } catch (error) {
     if (error?.desktopIpcUnavailable) throw error;
-    if (["ENOENT", "ENOTDIR", "EACCES"].includes(error?.code)) return null;
+    if (["ENOENT", "ENOTDIR", "EACCES"].includes(error?.code)) {
+      return {
+        socketPath: null,
+        reason: `Private Codex IPC endpoint is unavailable (${error.code}).`,
+      };
+    }
     throw desktopIpcError(`Private Codex IPC endpoint validation failed: ${error.message}`);
   }
+}
+
+export function resolveDesktopIpcSocket(job, env = process.env, platform = process.platform) {
+  return inspectPrivateIpcSocket(job, env, platform).socketPath;
 }
 
 function sendRequest(socket, clientId, method, params, version, timeoutMs) {
@@ -195,13 +228,19 @@ export async function startDesktopNotificationTurn(
   threadId,
   timeoutMs,
   env = process.env,
-  { beforeStart = async () => {} } = {},
+  {
+    beforeStart = async () => {},
+    onUnavailable = () => {},
+  } = {},
 ) {
-  const socketPath = resolveDesktopIpcSocket(job, env);
-  if (!socketPath) return null;
-  return await startPrivateIpcNotificationTurn(input, threadId, timeoutMs, socketPath, {
+  const inspected = inspectPrivateIpcSocket(job, env);
+  if (!inspected.socketPath) {
+    onUnavailable(inspected.reason);
+    return null;
+  }
+  return await startPrivateIpcNotificationTurn(input, threadId, timeoutMs, inspected.socketPath, {
     beforeStart,
-    transport: job.ownerSurface === "vscode" ? "vscode-ipc" : "desktop-ipc",
+    transport: privateIpcTransport(job.ownerSurface),
   });
 }
 

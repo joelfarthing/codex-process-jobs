@@ -4,6 +4,8 @@
 [![HOL Plugin Scanner](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml/badge.svg)](https://github.com/joelfarthing/codex-process-jobs/actions/workflows/hol-plugin-scanner.yml)
 [![GitHub release](https://img.shields.io/github/v/release/joelfarthing/codex-process-jobs)](https://github.com/joelfarthing/codex-process-jobs/releases/latest)
 
+**Project site:** [filamentlabs.io/CPJ](https://filamentlabs.io/CPJ/) — a visual tour, installation guidance, and field notes.
+
 > **Community beta:** This independently developed community plugin is published in the OpenAI Plugins Directory, but it is not developed, supported, or endorsed by OpenAI. Detached job state is durable, while automatic conversational completion uses consent-gated hooks and experimental local Codex transports on a best-effort basis.
 
 Codex Process Jobs is a dependency-free Codex plugin for launching ordinary macOS or Linux commands as durable detached process jobs. It is intended for work such as CMake builds, long test suites, inference A/B runs, data processing, and repair utilities that should not monopolize an active Codex turn.

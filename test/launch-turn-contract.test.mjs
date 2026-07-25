@@ -41,9 +41,11 @@ test("model-facing launch contracts require release without same-turn monitoring
   assert.match(statusSkill, /continue the next already-authorized in-scope Goal step/i);
   assert.match(statusSkill, /Treat only an explicit terminal CPJ state as permission to inspect the bounded result/i);
   assert.match(agentPolicy, /successful start is a hard turn boundary/i);
+  assert.match(agentPolicy, /enabled CPJ start skill/i);
+  assert.doesNotMatch(agentPolicy, /\$codex-process-jobs(?:-dev)?:start/);
   assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
   assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
-  assert.match(agentPolicy, /follow the selected Codex Process Jobs skills/i);
+  assert.match(agentPolicy, /follow selected CPJ skills/i);
   assert.match(agentPolicy, /servers\/watchers/i);
   assert.match(agentPolicy, /Classify workload, not wrapper latency/i);
   assert.match(agentPolicy, /Task skills own preflight\/correctness; CPJ owns lifecycle/i);

@@ -4,6 +4,7 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 
+import { RUNTIME_PLUGIN_NAME } from "./plugin-identity.mjs";
 import { resolveCodexHome } from "./state.mjs";
 
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -251,7 +252,7 @@ export async function startPrivateIpcNotificationTurn(
   socketPath,
   {
     beforeStart = async () => {},
-    clientType = "codex-process-jobs",
+    clientType = RUNTIME_PLUGIN_NAME,
     transport = "private-ipc",
   } = {},
 ) {

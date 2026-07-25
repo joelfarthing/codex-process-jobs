@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { isCliEntry } from "./cli-entry.mjs";
 
 export const PLUGIN_NAME = "codex-process-jobs";
+export const DEV_PLUGIN_NAME = `${PLUGIN_NAME}-dev`;
 export const POLICY_BEGIN = "<!-- codex-process-jobs:begin -->";
 export const POLICY_END = "<!-- codex-process-jobs:end -->";
 
@@ -37,13 +38,14 @@ function fail(message) {
 function usage() {
   return [
     "Usage:",
-    "  node scripts/install.mjs [--agent-policy <global|project|none>] [--project-root <path>]",
-    "  node scripts/install.mjs --apply --agent-policy <global|project|none> [--project-root <path>] [--allow-active-jobs]",
+    "  node scripts/install.mjs [--dev] [--agent-policy <global|project|none>] [--project-root <path>]",
+    "  node scripts/install.mjs --apply [--dev] --agent-policy <global|project|none> [--project-root <path>] [--allow-active-jobs]",
     "",
     "The default is a read-only preview. --apply performs the displayed changes.",
     "--agent-policy global installs an idempotent managed block in ~/.codex/AGENTS.md.",
     "--agent-policy project installs it in <project-root>/AGENTS.md.",
     "--agent-policy none leaves every AGENTS.md unchanged.",
+    "--dev installs an isolated codex-process-jobs-dev snapshot without changing production identity.",
     "--with-agent-policy remains a deprecated alias for --agent-policy global.",
     "--allow-active-jobs overrides the safety stop when tracked jobs are active.",
   ].join("\n");
@@ -55,11 +57,13 @@ export function parseArgs(argv) {
     agentPolicyMode: null,
     projectRoot: null,
     allowActiveJobs: false,
+    dev: false,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--apply") options.apply = true;
+    else if (arg === "--dev") options.dev = true;
     else if (arg === "--agent-policy") {
       const value = String(argv[++index] ?? "").trim().toLowerCase();
       if (!AGENT_POLICY_MODES.has(value)) {
@@ -106,10 +110,10 @@ function readJson(file, label) {
   }
 }
 
-function validateManifest(manifest, file) {
+function validateManifest(manifest, file, expectedName = PLUGIN_NAME) {
   if (!manifest || typeof manifest !== "object") fail(`Missing plugin manifest: ${file}`);
-  if (manifest.name !== PLUGIN_NAME) {
-    fail(`Expected plugin name ${PLUGIN_NAME} in ${file}; found ${manifest.name ?? "(missing)"}.`);
+  if (manifest.name !== expectedName) {
+    fail(`Expected plugin name ${expectedName} in ${file}; found ${manifest.name ?? "(missing)"}.`);
   }
   if (typeof manifest.version !== "string" || !manifest.version.trim()) {
     fail(`Plugin manifest has no version: ${file}`);
@@ -153,17 +157,22 @@ function validateOwnedTree(root, label) {
   }
 }
 
-function pluginCacheRoot(codexHome, marketplaceName) {
+function pluginCacheRoot(codexHome, marketplaceName, pluginName = PLUGIN_NAME) {
   const marketplace = validatePathComponent(marketplaceName, "marketplace name");
-  return path.join(codexHome, "plugins", "cache", marketplace, PLUGIN_NAME);
+  const plugin = validatePathComponent(pluginName, "plugin name");
+  return path.join(codexHome, "plugins", "cache", marketplace, plugin);
 }
 
-function validateCacheGeneration(generation, expectedVersion) {
+function validateCacheGeneration(generation, expectedVersion, pluginName = PLUGIN_NAME) {
   validatePathComponent(expectedVersion, "cache generation version");
   validateOwnedTree(generation, "plugin cache content");
   const manifestFile = path.join(generation, ".codex-plugin", "plugin.json");
   validateOwnedNode(manifestFile, "plugin cache manifest", "file");
-  const manifest = validateManifest(readJson(manifestFile, "plugin cache manifest"), manifestFile);
+  const manifest = validateManifest(
+    readJson(manifestFile, "plugin cache manifest"),
+    manifestFile,
+    pluginName
+  );
   if (manifest.version !== expectedVersion) {
     fail(
       `Plugin cache directory ${generation} does not match manifest version ${manifest.version}.`
@@ -172,8 +181,8 @@ function validateCacheGeneration(generation, expectedVersion) {
   return manifest;
 }
 
-export function inspectPluginCache(codexHome, marketplaceName) {
-  const cacheRoot = pluginCacheRoot(codexHome, marketplaceName);
+export function inspectPluginCache(codexHome, marketplaceName, pluginName = PLUGIN_NAME) {
+  const cacheRoot = pluginCacheRoot(codexHome, marketplaceName, pluginName);
   try {
     let current = path.resolve(codexHome);
     try {
@@ -182,7 +191,12 @@ export function inspectPluginCache(codexHome, marketplaceName) {
       if (error?.code === "ENOENT") return { status: "absent", versions: [] };
       throw error;
     }
-    for (const component of ["plugins", "cache", validatePathComponent(marketplaceName, "marketplace name"), PLUGIN_NAME]) {
+    for (const component of [
+      "plugins",
+      "cache",
+      validatePathComponent(marketplaceName, "marketplace name"),
+      validatePathComponent(pluginName, "plugin name"),
+    ]) {
       current = path.join(current, component);
       try {
         validateOwnedNode(current, "plugin cache boundary", "directory");
@@ -200,7 +214,7 @@ export function inspectPluginCache(codexHome, marketplaceName) {
       if (!entry.isDirectory() || entry.isSymbolicLink()) {
         fail(`Refusing unexpected plugin cache entry: ${generation}`);
       }
-      validateCacheGeneration(generation, version);
+      validateCacheGeneration(generation, version, pluginName);
       versions.push(version);
     }
     return { status: versions.length > 0 ? "present" : "absent", versions };
@@ -209,7 +223,7 @@ export function inspectPluginCache(codexHome, marketplaceName) {
   }
 }
 
-export function inspectPluginProviders(codexHome) {
+export function inspectPluginProviders(codexHome, pluginName = PLUGIN_NAME) {
   const cacheRoot = path.join(path.resolve(codexHome), "plugins", "cache");
   try {
     const rootStat = fs.lstatSync(cacheRoot);
@@ -227,7 +241,11 @@ export function inspectPluginProviders(codexHome) {
       }
       if (!marketplaceEntry.isDirectory() || marketplaceEntry.isSymbolicLink()) continue;
 
-      const providerRoot = path.join(cacheRoot, marketplaceName, PLUGIN_NAME);
+      const providerRoot = path.join(
+        cacheRoot,
+        marketplaceName,
+        validatePathComponent(pluginName, "plugin name")
+      );
       let providerStat;
       try {
         providerStat = fs.lstatSync(providerRoot);
@@ -253,7 +271,7 @@ export function inspectPluginProviders(codexHome) {
           if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) continue;
           const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
           if (
-            manifest?.name === PLUGIN_NAME
+            manifest?.name === pluginName
             && typeof manifest.version === "string"
             && manifest.version === generationEntry.name
           ) {
@@ -276,14 +294,16 @@ export function inspectPluginProviders(codexHome) {
   }
 }
 
-function snapshotPluginCache(codexHome, marketplaceName) {
-  const cacheRoot = pluginCacheRoot(codexHome, marketplaceName);
-  if (!fs.existsSync(cacheRoot)) return { cacheRoot, temporaryRoot: null, versions: [] };
+function snapshotPluginCache(codexHome, marketplaceName, pluginName = PLUGIN_NAME) {
+  const cacheRoot = pluginCacheRoot(codexHome, marketplaceName, pluginName);
+  if (!fs.existsSync(cacheRoot)) {
+    return { cacheRoot, pluginName, temporaryRoot: null, versions: [] };
+  }
   validateOwnedNode(cacheRoot, "plugin cache root", "directory");
 
   const entries = fs.readdirSync(cacheRoot, { withFileTypes: true })
     .sort((left, right) => left.name.localeCompare(right.name));
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), `${PLUGIN_NAME}-cache-`));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), `${pluginName}-cache-`));
   fs.chmodSync(temporaryRoot, 0o700);
   const versions = [];
   try {
@@ -293,7 +313,7 @@ function snapshotPluginCache(codexHome, marketplaceName) {
       if (!entry.isDirectory() || entry.isSymbolicLink()) {
         fail(`Refusing unexpected plugin cache entry: ${generation}`);
       }
-      validateCacheGeneration(generation, version);
+      validateCacheGeneration(generation, version, pluginName);
       fs.cpSync(generation, path.join(temporaryRoot, version), {
         recursive: true,
         preserveTimestamps: true,
@@ -302,7 +322,7 @@ function snapshotPluginCache(codexHome, marketplaceName) {
       });
       versions.push(version);
     }
-    return { cacheRoot, temporaryRoot, versions };
+    return { cacheRoot, pluginName, temporaryRoot, versions };
   } catch (error) {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
     throw error;
@@ -321,11 +341,11 @@ function restorePluginCache(snapshot) {
   for (const version of snapshot.versions) {
     const target = path.join(snapshot.cacheRoot, version);
     if (fs.existsSync(target)) {
-      validateCacheGeneration(target, version);
+      validateCacheGeneration(target, version, snapshot.pluginName);
       continue;
     }
     const source = path.join(snapshot.temporaryRoot, version);
-    validateCacheGeneration(source, version);
+    validateCacheGeneration(source, version, snapshot.pluginName);
     const stage = path.join(
       snapshot.cacheRoot,
       `.restore-${process.pid}-${crypto.randomBytes(3).toString("hex")}`
@@ -351,7 +371,7 @@ function removeNewCacheGeneration(snapshot, version) {
   if (!snapshot || snapshot.versions.includes(version)) return;
   const target = path.join(snapshot.cacheRoot, validatePathComponent(version, "plugin version"));
   if (!fs.existsSync(target)) return;
-  validateCacheGeneration(target, version);
+  validateCacheGeneration(target, version, snapshot.pluginName);
   fs.rmSync(target, { recursive: true, force: true });
 }
 
@@ -369,9 +389,28 @@ function cachebusterTimestamp(now = new Date()) {
   return now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z").replace("T", "-").replace("Z", "");
 }
 
-export function withCodexCachebuster(version, timestamp) {
+export function withCodexCachebuster(version, timestamp, channel = "local") {
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(channel)) fail(`Invalid cachebuster channel: ${channel}.`);
   const base = String(version).split("+", 1)[0];
-  return `${base}+codex.local-${timestamp}`;
+  return `${base}+codex.${channel}-${timestamp}`;
+}
+
+export function resolveInstallIdentity(dev = false) {
+  return dev
+    ? {
+        development: true,
+        pluginName: DEV_PLUGIN_NAME,
+        displayName: "Codex Process Jobs (Dev)",
+        stateDirectory: "process-jobs-dev",
+        cachebusterChannel: "dev",
+      }
+    : {
+        development: false,
+        pluginName: PLUGIN_NAME,
+        displayName: "Codex Process Jobs",
+        stateDirectory: "process-jobs",
+        cachebusterChannel: "local",
+      };
 }
 
 function canonicalPath(file) {
@@ -388,12 +427,13 @@ export function sourceConflictsWithDestination(sourceRoot, destination) {
   return canonicalPath(sourceRoot) === canonicalPath(destination);
 }
 
-function expectedMarketplaceEntry() {
+function expectedMarketplaceEntry(pluginName = PLUGIN_NAME) {
+  const name = validatePathComponent(pluginName, "plugin name");
   return {
-    name: PLUGIN_NAME,
+    name,
     source: {
       source: "local",
-      path: `./plugins/${PLUGIN_NAME}`,
+      path: `./plugins/${name}`,
     },
     policy: {
       installation: "AVAILABLE",
@@ -403,7 +443,8 @@ function expectedMarketplaceEntry() {
   };
 }
 
-export function mergeMarketplace(existing) {
+export function mergeMarketplace(existing, pluginName = PLUGIN_NAME) {
+  const name = validatePathComponent(pluginName, "plugin name");
   const marketplace = existing == null
     ? { name: "personal", interface: { displayName: "Personal" }, plugins: [] }
     : structuredClone(existing);
@@ -419,10 +460,10 @@ export function mergeMarketplace(existing) {
 
   const matches = marketplace.plugins
     .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => entry?.name === PLUGIN_NAME);
-  if (matches.length > 1) fail(`Personal marketplace has duplicate ${PLUGIN_NAME} entries.`);
+    .filter(({ entry }) => entry?.name === name);
+  if (matches.length > 1) fail(`Personal marketplace has duplicate ${name} entries.`);
 
-  const expected = expectedMarketplaceEntry();
+  const expected = expectedMarketplaceEntry(name);
   if (matches.length === 0) {
     marketplace.plugins.push(expected);
   } else {
@@ -434,7 +475,7 @@ export function mergeMarketplace(existing) {
       && (currentPath !== expected.source.path || currentKind !== expected.source.source)
     ) {
       fail(
-        `Marketplace entry ${PLUGIN_NAME} already points to ${currentKind ?? "unknown"}:${currentPath}. `
+        `Marketplace entry ${name} already points to ${currentKind ?? "unknown"}:${currentPath}. `
         + "Refusing to replace a different source."
       );
     }
@@ -470,8 +511,12 @@ export function upsertAgentPolicy(existing, policyText) {
   return prefix ? `${prefix}\n\n${block}\n` : `${block}\n`;
 }
 
-function listActiveJobs(codexHome) {
-  const jobsDir = path.join(codexHome, "process-jobs", "jobs");
+function listActiveJobs(codexHome, stateDirectory = "process-jobs") {
+  const jobsDir = path.join(
+    codexHome,
+    validatePathComponent(stateDirectory, "state directory"),
+    "jobs"
+  );
   let entries;
   try {
     entries = fs.readdirSync(jobsDir, { withFileTypes: true });
@@ -506,7 +551,11 @@ function detectCodex(env) {
   };
 }
 
-export function resolveInstallPaths({ env = process.env, sourceRoot = SOURCE_ROOT } = {}) {
+export function resolveInstallPaths({
+  env = process.env,
+  sourceRoot = SOURCE_ROOT,
+  dev = false,
+} = {}) {
   if (!(["darwin", "linux"].includes(process.platform))) {
     fail(`Unsupported platform: ${process.platform}. Use macOS or Linux.`);
   }
@@ -516,10 +565,12 @@ export function resolveInstallPaths({ env = process.env, sourceRoot = SOURCE_ROO
   const root = path.resolve(sourceRoot);
   const manifestFile = path.join(root, ".codex-plugin", "plugin.json");
   const manifest = validateManifest(readJson(manifestFile, "plugin manifest"), manifestFile);
+  const identity = resolveInstallIdentity(dev);
   const home = resolveHome(env);
   const codexHome = path.resolve(env.CODEX_HOME || path.join(home, ".codex"));
-  const destination = path.join(home, "plugins", PLUGIN_NAME);
+  const destination = path.join(home, "plugins", identity.pluginName);
   return {
+    ...identity,
     sourceRoot: root,
     home,
     codexHome,
@@ -533,16 +584,29 @@ export function resolveInstallPaths({ env = process.env, sourceRoot = SOURCE_ROO
   };
 }
 
-export function resolveInstallPlan({ env = process.env, now = new Date(), sourceRoot = SOURCE_ROOT } = {}) {
-  const paths = resolveInstallPaths({ env, sourceRoot });
+export function resolveInstallPlan({
+  env = process.env,
+  now = new Date(),
+  sourceRoot = SOURCE_ROOT,
+  dev = false,
+} = {}) {
+  const paths = resolveInstallPaths({ env, sourceRoot, dev });
   const timestamp = cachebusterTimestamp(now);
   return {
     ...paths,
-    installVersion: withCodexCachebuster(paths.sourceVersion, timestamp),
+    installVersion: withCodexCachebuster(
+      paths.sourceVersion,
+      timestamp,
+      paths.cachebusterChannel
+    ),
     timestamp,
-    activeJobs: listActiveJobs(paths.codexHome),
+    activeJobs: listActiveJobs(paths.codexHome, paths.stateDirectory),
     codex: detectCodex(env),
-    pluginProviders: inspectPluginProviders(paths.codexHome),
+    pluginProviders: inspectPluginProviders(paths.codexHome, paths.pluginName),
+    counterpartProviders: inspectPluginProviders(
+      paths.codexHome,
+      paths.development ? PLUGIN_NAME : DEV_PLUGIN_NAME
+    ),
   };
 }
 
@@ -600,12 +664,14 @@ function planLines(plan, options) {
   else if (policy.mode === "none") policyLine = "none; leave every AGENTS.md unchanged";
   else policyLine = "not selected; choose global, project, or none before apply";
   const lines = [
-    "Codex Process Jobs installation preview",
+    `${plan.displayName} installation preview`,
+    `  install identity: ${plan.pluginName} (${plan.development ? "isolated development" : "production"})`,
     `  source: ${plan.sourceRoot}`,
     `  plugin destination: ${plan.destination}`,
     `  plugin version: ${plan.installVersion}`,
+    `  durable state: ${path.join(plan.codexHome, plan.stateDirectory)}`,
     `  personal marketplace: ${plan.marketplaceFile}`,
-    `  current CPJ provider caches: ${
+    `  current ${plan.pluginName} provider caches: ${
       plan.pluginProviders?.status === "invalid"
         ? "invalid"
         : currentProviders.join(", ") || "none"
@@ -620,6 +686,17 @@ function planLines(plan, options) {
     `  agent policy: ${policyLine}`,
     `  active tracked jobs: ${plan.activeJobs.length}`,
   ];
+  if (plan.development) {
+    const productionProviders = plan.counterpartProviders?.providers ?? [];
+    lines.push(
+      `  production CPJ remains separate: ${
+        plan.counterpartProviders?.status === "invalid"
+          ? "provider caches could not be validated"
+          : productionProviders.join(", ") || "no cached provider found"
+      }`,
+      "  coexistence rule: keep every production CPJ provider's skills and hooks disabled while behavioral tests use the Dev skills and hooks"
+    );
+  }
   if (postInstallProviders.length > 1) {
     lines.push(
       `  routing warning: applying this install would leave multiple CPJ provider caches (${postInstallProviders.join(", ")}); verify that only one provider is enabled because duplicate skill IDs can make routing nondeterministic`
@@ -696,7 +773,10 @@ function validateMutableFile(file, label) {
 function copyPlugin(plan) {
   const parent = path.dirname(plan.destination);
   fs.mkdirSync(parent, { recursive: true });
-  const stage = path.join(parent, `.${PLUGIN_NAME}.install-${process.pid}-${crypto.randomBytes(3).toString("hex")}`);
+  const stage = path.join(
+    parent,
+    `.${plan.pluginName}.install-${process.pid}-${crypto.randomBytes(3).toString("hex")}`
+  );
   fs.mkdirSync(stage, { mode: 0o700 });
   let destinationBackup = null;
   try {
@@ -706,8 +786,29 @@ function copyPlugin(plan) {
       fs.cpSync(source, path.join(stage, entry), { recursive: true, preserveTimestamps: true });
     }
     const stagedManifestFile = path.join(stage, ".codex-plugin", "plugin.json");
+    const devMarkerFile = path.join(stage, ".codex-plugin", "dev-install.json");
     const stagedManifest = validateManifest(readJson(stagedManifestFile, "staged plugin manifest"), stagedManifestFile);
+    stagedManifest.name = plan.pluginName;
     stagedManifest.version = plan.installVersion;
+    if (plan.development) {
+      stagedManifest.description = "LOCAL DEVELOPMENT BUILD of Codex Process Jobs.";
+      stagedManifest.interface = {
+        ...(stagedManifest.interface ?? {}),
+        displayName: plan.displayName,
+        shortDescription: "Local development build of durable process jobs",
+      };
+      atomicWrite(
+        devMarkerFile,
+        `${JSON.stringify({
+          generated: true,
+          sourcePlugin: PLUGIN_NAME,
+          installedPlugin: plan.pluginName,
+          stateDirectory: plan.stateDirectory,
+        }, null, 2)}\n`
+      );
+    } else if (fs.existsSync(devMarkerFile)) {
+      fail("Refusing a production install from a transformed development snapshot.");
+    }
     atomicWrite(stagedManifestFile, `${JSON.stringify(stagedManifest, null, 2)}\n`);
 
     for (const script of ["job.mjs", "worker.mjs", "notifier.mjs", "install.mjs", "smoke.mjs"]) {
@@ -717,7 +818,11 @@ function copyPlugin(plan) {
 
     if (fs.existsSync(plan.destination)) {
       const currentManifestFile = path.join(plan.destination, ".codex-plugin", "plugin.json");
-      validateManifest(readJson(currentManifestFile, "installed plugin manifest"), currentManifestFile);
+      validateManifest(
+        readJson(currentManifestFile, "installed plugin manifest"),
+        currentManifestFile,
+        plan.pluginName
+      );
       destinationBackup = uniqueBackupPath(plan.destination, plan.timestamp);
       fs.renameSync(plan.destination, destinationBackup);
     }
@@ -732,9 +837,10 @@ function copyPlugin(plan) {
   }
 }
 
-function runCodexPluginAdd(marketplaceName, env) {
+function runCodexPluginAdd(pluginName, marketplaceName, env) {
+  const plugin = validatePathComponent(pluginName, "plugin name");
   const marketplace = validatePathComponent(marketplaceName, "marketplace name");
-  const selector = [PLUGIN_NAME, marketplace].join("@");
+  const selector = [plugin, marketplace].join("@");
   const result = spawnSync("codex", ["plugin", "add", selector, "--json"], {
     env,
     encoding: "utf8",
@@ -790,14 +896,21 @@ export async function applyInstall(plan, options, env = process.env) {
     ? existingFileMode(policy.target, policy.mode === "project" ? 0o644 : 0o600)
     : null;
   const configOriginal = fs.existsSync(configFile) ? fs.readFileSync(configFile, "utf8") : null;
-  const marketplace = mergeMarketplace(marketplaceOriginal == null ? null : JSON.parse(marketplaceOriginal));
+  const marketplace = mergeMarketplace(
+    marketplaceOriginal == null ? null : JSON.parse(marketplaceOriginal),
+    plan.pluginName
+  );
   const policyText = policy.target ? fs.readFileSync(plan.agentPolicyFile, "utf8") : null;
   const marketplaceBackup = marketplaceOriginal == null ? null : uniqueBackupPath(plan.marketplaceFile, plan.timestamp);
   const agentBackup = policy.target && agentOriginal != null
     ? uniqueBackupPath(policy.target, plan.timestamp)
     : null;
   const configBackup = configOriginal != null ? uniqueBackupPath(configFile, plan.timestamp) : null;
-  const cacheSnapshot = snapshotPluginCache(plan.codexHome, marketplace.name);
+  const cacheSnapshot = snapshotPluginCache(
+    plan.codexHome,
+    marketplace.name,
+    plan.pluginName
+  );
 
   let destinationBackup = null;
   let marketplaceChanged = false;
@@ -820,7 +933,7 @@ export async function applyInstall(plan, options, env = process.env) {
     if (configBackup) fs.copyFileSync(configFile, configBackup);
     ensureHooksEnabled(env);
     pluginAddAttempted = true;
-    const installed = runCodexPluginAdd(marketplace.name, env);
+    const installed = runCodexPluginAdd(plan.pluginName, marketplace.name, env);
     const restoredCacheVersions = restorePluginCache(cacheSnapshot);
     return {
       selector: installed.selector,
@@ -868,7 +981,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-  const plan = resolveInstallPlan({ env });
+  const plan = resolveInstallPlan({ env, dev: options.dev });
   process.stdout.write(`${planLines(plan, options).join("\n")}\n`);
   if (!options.apply) return;
   const result = await applyInstall(plan, options, env);

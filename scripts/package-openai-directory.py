@@ -41,6 +41,7 @@ RUNTIME_FILES = (
     "scripts/job.mjs",
     "scripts/logs.mjs",
     "scripts/notifier.mjs",
+    "scripts/plugin-identity.mjs",
     "scripts/preferences.mjs",
     "scripts/process-control.mjs",
     "scripts/session.mjs",
@@ -93,6 +94,9 @@ def read_json(relative_path: str) -> dict:
 
 
 def validate_metadata() -> str:
+    if (ROOT / ".codex-plugin" / "dev-install.json").exists():
+        raise ValueError("refusing to package a transformed development snapshot")
+
     plugin = read_json(".codex-plugin/plugin.json")
     package = read_json("package.json")
     lock = read_json("package-lock.json")
@@ -131,8 +135,10 @@ def validate_metadata() -> str:
     display_name = interface.get("displayName")
     short_description = interface.get("shortDescription")
     prompts = interface.get("defaultPrompt")
-    if not isinstance(display_name, str) or not display_name.strip():
-        raise ValueError("Marketplace displayName must be a non-empty string")
+    if display_name != "Codex Process Jobs":
+        raise ValueError("Marketplace displayName must be exactly 'Codex Process Jobs'")
+    if str(plugin.get("description", "")).startswith("LOCAL DEVELOPMENT BUILD"):
+        raise ValueError("refusing to package development-only plugin metadata")
     if (
         not isinstance(short_description, str)
         or not short_description.strip()

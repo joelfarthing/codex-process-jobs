@@ -4,6 +4,11 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 
+import {
+  RUNTIME_DISPLAY_NAME,
+  RUNTIME_PLUGIN_NAME,
+  RUNTIME_PLUGIN_VERSION,
+} from "./plugin-identity.mjs";
 import { readPreferences } from "./preferences.mjs";
 import { resolveCodexHome } from "./state.mjs";
 
@@ -463,9 +468,9 @@ export async function startCliAppServerNotificationTurn(
       method: "initialize",
       params: {
         clientInfo: {
-          name: "codex-process-jobs",
-          title: "Codex Process Jobs",
-          version: "0.3.0",
+          name: RUNTIME_PLUGIN_NAME,
+          title: RUNTIME_DISPLAY_NAME,
+          version: RUNTIME_PLUGIN_VERSION,
         },
         capabilities: { experimentalApi: true },
       },

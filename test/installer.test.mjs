@@ -3,10 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 import {
+  DEV_PLUGIN_NAME,
   POLICY_BEGIN,
   POLICY_END,
   applyInstall,
@@ -23,6 +24,10 @@ const INSTALLER = path.join(ROOT, "scripts", "install.mjs");
 test("package and source plugin versions match before install cachebusting", () => {
   const packageMetadata = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   const pluginManifest = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
+  assert.equal(packageMetadata.name, "codex-process-jobs");
+  assert.equal(pluginManifest.name, "codex-process-jobs");
+  assert.equal(pluginManifest.interface.displayName, "Codex Process Jobs");
+  assert.equal(fs.existsSync(path.join(ROOT, ".codex-plugin", "dev-install.json")), false);
   assert.equal(pluginManifest.version, packageMetadata.version);
 });
 
@@ -45,9 +50,10 @@ function installEnv(t, home) {
     "fs.appendFileSync(process.env.MOCK_CODEX_CALLS, JSON.stringify(args) + '\\n');",
     "if (args[0] === '--version') { console.log('codex-cli test'); process.exit(0); }",
     "if (args[0] === 'plugin' && args[1] === 'add' && process.env.MOCK_CODEX_REPLACE_CACHE === '1') {",
-    "  const source = path.join(process.env.HOME, 'plugins', 'codex-process-jobs');",
+    "  const pluginName = String(args[2]).split('@', 1)[0];",
+    "  const source = path.join(process.env.HOME, 'plugins', pluginName);",
     "  const manifest = JSON.parse(fs.readFileSync(path.join(source, '.codex-plugin', 'plugin.json'), 'utf8'));",
-    "  const cacheRoot = path.join(process.env.CODEX_HOME, 'plugins', 'cache', 'personal', 'codex-process-jobs');",
+    "  const cacheRoot = path.join(process.env.CODEX_HOME, 'plugins', 'cache', 'personal', pluginName);",
     "  fs.rmSync(cacheRoot, { recursive: true, force: true });",
     "  fs.mkdirSync(cacheRoot, { recursive: true });",
     "  fs.cpSync(source, path.join(cacheRoot, manifest.version), { recursive: true });",
@@ -68,34 +74,39 @@ function installEnv(t, home) {
   };
 }
 
-function cacheRoot(home) {
-  return path.join(home, ".codex", "plugins", "cache", "personal", "codex-process-jobs");
+function cacheRoot(home, pluginName = "codex-process-jobs") {
+  return path.join(home, ".codex", "plugins", "cache", "personal", pluginName);
 }
 
-function seedProviderCache(home, provider, version) {
+function seedProviderCache(home, provider, version, pluginName = "codex-process-jobs") {
   const generation = path.join(
     home,
     ".codex",
     "plugins",
     "cache",
     provider,
-    "codex-process-jobs",
+    pluginName,
     version
   );
   fs.mkdirSync(path.join(generation, ".codex-plugin"), { recursive: true });
   fs.writeFileSync(path.join(generation, ".codex-plugin", "plugin.json"), `${JSON.stringify({
-    name: "codex-process-jobs",
+    name: pluginName,
     version,
   }, null, 2)}\n`);
   return generation;
 }
 
-function seedCacheGeneration(home, version, marker = version) {
-  const generation = path.join(cacheRoot(home), version);
+function seedCacheGeneration(
+  home,
+  version,
+  marker = version,
+  pluginName = "codex-process-jobs"
+) {
+  const generation = path.join(cacheRoot(home, pluginName), version);
   fs.mkdirSync(path.join(generation, ".codex-plugin"), { recursive: true });
   fs.mkdirSync(path.join(generation, "skills", "start"), { recursive: true });
   fs.writeFileSync(path.join(generation, ".codex-plugin", "plugin.json"), `${JSON.stringify({
-    name: "codex-process-jobs",
+    name: pluginName,
     version,
   }, null, 2)}\n`);
   fs.writeFileSync(path.join(generation, "skills", "start", "SKILL.md"), `${marker}\n`);
@@ -218,14 +229,15 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.equal(JSON.parse(fs.readFileSync(path.join(destination, ".codex-plugin", "plugin.json"), "utf8")).name, "codex-process-jobs");
   assert.equal(JSON.parse(fs.readFileSync(marketplaceFile, "utf8")).plugins.length, 1);
   const agentPolicy = fs.readFileSync(agentFile, "utf8");
-  assert.match(agentPolicy, /\$codex-process-jobs:start/);
+  assert.match(agentPolicy, /enabled CPJ start skill/i);
+  assert.doesNotMatch(agentPolicy, /\$codex-process-jobs(?:-dev)?:start/);
   assert.match(agentPolicy, /servers\/watchers/i);
   assert.match(agentPolicy, /Classify workload, not wrapper latency/i);
   assert.match(agentPolicy, /Task skills own preflight\/correctness; CPJ owns lifecycle/i);
   assert.match(agentPolicy, /successful start is a hard turn boundary/i);
   assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
   assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
-  assert.match(agentPolicy, /follow the selected Codex Process Jobs skills/i);
+  assert.match(agentPolicy, /follow selected CPJ skills/i);
   assert.match(agentPolicy, /Never search memory for CPJ work/i);
   assert.match(agentPolicy, /current request and validated CPJ state/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140, "managed policy should stay compact");
@@ -243,6 +255,147 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.ok(calls.some((args) => args[0] === "features" && args[1] === "enable" && args[2] === "hooks"));
   assert.equal(calls.filter((args) => args[0] === "app-server").length, 0);
   assert.equal(calls.some((args) => args.includes("config/batchWrite")), false);
+});
+
+test("dev preview is read-only and names every isolated install surface", (t) => {
+  const home = temporaryHome(t);
+  const env = installEnv(t, home);
+  const preview = runInstaller(["--dev", "--agent-policy", "none"], env);
+
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(preview.stdout, /Codex Process Jobs \(Dev\) installation preview/);
+  assert.match(preview.stdout, /install identity: codex-process-jobs-dev \(isolated development\)/);
+  assert.match(preview.stdout, /plugins\/codex-process-jobs-dev/);
+  assert.match(preview.stdout, /\+codex\.dev-/);
+  assert.match(preview.stdout, /\.codex\/process-jobs-dev/);
+  assert.match(preview.stdout, /every production CPJ provider's skills and hooks disabled/i);
+  assert.equal(fs.existsSync(path.join(home, "plugins", DEV_PLUGIN_NAME)), false);
+  assert.equal(fs.existsSync(path.join(home, ".agents", "plugins", "marketplace.json")), false);
+});
+
+test("dev apply creates a distinct plugin, namespace, cache, and durable state root", (t) => {
+  const home = temporaryHome(t);
+  const env = {
+    ...installEnv(t, home),
+    MOCK_CODEX_REPLACE_CACHE: "1",
+  };
+  const marketplaceFile = path.join(home, ".agents", "plugins", "marketplace.json");
+  fs.mkdirSync(path.dirname(marketplaceFile), { recursive: true });
+  fs.writeFileSync(marketplaceFile, `${JSON.stringify(mergeMarketplace(null), null, 2)}\n`);
+
+  const productionState = path.join(home, ".codex", "process-jobs");
+  fs.mkdirSync(productionState, { recursive: true });
+  fs.writeFileSync(path.join(productionState, "sentinel"), "production state\n");
+
+  const result = runInstaller(["--dev", "--apply", "--agent-policy", "none"], env);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+
+  const destination = path.join(home, "plugins", DEV_PLUGIN_NAME);
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(destination, ".codex-plugin", "plugin.json"),
+    "utf8"
+  ));
+  assert.equal(manifest.name, DEV_PLUGIN_NAME);
+  assert.equal(manifest.interface.displayName, "Codex Process Jobs (Dev)");
+  assert.equal(manifest.interface.shortDescription, "Local development build of durable process jobs");
+  assert.match(manifest.version, /\+codex\.dev-/);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(
+      path.join(destination, ".codex-plugin", "dev-install.json"),
+      "utf8"
+    )),
+    {
+      generated: true,
+      sourcePlugin: "codex-process-jobs",
+      installedPlugin: DEV_PLUGIN_NAME,
+      stateDirectory: "process-jobs-dev",
+    }
+  );
+
+  const marketplace = JSON.parse(fs.readFileSync(marketplaceFile, "utf8"));
+  assert.deepEqual(
+    marketplace.plugins.map((entry) => entry.name),
+    ["codex-process-jobs", DEV_PLUGIN_NAME]
+  );
+  assert.equal(
+    marketplace.plugins.find((entry) => entry.name === DEV_PLUGIN_NAME).source.path,
+    "./plugins/codex-process-jobs-dev"
+  );
+
+  const calls = fs.readFileSync(env.MOCK_CODEX_CALLS, "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(calls.some((args) =>
+    args[0] === "plugin"
+      && args[1] === "add"
+      && args[2] === "codex-process-jobs-dev@personal"
+  ));
+  assert.equal(
+    fs.existsSync(path.join(cacheRoot(home, DEV_PLUGIN_NAME), manifest.version)),
+    true
+  );
+
+  const identity = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      [
+        `import { RUNTIME_PLUGIN_NAME, STATE_DIRECTORY_NAME, skillReference } from ${JSON.stringify(
+          pathToFileURL(path.join(destination, "scripts", "plugin-identity.mjs")).href
+        )};`,
+        "console.log(JSON.stringify({",
+        "  name: RUNTIME_PLUGIN_NAME,",
+        "  state: STATE_DIRECTORY_NAME,",
+        "  result: skillReference('result'),",
+        "}));",
+      ].join("\n"),
+    ],
+    { encoding: "utf8", env }
+  );
+  assert.equal(identity.status, 0, identity.stderr);
+  assert.deepEqual(JSON.parse(identity.stdout), {
+    name: DEV_PLUGIN_NAME,
+    state: "process-jobs-dev",
+    result: "$codex-process-jobs-dev:result",
+  });
+
+  const configure = spawnSync(
+    process.execPath,
+    [
+      path.join(destination, "scripts", "job.mjs"),
+      "config",
+      "--notify-user",
+      "true",
+      "--json",
+    ],
+    { encoding: "utf8", env }
+  );
+  assert.equal(configure.status, 0, configure.stderr || configure.stdout);
+  assert.equal(
+    fs.existsSync(path.join(home, ".codex", "process-jobs-dev", "config.json")),
+    true
+  );
+  assert.equal(
+    fs.readFileSync(path.join(productionState, "sentinel"), "utf8"),
+    "production state\n"
+  );
+  assert.equal(fs.existsSync(path.join(productionState, "config.json")), false);
+
+  const devSnapshotInstall = spawnSync(
+    process.execPath,
+    [
+      path.join(destination, "scripts", "install.mjs"),
+      "--dev",
+      "--agent-policy",
+      "none",
+    ],
+    { cwd: destination, encoding: "utf8", env }
+  );
+  assert.equal(devSnapshotInstall.status, 1);
+  assert.match(
+    devSnapshotInstall.stderr,
+    /Expected plugin name codex-process-jobs/,
+    "a generated dev snapshot must never become an installer or release source"
+  );
 });
 
 test("passes a shell-like marketplace name as one literal Codex argument", (t) => {

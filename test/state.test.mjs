@@ -168,6 +168,17 @@ test("accepts only known persisted notification transports", (t) => {
     logs: resolveJobLogs("job-vscode-transport", env),
   }, env);
   assert.equal(vscode.notification.transport, "vscode-ipc");
+
+  assert.throws(() => createJob({
+    id: "job-oversized-ipc-diagnostic",
+    status: "completed",
+    notification: {
+      status: "delivered",
+      transport: "app-server",
+      privateIpcFallbackReason: "x".repeat(4097),
+    },
+    logs: resolveJobLogs("job-oversized-ipc-diagnostic", env),
+  }, env), /private IPC fallback reason/i);
 });
 
 test("validates persisted launch-boundary claim metadata", (t) => {

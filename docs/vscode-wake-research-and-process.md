@@ -29,13 +29,16 @@ The detached process and durable completion turn work. The remaining limitation 
 - No documented Codex extension command or API currently asks the open panel to refresh an externally updated task.
 
 The supported behavior is therefore transport-aware rather than
-surface-dependent. App and VS Code may use guarded private IPC for a live
-owner-routed turn; CLI, remote, unsupported clients, and any private-path
-failure retain the separate app-server relay. Every surface still receives
-durable completion, opportunistic pickup at supported agent-loop boundaries,
-one mandatory later-turn recap fallback, and direct status/result retrieval.
-Because the plugin cannot prove whether a synthetic turn rendered, a live
-completion may be recapped once.
+surface-dependent. App and VS Code may use guarded private IPC for a proven
+live owner-routed turn. CLI, remote, unsupported clients, and any private-path
+failure retain the separate
+app-server relay. Every surface still receives durable completion,
+opportunistic pickup at supported agent-loop boundaries, one mandatory
+later-turn recap fallback when live rendering is not confirmed, and direct
+status/result retrieval.
+When owner-routed private delivery is not confirmed, a recorded app-server turn
+may be recapped once because durable transcript state does not prove that the
+assigning client rendered it.
 
 ## 2026-07-20 supported hook-boundary upgrade
 
@@ -131,7 +134,7 @@ A later local Codex App test completed a 75-second heartbeat with exit code zero
 
 Twenty seconds later, an unrelated ordinary prompt triggered the transport-independent hook. The assigning model's context contained the hidden synthetic completion, so the previous hook instruction—"do not repeat when a prior assistant completion is present"—caused Codex to answer only the unrelated question. A later user question confirmed that the agent had received the completion before that response.
 
-This establishes a stricter boundary than stale context alone: a message can exist in durable rollout state and model context while remaining absent from the rendered conversation. The plugin has no trustworthy client-rendered visibility signal. After delivery settles, the current hook therefore requires one short recap on the first eligible ordinary non-status prompt even when the synthetic assistant message is already in context. A possible one-time duplicate is an explicit reliability tradeoff. The state field `ordinaryPromptRecapInjectedAt` records hook injection only; it does not claim model compliance or rendered presentation.
+This established a stricter boundary than stale context alone: a message can exist in durable rollout state and model context while remaining absent from the rendered conversation. At that stage the plugin had no trustworthy client-rendered visibility signal, so the hook required one short recap on the first eligible ordinary non-status prompt even when the synthetic assistant message was already in context. The later owner-routed private IPC transport supplied a stronger signal and now suppresses this recap only after its matching turn completes; portable app-server delivery retains it. The state field `ordinaryPromptRecapInjectedAt` records fallback injection only; it does not claim model compliance or rendered presentation.
 
 ### Successful local App recap verification
 
@@ -181,9 +184,9 @@ It does not persist the inherited environment or raw rollout metadata. `CODEX_PR
 
 | Surface | Completion behavior | Launch wording |
 |---|---|---|
-| Codex App | Guarded private IPC can render the completion live; durable delivery and the first eligible non-status recap remain the fallback | Completion will be recorded; a live notification may appear. After it finishes, I'll recap the outcome as soon as our conversation can pick it up. |
-| Codex CLI | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Same transport-honest wording as App. |
-| Codex VS Code | Guarded private IPC can render the completion and response in the already-open task; unsupported clients safely retain durable delivery and the first eligible non-status recap | Same transport-honest wording, with status available any time. |
+| Codex App | Guarded private IPC can render the completion live; a matching completed private turn suppresses the later recap, while portable or uncertain delivery retains it | Completion will be recorded; a live notification may appear. If live delivery cannot be confirmed, I'll recap the outcome as soon as our conversation can pick it up. |
+| Codex CLI | Completion uses the portable app-server path; live rendering is not promised, so the first eligible non-status prompt still receives one recap | Same transport-honest wording as App. |
+| Codex VS Code | Guarded private IPC can render the completion and response in the already-open task; a matching completed private turn suppresses the later recap, while unsupported clients retain it | Same transport-honest wording, with status available any time. |
 | Mobile/remote | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Same transport-honest wording, with status available any time. |
 | Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; live presentation is best-effort; the same eligible recap applies | Same transport-honest wording, with status available any time. |
 | No owning thread | No conversational relay | Use status/result to check completion. |
@@ -207,12 +210,12 @@ The transferable lesson is straightforward: durable state and a live subscriptio
 ### 1. Transport-independent durable completion
 
 This remains the compatibility foundation. It is portable, preserves job state
-across client exit, injects one mandatory recap on the first eligible ordinary
-non-status prompt after delivery settles on every owning surface, and tells the
-user exactly what to expect. The private App/VS Code path is an opportunistic
-presentation enhancement above it. The foundation intentionally accepts a
-possible one-time duplicate because durable/model context does not prove
-rendered visibility.
+across client exit, and injects one mandatory recap on the first eligible
+ordinary non-status prompt when live owner-routed delivery was not confirmed.
+The proven private App/VS Code path is a presentation enhancement above it:
+after its matching turn reaches durable completion, CPJ suppresses the later
+recap rather than repeating an exchange that the owning client already
+received. CLI remains on the portable path and retains the recap.
 
 ### 2. Companion VS Code extension
 
@@ -239,6 +242,14 @@ contained one matching synthetic user notice, one `task_started`, one assistant
 response, and one `task_complete`; and the already-open panel rendered the
 notice and response without reload, reopening, navigation, or another user
 prompt.
+
+The current notice renders only concise sanitized terminal metadata. The
+trusted prompt-submit hook validates that exact notice against the same task's
+in-flight delivery record, then supplies the fixed report,
+proactive-inspection, or Goal-continuation contract as hidden context. The model
+uses the normal result skill when that contract calls for bounded inspection,
+so implementation instructions no longer fill the user-facing synthetic
+bubble.
 
 The production path therefore uses the same guarded transport already proven
 for local Codex App, extended to VS Code on macOS and Linux. It validates a
@@ -287,6 +298,7 @@ uncertain acceptance. The release smoke matrix still requires a real VS Code
 Remote SSH run on Linux and representative restart/multi-task checks.
 
 `durable-refresh-required` plus one-shot recap injection on the first eligible
-ordinary non-status prompt remains the compatibility contract even when private
-IPC renders live, because CPJ has no trustworthy client-rendered visibility
-receipt.
+ordinary non-status prompt remains the compatibility contract when private IPC
+is unavailable, fails, or cannot confirm acceptance. A matching completed
+owner-routed private-IPC turn suppresses that later recap because the current
+App and VS Code transports have demonstrated live delivery of the same turn.

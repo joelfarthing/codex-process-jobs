@@ -14,22 +14,29 @@ Pass criteria:
 2. Start returns a job id in under two seconds.
 3. Without the user prompt coaching this behavior, the launch turn ends while the ordinary OS process remains active. It does not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or another monitor/probe after start returns.
 4. The separate completion turn is durably recorded. In default `auto` mode on
-   local Codex App and VS Code, the user-friendly automatic notice and the
+   local Codex App and VS Code, the one-sentence automatic notice and the
    agent's bounded result summary, single recommended next step, and permission
    question should render live exactly once; the agent must not execute that
-   step. App should record `notification.transport: desktop-ipc`, while VS Code
-   should record `notification.transport: vscode-ipc`. The non-consuming
-   inspection leaves `resultViewedAt` unset. Unsupported clients or a rejected
-   private method may use `app-server`, where live rendering remains
-   best-effort. CLI and unknown surfaces retain the lightweight acknowledgment
-   unless completion mode is explicitly overridden.
-5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. On the first eligible unrelated non-status prompt after delivery settles, the assigning agent briefly recaps the completion before answering, even if a synthetic completion is already present in model context. A live-rendered synthetic message may therefore be repeated once. In Codex App, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only completion is a failure. A second eligible unrelated prompt must not repeat the job.
+   step. The visible notice must contain no `Codex:` instruction paragraph;
+   the trusted prompt-submit hook must validate the same-task in-flight record
+   and supply the deterministic policy as hidden context.
+   In an ordinarily launched CLI, do not promise a live wake. Completion uses
+   the portable app-server path and the first eligible later prompt retains the
+   one-shot recap.
+   App should record `notification.transport: desktop-ipc`, VS Code should
+   record `notification.transport: vscode-ipc`, and CLI should record
+   `notification.transport: app-server`. The non-consuming inspection leaves
+   `resultViewedAt` unset. Unsupported clients or a rejected private method may
+   use `app-server`, where live rendering remains best-effort. CLI and unknown
+   surfaces retain the lightweight acknowledgment unless completion mode is
+   explicitly overridden.
+5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
 6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code
    `0`, and `notification.presentation: durable-refresh-required`. After direct
    completion, it also reports `notification.transport: desktop-ipc`,
    `vscode-ipc`, or `app-server`.
 7. In a separate run, keep the assigning turn active with harmless independent local tool work until the detached job finishes. The approved `PostToolUse` hook should surface it after a supported tool boundary; if completion occurs at finalization instead, the approved `Stop` hook should continue once to include the recap. Neither path may create a duplicate direct turn or expose process output in hook context.
-7. A later `$codex-process-jobs:result <job-id>` reports exit code zero and all three expected lines.
+8. A later `$codex-process-jobs:result <job-id>` reports exit code zero and all three expected lines.
 
 For every client, verify the owning task with a fresh transcript load as well as
 the current view. In the primary VS Code live-render test, do not reload,
@@ -54,8 +61,8 @@ Run the same acceptance contract in every row. Record the host OS, Codex client/
 
 | Execution host | Client path | Required refresh before test | Acceptance focus |
 |---|---|---|---|
-| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | Friendly notice and one-sentence response render live exactly once through Desktop IPC; later recap contract remains intact |
-| macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | Friendly notice and proactive response render live exactly once through VS Code private IPC; later recap contract remains intact |
+| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through Desktop IPC; no later duplicate recap |
+| macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through VS Code private IPC; no later duplicate recap |
 | macOS | Codex CLI | Exit/restart CLI; review `/hooks`; fresh task | Terminal presentation plus durable final recap |
 | Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local private IPC live render when the remote extension host exposes the router; safe app-server fallback otherwise |
 | Linux | Codex CLI | Reinstall on Linux host; restart CLI; review `/hooks`; fresh task | Portable detached lifecycle and recap |

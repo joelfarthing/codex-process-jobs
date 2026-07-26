@@ -14,37 +14,29 @@ The runtime tracks process identity, status, bounded stdout/stderr, exit status,
 
 ## Before and after
 
-Without a detached process harness, Codex can spend a sequence of agent turns polling a build and narrating tiny progress changes instead of releasing the conversation for useful work. This real CUDA build moved from 190/256 to 199/256 across five progress-only turns:
+Without a detached process harness, Codex can spend a sequence of agent turns
+polling a build and narrating tiny progress changes instead of releasing the
+conversation for useful work. This real CUDA build moved from 190/256 to
+199/256 across five progress-only turns:
 
 ![Before Codex Process Jobs: five successive Codex turns narrate small CUDA build progress changes.](docs/assets/codex-process-jobs-before.png)
 
-With Codex Process Jobs, the assigning turn registers the ordinary OS process and returns immediately. When the harmless 70-second synthetic build below finished, the owning task received one sanitized completion notice, inspected the bounded saved result, summarized the outcome, and offered one next step:
+With Codex Process Jobs, the assigning turn registers the ordinary OS process
+and returns immediately. When a harmless synthetic release-build simulation
+finished, the owning task received a concise completion notice, inspected the
+bounded saved result, summarized the outcome, and offered one next step:
 
-![After Codex Process Jobs: one detached launch followed by one completion notice and inspected result.](docs/assets/codex-process-jobs-after.png)
+![After Codex Process Jobs in Codex App: a detached synthetic build completes, wakes the owning task, and produces an inspected result with a recommended next step.](assets/cpj-0.2.4-mac-2026-07-26.png)
 
-Both screenshots are from Codex App. The before image is a real CUDA build; the after image uses a harmless synthetic CMake-style process so the demonstration is reproducible and changes no project files.
+The VS Code extension can deliver the same completion live into the already-open
+task. This run also shows the released turn being used for an unrelated question
+while the simulated build continued:
 
-### VS Code live completion
+![After Codex Process Jobs in VS Code: the assigning turn is released for unrelated work before live completion, bounded result inspection, and a recommended next step.](assets/cpj-0.2.4-vscode-2026-07-26.png)
 
-The same quality-of-life problem appears in the Codex VS Code extension. This
-real CUDA build occupied the agent with repeated progress-only turns:
-
-![Before Codex Process Jobs in VS Code: repeated CUDA compilation progress turns occupy the Codex panel.](assets/codex-vs-code-before-CPJ.png)
-
-In this July 24 acceptance run, CPJ started a harmless 75-second heartbeat job,
-released the assigning turn, and delivered a sanitized completion into the
-same already-open VS Code task without a reload, task reopen, or intervening
-user prompt:
-
-![After Codex Process Jobs in VS Code, part one: the assigning turn is released and the background-job completion appears live in the same open panel.](assets/codex-vs-code-after-CPJ-01.png)
-
-The completion turn then inspected the bounded saved output, confirmed all five
-heartbeats and the absence of stderr, recommended the next step, and waited for
-permission:
-
-![After Codex Process Jobs in VS Code, part two: Codex summarizes the inspected result and recommends the next step.](assets/codex-vs-code-after-CPJ-02.png)
-
-This live-render path uses an experimental private Codex transport and remains
+The before image is a real CUDA build. Both after images use harmless synthetic
+processes so the demonstration is reproducible and changes no project files.
+Live rendering uses an experimental private Codex transport and remains
 best-effort. Durable job state, explicit status/result retrieval, and the
 consent-gated later-turn recap when live private delivery is not confirmed
 remain the compatibility baseline.
@@ -55,8 +47,6 @@ Choose exactly one provider. The recommended installation is the OpenAI Plugins
 Directory: open the directory, search for **Codex Process Jobs**, and choose
 **Install plugin**. This is the simplest Codex-managed path and avoids a
 separate package manager and personal marketplace.
-
-![Codex Process Jobs listed in the OpenAI-curated Plugins Directory.](assets/codex-process-jobs-in-openai-marketplace-2026-07-24.png)
 
 Homebrew distribution is deprecated as of July 24, 2026. Existing Homebrew and
 personal-marketplace installations should

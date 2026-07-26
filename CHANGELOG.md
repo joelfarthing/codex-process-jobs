@@ -4,6 +4,26 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Added
+
+- Maintainers can preview and install an isolated
+  `codex-process-jobs-dev` runtime with `node scripts/install.mjs --dev`.
+  The generated snapshot uses a distinct plugin and skill namespace,
+  `process-jobs-dev` durable state, personal-marketplace entry, and visible
+  development identity so it can coexist with a disabled Marketplace copy.
+
+### Changed
+
+- The optional managed `AGENTS.md` policy now refers to the enabled CPJ skills
+  without hard-coding a production or development plugin namespace.
+
+### Security
+
+- Production packaging requires the exact public plugin identity and refuses
+  development install markers. Development identity rewriting occurs only in
+  the transactional staging copy, and a generated development snapshot cannot
+  be used as a release or installer source.
+
 ## [0.2.4] - 2026-07-25
 
 ### Added

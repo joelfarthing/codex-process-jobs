@@ -31,6 +31,11 @@ test("CLI and detached worker run from an installation path containing spaces", 
   t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   assert.match(root, / /);
   fs.cpSync(path.join(ROOT, "scripts"), path.join(root, "scripts"), { recursive: true });
+  fs.mkdirSync(path.join(root, ".codex-plugin"));
+  fs.copyFileSync(
+    path.join(ROOT, ".codex-plugin", "plugin.json"),
+    path.join(root, ".codex-plugin", "plugin.json")
+  );
   const cli = path.join(root, "scripts", "job.mjs");
   const env = {
     CODEX_HOME: path.join(root, "codex-home"),

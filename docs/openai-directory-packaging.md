@@ -13,7 +13,9 @@ npm run package:openai-directory
 
 The command validates aligned strict-SemVer versions, portal metadata
 (including the square logo and manifest-backed website, privacy, and terms
-URLs), regular files, and the reviewed runtime allowlist. It writes:
+URLs), the exact production plugin name and display name, absence of a generated
+development-install marker, regular files, and the reviewed runtime allowlist.
+It writes:
 
 ```text
 dist/codex-process-jobs-openai-directory-X.Y.Z.zip

@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 
 import { isCliEntry } from "./cli-entry.mjs";
 import { startDesktopNotificationTurn } from "./desktop-ipc.mjs";
+import { RUNTIME_DISPLAY_NAME, RUNTIME_PLUGIN_NAME } from "./plugin-identity.mjs";
 import { COMPLETION_MODES, readPreferences } from "./preferences.mjs";
 import { resolveOwnerRolloutFile, sanitizeThreadId } from "./session.mjs";
 import { listJobs, nowIso, readJob, updateJob } from "./state.mjs";
@@ -348,8 +349,8 @@ async function deliverAppServerNotificationTurn(job, threadId, input, timeoutMs,
       method: "initialize",
       params: {
         clientInfo: {
-          name: "codex-process-jobs",
-          title: "Codex Process Jobs",
+          name: RUNTIME_PLUGIN_NAME,
+          title: RUNTIME_DISPLAY_NAME,
           version: "0.1.0",
         },
         capabilities: { experimentalApi: true },

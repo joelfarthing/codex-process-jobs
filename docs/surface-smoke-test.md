@@ -28,9 +28,10 @@ Pass criteria:
    `notification.transport: app-server`. The non-consuming inspection leaves
    `resultViewedAt` unset. Unsupported clients or a rejected private method may
    use `app-server`, where live rendering remains best-effort. CLI and unknown
-   surfaces retain the lightweight acknowledgment unless completion mode is
-   explicitly overridden.
-5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
+   surfaces retain the lightweight acknowledgment in the direct completion turn
+   unless completion mode is explicitly overridden; a CLI launch should also
+   produce one desktop completion notice by default.
+5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. For a CLI-owned job in default `auto` mode, that recap additionally inspects the bounded saved result with `--peek`, summarizes it, recommends one next step, and asks permission without executing it. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
 6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code
    `0`, and `notification.presentation: durable-refresh-required`. After direct
    completion, it also reports `notification.transport: desktop-ipc`,

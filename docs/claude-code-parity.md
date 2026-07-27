@@ -71,7 +71,7 @@ These are load-bearing invariants from [SECURITY.md](../SECURITY.md) and the exi
 
 **Tests.** Preference round-trip including rejection of non-boolean values; worker invokes the platform notifier with expected argv (injectable spawn, mirroring the process-control test style); absence of the binary does not affect job state or exit status.
 
-**Implementation.** `start --notify-user` and `--no-notify-user` override the strict, private `notifyUser` preference managed by `config --notify-user true|false`; the default is false and older version-1 preference files remain compatible. Terminal state is persisted before the worker launches an unref'd notification command with `shell: false`. The human-facing label has control characters normalized and is capped at 512 UTF-8 bytes. `osascript` and `notify-send` failure is silent and cannot alter process or relay state.
+**Implementation.** `start --notify-user` and `--no-notify-user` override the strict, private `notifyUser` preference managed by `config --notify-user true|false`; without a flag or durable preference, CLI-owned jobs default to one notice because the open TUI cannot render the completion turn live, other surfaces default to none, and older version-1 preference files remain compatible (an absent `notifyUser` key now means "no durable preference" rather than an explicit opt-out). Terminal state is persisted before the worker launches an unref'd notification command with `shell: false`. The human-facing label has control characters normalized and is capped at 512 UTF-8 bytes. `osascript` and `notify-send` failure is silent and cannot alter process or relay state.
 
 ## Structurally unfillable — do not attempt
 

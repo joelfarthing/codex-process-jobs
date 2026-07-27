@@ -4,6 +4,27 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Added
+
+- Completion-wake research for Codex CLI/TUI with binary-level evidence that
+  the private thread-follower wake transport terminates in the App and VS Code
+  client layers, plus a draft upstream feature request for a supported TUI
+  wake path. See
+  [docs/cli-wake-research-and-upstream-proposal.md](docs/cli-wake-research-and-upstream-proposal.md).
+
+### Changed
+
+- CLI-owned jobs now default to one human-facing desktop completion notice,
+  because an already-open Codex TUI cannot render the completion turn live. An
+  explicit `--notify-user`/`--no-notify-user` launch flag or the durable
+  `config --notify-user true|false` preference still wins; an absent durable
+  preference is now stored as unset instead of an implicit opt-out.
+- In default `auto` completion mode, the first eligible hook boundary now
+  gives a CLI-owned job the same bounded `result --peek` inspection, summary,
+  recommended next step, and permission question that App, VS Code, and remote
+  surfaces receive in their direct completion turns. The CLI direct completion
+  turn remains acknowledgment-only because the open TUI cannot render it.
+
 ## [0.2.4] - 2026-07-25
 
 ### Added

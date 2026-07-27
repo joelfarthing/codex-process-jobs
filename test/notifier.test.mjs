@@ -12,6 +12,7 @@ import {
   buildNotificationPrompt,
   completionMode,
   deliverNotificationTurn,
+  hookCompletionMode,
   readLatestTaskLifecycle,
   resolveOwnerRolloutFile,
   runNotifier,
@@ -199,6 +200,24 @@ test("Goal-mode notice remains the same concise visible sentence", () => {
   );
   assert.equal(input[0].text, "Background job `job-notify-001` finished successfully with exit code 0.");
   assert.equal(input.length, 1);
+});
+
+test("hook boundaries promote CLI auto mode to inspection while the relay stays lightweight", () => {
+  const auto = { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" };
+  assert.equal(completionMode(terminalJob({ ownerSurface: "cli" }), auto), "report");
+  assert.equal(hookCompletionMode(terminalJob({ ownerSurface: "cli" }), auto), "inspect");
+  assert.equal(hookCompletionMode(terminalJob({ ownerSurface: "unknown" }), auto), "report");
+  for (const surface of ["app", "remote", "vscode"]) {
+    assert.equal(hookCompletionMode(terminalJob({ ownerSurface: surface }), auto), "inspect");
+  }
+  assert.equal(
+    hookCompletionMode(terminalJob({ ownerSurface: "cli" }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" }),
+    "report",
+  );
+  assert.equal(
+    hookCompletionMode(terminalJob({ ownerSurface: "cli" }), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "arbitrary injection" }),
+    "report",
+  );
 });
 
 test("completion mode override supports safer report and explicit inspect behavior", () => {

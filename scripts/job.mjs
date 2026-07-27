@@ -300,7 +300,10 @@ async function handleStart(args, env = process.env) {
   let notifyUser = parsed.notifyUser;
   if (notifyUser == null) {
     try {
-      notifyUser = readPreferences(env).notifyUser;
+      // CLI-owned jobs default to a desktop notice because the TUI cannot
+      // render the completion turn live; an explicit launch flag or durable
+      // preference always wins, and unreadable preferences fail closed.
+      notifyUser = readPreferences(env).notifyUser ?? ownerClient.surface === "cli";
     } catch {
       notifyUser = false;
     }
@@ -629,7 +632,7 @@ async function handleConfig(args, env = process.env) {
     : writePreferences({ completionMode: options.completionMode, notifyUser: options.notifyUser }, env);
   output(
     { preferences, file: resolvePreferencesFile(env) },
-    `Completion mode: ${preferences.completionMode}\nUser notification: ${preferences.notifyUser ? "enabled" : "disabled"}\nPreferences: ${resolvePreferencesFile(env)}`,
+    `Completion mode: ${preferences.completionMode}\nUser notification: ${preferences.notifyUser == null ? "surface default (enabled for CLI-owned jobs)" : preferences.notifyUser ? "enabled" : "disabled"}\nPreferences: ${resolvePreferencesFile(env)}`,
     options.json,
   );
 }

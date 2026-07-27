@@ -37,9 +37,9 @@ rather than inferred from behavior:
   restricted on current Linux), and writing to the TTY device reaches the
   terminal emulator's output stream, not Codex's input.
 
-Consequently `PRIVATE_IPC_SURFACES = {app, vscode}` in
-`scripts/desktop-ipc.mjs` is the correct encoding of a real boundary, not a
-missing feature in CPJ.
+Consequently `PRIVATE_IPC_SURFACES = {app, vscode}` in both
+`scripts/desktop-ipc.mjs` and `scripts/notifier.mjs` is the correct encoding of
+a real boundary, not a missing feature in CPJ.
 
 ## Evidence
 

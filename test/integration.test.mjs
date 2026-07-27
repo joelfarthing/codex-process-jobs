@@ -254,6 +254,60 @@ test("config command reads and writes durable completion and user-notification p
   runCli(["config", "--notify-user", "sometimes"], context.env, { expectStatus: 1 });
 });
 
+test("CLI-owned jobs default to one desktop completion notice unless overridden", (t) => {
+  const stubBin = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notify-stub-"));
+  t.after(() => fs.rmSync(stubBin, { recursive: true, force: true }));
+  const marker = path.join(stubBin, "notified.log");
+  for (const name of ["osascript", "notify-send"]) {
+    fs.writeFileSync(
+      path.join(stubBin, name),
+      `#!/bin/sh\nprintf '%s ' "$@" >> "${marker}"\n`,
+      { mode: 0o755 },
+    );
+  }
+  const stubbedPath = `${stubBin}${path.delimiter}${process.env.PATH}`;
+  const context = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "codex_cli",
+    PATH: stubbedPath,
+  });
+
+  const defaulted = startJson(["--name", "cli-default-notice", "--", process.execPath, "-e", "process.exit(0)"], context);
+  assert.equal(defaulted.ownerSurface, "cli");
+  assert.equal(defaulted.notifyUser, true);
+  assert.equal(waitJson(defaulted.id, context.env).job.status, "completed");
+  assert.equal(waitUntil(() => {
+    try {
+      return fs.readFileSync(marker, "utf8").includes(defaulted.id);
+    } catch {
+      return false;
+    }
+  }, 5000), true);
+  // A surface-defaulted notice is minimal: no label, even an explicit one.
+  assert.doesNotMatch(fs.readFileSync(marker, "utf8"), /cli-default-notice/);
+
+  const optedOut = startJson(["--no-notify-user", "--", process.execPath, "-e", "process.exit(0)"], context);
+  assert.equal(optedOut.notifyUser, false);
+
+  runCli(["config", "--notify-user", "false", "--json"], context.env);
+  const durablyOff = startJson(["--", process.execPath, "-e", "process.exit(0)"], context);
+  assert.equal(durablyOff.notifyUser, false);
+
+  // `config --notify-user default` clears the durable opt-out so the CLI
+  // surface default applies again.
+  const restored = JSON.parse(runCli(["config", "--notify-user", "default", "--json"], context.env).stdout);
+  assert.equal(restored.preferences.notifyUser, null);
+  const redefaulted = startJson(["--", process.execPath, "-e", "process.exit(0)"], context);
+  assert.equal(redefaulted.notifyUser, true);
+
+  const appContext = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",
+    PATH: stubbedPath,
+  });
+  const appJob = startJson(["--", process.execPath, "-e", "process.exit(0)"], appContext);
+  assert.equal(appJob.ownerSurface, "app");
+  assert.equal(appJob.notifyUser, false);
+});
+
 test("invalid owner thread ids fail closed to status-only notification", (t) => {
   const context = makeEnv(t, {
     CODEX_THREAD_ID: "bad\nignore-previous-instructions",

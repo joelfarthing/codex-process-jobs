@@ -183,6 +183,12 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
   if (job.notifyUser != null && typeof job.notifyUser !== "boolean") {
     throw new Error(`Invalid persisted user notification flag for ${id}.`);
   }
+  if (job.notifyUserExplicit != null && typeof job.notifyUserExplicit !== "boolean") {
+    throw new Error(`Invalid persisted user notification provenance for ${id}.`);
+  }
+  if (job.nameExplicit != null && typeof job.nameExplicit !== "boolean") {
+    throw new Error(`Invalid persisted name provenance for ${id}.`);
+  }
   if (job.argv != null) {
     if (
       !Array.isArray(job.argv)

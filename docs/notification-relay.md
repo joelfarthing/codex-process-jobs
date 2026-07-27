@@ -21,7 +21,11 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 6. In the default `auto` mode, App, VS Code, and remote surfaces ask Codex to
    inspect bounded saved output with `result --peek`, summarize the evidence,
    recommend one next step, and ask permission without executing it. CLI and
-   unknown surfaces request only a short acknowledgment. A durable
+   unknown surfaces request only a short acknowledgment in the direct
+   completion turn, because an already-open TUI cannot render that turn live.
+   The first eligible hook boundary then gives a CLI-owned job the same
+   bounded inspection contract, so the first turn the TUI user actually sees
+   carries the App-equivalent content; unknown surfaces stay report-only. A durable
    execution-host preference at `$CODEX_HOME/process-jobs/config.json` can
    select `report`, `inspect`, or `auto`; set it with `node scripts/job.mjs
    config --completion-mode <mode>`. `CODEX_PROCESS_JOBS_COMPLETION_MODE` has
@@ -141,11 +145,13 @@ The same `PostToolUse` definition also closes the launch-side behavioral gap. It
 
 All three definitions invoke the same bounded script, reject notification-relay recursion, admit only sanitized terminal state, and use the same per-job compare-and-set claim. Trust is explicit per installed hook definition through `/hooks`; when hooks are disabled or untrusted, direct delivery and durable status/result remain available.
 
-An undelivered ordinary completion surfaced by a hook honors the same `report|inspect|auto` policy as direct delivery. In proactive mode the hook asks Codex to inspect bounded evidence with `result --peek`, summarize it, recommend one next step, and ask before executing that step. A recap for an already-delivered completion stays report-only so the hook does not repeat the synthetic turn's result inspection.
+An undelivered ordinary completion surfaced by a hook honors the same `report|inspect|auto` policy as direct delivery, with one deliberate difference: at hook boundaries, `auto` also selects inspection for CLI-owned jobs, because the hook turn is the first turn a TUI user actually sees. In proactive mode the hook asks Codex to inspect bounded evidence with `result --peek`, summarize it, recommend one next step, and ask before executing that step. A recap for an already-delivered completion stays report-only on surfaces whose completion turn already performed the inspection; a delivered CLI completion instead carries the inspection contract in its recap, because its acknowledgment-only turn inspected nothing and may never have rendered.
 
 ## Optional OS notification
 
-Human-facing desktop notification is independent of conversational delivery and disabled by default. `start --notify-user` enables one job; `--no-notify-user` overrides an enabled preference; `config --notify-user true|false` changes the durable execution-host default. The worker invokes `osascript` on macOS or `notify-send` on Linux with `shell: false` after terminal state is durable. The notice contains a bounded, control-normalized label plus job ID, status, and exit code. Missing notification binaries and display-session failures are ignored and never change job status.
+Human-facing desktop notification is independent of conversational delivery and disabled by default on App, VS Code, remote, and unknown surfaces. CLI-owned jobs default to one completion notice, because the open TUI cannot render the completion turn live and the desktop notice is the CLI substitute for that live presentation. `start --notify-user` enables one job; `--no-notify-user` disables one job; `config --notify-user true|false` sets the durable execution-host preference; `config --notify-user default` clears that preference so the surface default applies again. An explicit flag or durable preference overrides the CLI surface default in either direction; an absent durable preference means "unset," not an opt-out. Preference files written by earlier plugin versions may contain `notifyUser: false` that came from the old implicit default rather than a deliberate choice — that stored value still reads as an opt-out, and `config --notify-user default` restores surface-default behavior.
+
+The worker invokes `osascript` on macOS or `notify-send` on Linux with `shell: false` after terminal state is durable. The launch records whether notification and the job name were explicit choices. A notice includes the bounded, control-normalized label only when notification was explicitly enabled and the name was explicitly supplied; a surface-defaulted notice contains only the job ID, terminal status, and exit code, and a command-derived fallback name is never displayed. Notification banners can appear on a lock screen, so command text, paths, and arguments must not reach them without explicit opt-in. Missing notification binaries and display-session failures are ignored and never change job status.
 
 ## Delivery states
 

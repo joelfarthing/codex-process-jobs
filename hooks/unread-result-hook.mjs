@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isCliEntry } from "../scripts/cli-entry.mjs";
-import { completionMode } from "../scripts/notifier.mjs";
+import { completionMode, hookCompletionMode } from "../scripts/notifier.mjs";
 import { ACTIVE_STATUSES, TERMINAL_STATUSES, listJobs, nowIso, tryReadJob, updateJob } from "../scripts/state.mjs";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -351,7 +351,14 @@ function buildContext(jobs, eventName = "UserPromptSubmit", env = process.env) {
   const goalJobs = jobs.filter((job) => job.goalMode);
   const ordinaryJobs = jobs.filter((job) => !job.goalMode);
   const inspectOrdinaryJobs = ordinaryJobs.filter((job) =>
-    job.fallbackKind === "delivery-fallback" && completionMode(job, env) === "inspect"
+    hookCompletionMode(job, env) === "inspect"
+    && (
+      job.fallbackKind === "delivery-fallback"
+      // A delivered-awareness recap stays report-only where the synthetic turn
+      // already inspected. A CLI synthetic turn is acknowledgment-only and
+      // cannot render, so its recap carries the inspection instead.
+      || (job.fallbackKind === "delivered-awareness" && job.ownerSurface === "cli")
+    )
   );
   const reportOrdinaryJobs = ordinaryJobs.filter((job) => !inspectOrdinaryJobs.includes(job));
   const lines = jobs.map((job) =>

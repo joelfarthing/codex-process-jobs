@@ -25,6 +25,10 @@ const MAX_NOTIFICATION_BATCH = 20;
 const MAX_PRIVATE_IPC_FALLBACK_REASON_BYTES = 4096;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "cancel_failed"]);
 const INSPECT_SURFACES = new Set(["app", "remote", "vscode"]);
+// A CLI completion turn cannot be rendered by the already-open TUI, so CLI
+// stays acknowledgment-only there; the hook boundary is the first turn the CLI
+// user actually sees, so it carries the full inspection contract instead.
+const HOOK_INSPECT_SURFACES = new Set(["app", "remote", "vscode", "cli"]);
 const PRIVATE_IPC_SURFACES = new Set(["app", "vscode"]);
 
 function parsePositiveInteger(value, fallback, maximum) {
@@ -33,7 +37,7 @@ function parsePositiveInteger(value, fallback, maximum) {
   return Math.min(parsed, maximum);
 }
 
-export function completionMode(job, env = process.env) {
+function resolveCompletionMode(job, env, autoInspectSurfaces) {
   const override = String(env.CODEX_PROCESS_JOBS_COMPLETION_MODE ?? "").trim().toLowerCase();
   if (override && !COMPLETION_MODES.has(override)) return "report";
   let configured = override;
@@ -45,7 +49,15 @@ export function completionMode(job, env = process.env) {
     }
   }
   if (configured === "inspect" || configured === "report") return configured;
-  return INSPECT_SURFACES.has(job.ownerSurface) ? "inspect" : "report";
+  return autoInspectSurfaces.has(job.ownerSurface) ? "inspect" : "report";
+}
+
+export function completionMode(job, env = process.env) {
+  return resolveCompletionMode(job, env, INSPECT_SURFACES);
+}
+
+export function hookCompletionMode(job, env = process.env) {
+  return resolveCompletionMode(job, env, HOOK_INSPECT_SURFACES);
 }
 
 function normalizeNotificationJobs(jobOrJobs) {

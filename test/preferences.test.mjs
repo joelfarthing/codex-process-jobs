@@ -18,11 +18,11 @@ function createEnv(t) {
 
 test("completion preferences default to auto and persist privately", (t) => {
   const env = createEnv(t);
-  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "auto", notifyUser: false });
+  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "auto", notifyUser: null });
   assert.deepEqual(writePreferences({ completionMode: "inspect" }, env), {
     schemaVersion: 1,
     completionMode: "inspect",
-    notifyUser: false,
+    notifyUser: null,
   });
   assert.deepEqual(writePreferences({ notifyUser: true }, env), {
     schemaVersion: 1,
@@ -31,6 +31,31 @@ test("completion preferences default to auto and persist privately", (t) => {
   });
   assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "inspect", notifyUser: true });
   assert.equal(fs.statSync(resolvePreferencesFile(env)).mode & 0o777, 0o600);
+});
+
+test("an explicit user-notification opt-out is preserved as false rather than unset", (t) => {
+  const env = createEnv(t);
+  assert.deepEqual(writePreferences({ notifyUser: false }, env), {
+    schemaVersion: 1,
+    completionMode: "auto",
+    notifyUser: false,
+  });
+  assert.equal(readPreferences(env).notifyUser, false);
+  assert.equal(writePreferences({ completionMode: "report" }, env).notifyUser, false);
+});
+
+test("notify-user default clears the stored preference back to surface defaults", (t) => {
+  const env = createEnv(t);
+  writePreferences({ notifyUser: false }, env);
+  assert.equal(readPreferences(env).notifyUser, false);
+  assert.deepEqual(writePreferences({ notifyUser: "default" }, env), {
+    schemaVersion: 1,
+    completionMode: "auto",
+    notifyUser: null,
+  });
+  assert.equal(readPreferences(env).notifyUser, null);
+  writePreferences({ notifyUser: true }, env);
+  assert.equal(writePreferences({ notifyUser: "default" }, env).notifyUser, null);
 });
 
 test("completion preferences reject unknown keys and unsafe files", (t) => {

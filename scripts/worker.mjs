@@ -53,10 +53,17 @@ function waitForClose(child) {
 export function launchUserNotification(job, env = process.env, spawnImpl = spawn, platform = process.platform) {
   if (!job.notifyUser) return null;
   const exitCode = Number.isInteger(job.exitCode) ? job.exitCode : "not reported";
-  const normalizedName = String(job.name ?? job.id).replace(/[\u0000-\u001f\u007f]/g, " ");
-  let name = normalizedName;
-  while (Buffer.byteLength(name, "utf8") > 512) name = name.slice(0, -1);
-  const message = `${name} (${job.id}) finished ${job.status}; exit code ${exitCode}.`;
+  // A label appears only when notification was an explicit choice AND the name
+  // was explicitly supplied. Surface-defaulted notices stay job ID, status,
+  // and exit code; a command-derived fallback name is never displayed, so
+  // paths, model names, and arguments cannot leak to a lock screen.
+  let message = `${job.id} finished ${job.status}; exit code ${exitCode}.`;
+  if (job.notifyUserExplicit && job.nameExplicit && job.name != null) {
+    const normalizedName = String(job.name).replace(/[\u0000-\u001f\u007f]/g, " ");
+    let name = normalizedName;
+    while (Buffer.byteLength(name, "utf8") > 512) name = name.slice(0, -1);
+    message = `${name} (${job.id}) finished ${job.status}; exit code ${exitCode}.`;
+  }
   let command;
   let args;
   if (platform === "darwin") {

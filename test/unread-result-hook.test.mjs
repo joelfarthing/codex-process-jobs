@@ -1065,6 +1065,34 @@ test("delivered CLI app-server completion receives the same transport-independen
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /job-hook-cli/);
   assert.match(readJob(env, "job-hook-cli").notification.ordinaryPromptRecapInjectedAt, /T/);
+  // The CLI synthetic turn was acknowledgment-only and cannot render live, so
+  // the recap carries the inspection contract instead of staying report-only.
+  assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-cli/);
+  assert.match(result.stdout, /result <job-id> --peek/);
+  assert.doesNotMatch(result.stdout, /Report-only job IDs/);
+});
+
+test("undelivered CLI completion carries the full inspection contract at the hook boundary", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-cli-pending",
+    ownerThreadId: "thread-hook-cli-pending",
+    ownerSurface: "cli",
+    status: "completed",
+    exitCode: 0,
+    notification: { status: "pending" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-cli-pending",
+    prompt: "continue",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-cli-pending/);
+  assert.match(result.stdout, /result <job-id> --peek/);
+  assert.match(result.stdout, /recommend the single next best step/);
+  assert.doesNotMatch(result.stdout, /Report-only job IDs/);
+  assert.equal(readJob(env, "job-hook-cli-pending").notification.status, "fallback_notified");
 });
 
 test("ordinary prompt does not race a notifier-owned delivering attempt", (t) => {

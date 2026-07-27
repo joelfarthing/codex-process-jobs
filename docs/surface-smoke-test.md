@@ -28,9 +28,10 @@ Pass criteria:
    `notification.transport: app-server`. The non-consuming inspection leaves
    `resultViewedAt` unset. Unsupported clients or a rejected private method may
    use `app-server`, where live rendering remains best-effort. CLI and unknown
-   surfaces retain the lightweight acknowledgment unless completion mode is
-   explicitly overridden.
-5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
+   surfaces retain the lightweight acknowledgment in the direct completion turn
+   unless completion mode is explicitly overridden; a CLI launch should also
+   produce one desktop completion notice by default.
+5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. For a CLI-owned job in default `auto` mode, that recap additionally inspects the bounded saved result with `--peek`, summarizes it, recommends one next step, and asks permission without executing it. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
 6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code
    `0`, and `notification.presentation: durable-refresh-required`. After direct
    completion, it also reports `notification.transport: desktop-ipc`,
@@ -49,7 +50,7 @@ Also ask “how's the build going?” during a longer smoke job. The agent shoul
 
 For a token-efficiency check, request two JSON reads of one stream. Reuse the first response's `nextOffset` and `generation`; the second response should contain only newly appended bytes. Test stdout and stderr independently. If a deliberately tiny log cap forces compaction, the next response should set `compacted: true` rather than silently treating the rewritten bytes as continuous.
 
-Optional OS notification is a separate smoke. Enable it for one harmless launch with `--notify-user`; confirm a local macOS notification appears when the App has notification permission, or a Linux notification appears when a graphical session and `notify-send` are available. Failure to display must not change terminal job state or conversational delivery.
+Optional OS notification is a separate smoke. Enable it for one harmless launch with `--notify-user` (CLI-owned launches enable it by surface default); confirm a local macOS notification appears when the App has notification permission, or a Linux notification appears when a graphical session and `notify-send` are available. A surface-defaulted notice must show only the job ID, terminal status, and exit code; a label appears only when both `--notify-user` (or the durable preference) and `--name` were explicit. Failure to display must not change terminal job state or conversational delivery.
 
 Test Codex App, Codex VS Code extension, and Codex CLI on the same host after one installation. For VS Code Remote SSH, Dev Containers, WSL, or another remote extension host, install and test the plugin in that host environment as well.
 

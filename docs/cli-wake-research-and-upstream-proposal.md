@@ -146,9 +146,21 @@ expand the mandatory `/hooks` review surface without user-visible benefit.
 
 ## Related upstream issues
 
+Verified 2026-07-26. None of these asks for a TUI-side wake path; the closest
+was closed as a duplicate of an App-side refresh request.
+
 - [openai/codex#11957](https://github.com/openai/codex/issues/11957) —
-  programmatic TUI resync of externally updated thread state. Closed without a
-  documented maintainer response.
+  programmatic TUI resync of externally updated thread state. Closed
+  2026-02-17 as a duplicate of #11907, which is an App-side manual-refresh
+  request rather than a TUI mechanism. The TUI ask was therefore never
+  evaluated on its own merits.
+- [openai/codex#11907](https://github.com/openai/codex/issues/11907) — App
+  manual refresh or auto-sync for archived and cross-surface conversations.
+  Open. App-side UI affordance, not a TUI wake path.
+- [openai/codex#21974](https://github.com/openai/codex/issues/21974) — the App
+  should live-refresh CLI-created local sessions. Open. The mirror image of
+  this request: it asks the App to observe CLI activity, not for the TUI to
+  receive anything.
 - [openai/codex#21743](https://github.com/openai/codex/issues/21743) —
   external app-server turns do not live-refresh an already-open Desktop view.
   Open, no maintainer response.
@@ -156,21 +168,49 @@ expand the mandatory `/hooks` review surface without user-visible benefit.
   no documented way for app-server clients to discover and attach to the
   active Desktop thread. Open, no maintainer response.
 - [openai/codex#11166](https://github.com/openai/codex/issues/11166) —
-  network transport for remote attach; the shipped `--remote` WebSocket TUI
-  attach matches this direction.
+  network transport for remote attach. **Closed as completed**; 0.145.0 ships
+  `--remote` with WebSocket TUI attach. Useful precedent that a well-specified
+  transport request in this area can land.
+- [openai/codex#32466](https://github.com/openai/codex/issues/32466) — Desktop
+  misses live turn updates until the same thread is opened in VS Code. Open.
+  Adjacent cross-surface staleness evidence.
+
+## Upstream contribution policy
+
+Verified 2026-07-26 against
+[docs/contributing.md](https://github.com/openai/codex/blob/main/docs/contributing.md).
+
+**Code contributions are by invitation only, and uninvited pull requests are
+closed without review.** What the team explicitly does want is issue-level
+analysis: reproduction detail, root-cause hypotheses, and design feedback.
+
+This inverts the original draft's approach. An offer to implement would signal
+that the guidelines were not read and would waste the strongest asset this
+research has, which is the analysis itself. The filed issue therefore leads
+with evidence and offers further investigation and testing rather than code.
+
+Note also that the repository runs an automated duplicate detector (Codex
+Action) which flagged #11957. The filed issue must state up front how it
+differs from the App-side refresh requests, or it risks the same
+closed-as-duplicate outcome for the same wrong reason.
 
 ## Pre-filing checklist
 
-1. Freshly verify on the then-current release that a completion turn appended
-   by a separate app-server process does not render in an already-open TUI
-   session, so the filed issue reports current behavior from a same-day test
-   rather than from prior notes.
+1. **Outstanding — requires a live TUI session.** Freshly confirm on the
+   then-current release that a completion turn appended by a separate
+   app-server process does not render in an already-open TUI, so the issue
+   reports same-day observed behavior. The structural evidence above stands
+   independently of this test, but the issue's behavioral claim should be
+   freshly held rather than carried from earlier notes.
 2. Re-run the strings sweep against the then-current CLI release on filing
-   day; releases move quickly.
+   day; releases move quickly. *(Done 2026-07-26 against `codex-cli 0.145.0`;
+   binary unchanged since the original sweep, `follower`/`thread-stream` still
+   absent, IDE-context client vocabulary still present.)*
 3. Search `openai/codex` issues and pull requests for newer coverage of the
-   same request (`follower`, `resync`, `refresh`, `invalidation`, `wake`).
-4. Decide whether to file the issue alone or alongside a draft PR. The issue
-   below offers a contributed implementation in either case.
+   same request. *(Done 2026-07-26; results recorded above. No duplicate of
+   the TUI-side ask exists.)*
+4. File the issue alone. Do not attach or offer a pull request, per the
+   invitation-only policy above.
 
 ## CPJ readiness once upstream lands
 
@@ -183,114 +223,125 @@ baseline exactly as on App and VS Code.
 
 ## Draft upstream issue
 
-Everything below the rule is the proposed issue body, ready to paste after the
-pre-filing checklist passes. Suggested title:
+Everything below the rule is the proposed issue body, matching the repository's
+🎁 Feature Request template (`5-feature-request.yml`), which asks for the
+Codex variant, the requested feature, and additional information. It offers no
+code, per the invitation-only policy. Suggested title:
 
-> Feature request: same-user local wake path for an idle TUI session
-> (thread-owner registration on the IPC router, or an externally triggered
-> rollout resync)
+> TUI cannot be woken by local same-user tooling: no thread-owner registration
+> or external resync for an idle `codex` session
 
 ---
 
-### Summary
+### What variant of Codex are you using?
+
+CLI (TUI), compared against App and the VS Code extension. Observed on
+`codex-cli 0.145.0` (macOS arm64, Homebrew) and Linux x86_64, ChatGPT.app
+2026-07-24 build, VS Code extension `26.721.41059`.
+
+### What feature would you like to see?
+
+**How this differs from existing issues (please read before deduplicating):**
+this asks for a mechanism *on the TUI side*. #11907 and #21974 ask the **App**
+to refresh or observe other surfaces; #21743 and #32466 report **Desktop**
+staleness; #25914 asks for an **app-server discovery contract**. #11957 asked
+for TUI resync and was closed as a duplicate of #11907, an App-side refresh
+request, so the TUI-side ask has not yet been evaluated on its own. None of
+those changes anything about an idle TUI's ability to receive a local signal.
 
 There is currently no supported way for a local same-user process to wake an
 idle, already-open `codex` TUI session when its persisted thread is updated
-externally. Codex App and the Codex VS Code extension both solve this for
-their own surfaces through the same-user IPC router (`$CODEX_HOME/ipc/ipc.sock`):
-each registers as the owner of its loaded thread and services follower
-requests such as `thread-follower-start-turn`, so an externally initiated
-completion renders live in the open task. The TUI does not participate: it
-uses the router only as a short-lived client for IDE context discovery, and
-inspection of the shipped `codex-cli 0.145.0` binary finds no follower or
-thread-stream vocabulary at all. The result is that the TUI is the only major
-Codex surface whose open session cannot be woken by local same-user tooling.
+externally.
 
-### Motivation
+Codex App and the VS Code extension both solve this for their own surfaces
+through the same-user IPC router at `$CODEX_HOME/ipc/ipc.sock`: each registers
+as the owner of its loaded thread and services follower requests such as
+`thread-follower-start-turn`, so an externally initiated turn renders live in
+the already-open task. The TUI does not participate. It links the router only
+as a short-lived client for IDE context discovery. The TUI is therefore the
+only major Codex surface whose open session cannot be reached by local
+same-user tooling.
 
-Long-running local work — CUDA and CMake builds, large test suites, data
-processing — should not hold an agent turn open while it runs. I maintain
-[Codex Process Jobs](https://github.com/joelfarthing/codex-process-jobs), a
-plugin in the Plugins Directory that launches such commands as detached OS
-processes, records durable bounded results, and delivers a sanitized
-completion turn back to the owning task. On Codex App and the VS Code
-extension, routing that completion through the IPC router's owner path renders
-it live in the already-open task, and the agent immediately inspects the
-bounded result and summarizes it. On the TUI, the completion can only be
-persisted to the rollout and surfaced at the next hook boundary
-(`UserPromptSubmit`), because nothing can reach an idle TUI. Users therefore
-get a materially worse experience on the CLI than on every other surface for
-the same workflow.
+Any one of the following would close the gap. The first matches how App and
+the extension already behave:
 
-This is the same underlying gap reported from other directions in #11957
-(programmatic TUI resync; closed without resolution), #21743 (Desktop view
-not refreshed by external app-server turns), and #25914 (no documented
-attach/discovery contract for the active Desktop thread).
+1. **TUI thread-owner registration.** On start or resume, the TUI registers its
+   loaded thread ID as owner with the same-user IPC router it already links,
+   and services `thread-follower-start-turn` — running an ordinary turn with
+   normal rendering, approval handling, and interrupt behavior. This gives the
+   TUI parity with App and the extension, and would additionally let the App
+   follow a live TUI session, which is the capability #21974 asks for from the
+   other direction.
+2. **Minimal externally triggered resync.** A documented signal telling an idle
+   TUI that its persisted thread changed, on which it re-reads the rollout and
+   renders externally appended turns. This is #11957's ask with a concrete
+   transport attached.
+3. **A documented supported alternative**, if the team prefers a different
+   surface — for example a discoverable per-session app-server endpoint with an
+   explicit wake method.
 
-### Current behavior
+Constraints that appear necessary regardless of shape, based on what was needed
+to deliver this safely on App and VS Code: same-user socket ownership and
+permission validation; idle-boundary gating (queue or return busy during an
+active turn); idempotent, exactly-once turn creation; and preservation of
+composer state.
 
-Observed on `codex-cli 0.145.0` (macOS arm64, Homebrew), ChatGPT.app of
-2026-07-24, and VS Code extension `26.721.41059`:
+### Additional information
 
-- A `strings` sweep of the CLI binary contains the IPC client vocabulary for
-  IDE context discovery (`codex-ipc`, `ipc-0.sock`, `ide-context`,
-  `canHandle`, `codex-tui`, `sourceClientId`, `workspaceRoot`) and zero
-  occurrences of `follower` or `thread-stream`. The Rust binary bundled in
-  ChatGPT.app likewise contains no follower vocabulary; the follower handlers
-  live in the App's Electron layer and the extension's `extension.js`.
-- Hook events (`SessionStart`, `TurnStart`, `PreToolUse`, `PostToolUse`,
-  `UserPromptSubmit`, `Stop`, `SessionEnd`) all require user or agent
-  activity, so they cannot substitute for a wake while the TUI is idle.
+**Why this matters.** Long-running local work — CUDA and CMake builds, large
+test suites, data processing — should not hold an agent turn open while it
+runs. I maintain [Codex Process Jobs](https://github.com/joelfarthing/codex-process-jobs),
+a plugin in the Plugins Directory that runs such commands as detached OS
+processes and delivers a sanitized completion back to the owning task. On App
+and the VS Code extension, routing that completion through the router's owner
+path renders it live in the open task. On the TUI it can only be persisted and
+surfaced at the next hook boundary, because nothing can reach an idle TUI. The
+same workflow is materially worse on the CLI than on every other surface.
+
+**Evidence (all read-only inspection of shipped binaries; no vendor files
+modified).**
+
+- A `strings` sweep of the shipped `codex-cli 0.145.0` native binary contains
+  the IPC client vocabulary for IDE context discovery — `codex-ipc`,
+  `ipc-0.sock`, `ide-context`, `canHandle`, `codex-tui`, `sourceClientId`,
+  `workspaceRoot`, and same-user ownership/permission validation errors — and
+  **zero** occurrences of `follower` or `thread-stream`.
+- The Rust `codex` binary bundled inside ChatGPT.app likewise contains no
+  follower vocabulary. The follower handlers live in the App's Electron layer
+  and in the extension's `out/extension.js`, which contains the full method and
+  event set (`thread-follower-start-turn`, `-steer-turn`, `-interrupt-turn`,
+  `-submit-user-input`, `-load-complete-history`, `thread-stream-*`,
+  `client-discovery-*`). This is why the capability exists on two surfaces but
+  not the third.
+- Every hook event in the shipped CLI (`SessionStart`, `TurnStart`,
+  `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionEnd`)
+  requires user or agent activity, so hooks cannot substitute for a wake while
+  the TUI is idle.
 - A turn appended to the same thread by a separate `codex app-server` process
-  persists correctly in the rollout but the open TUI does not display it;
-  it appears only after the session is resumed.
+  persists correctly in the rollout, but the open TUI does not display it; it
+  appears only after the session is resumed.
 
-### Requested capability
+Reproduction for the binary claims. Note that `codex` on the npm/Homebrew path
+is a Node wrapper; the sweep must target the native vendor binary, or it will
+report "no follower vocabulary" for the wrong reason:
 
-Any one of the following would close the gap; the first matches how App and
-the VS Code extension already behave:
+```bash
+ROOT="$(dirname "$(readlink -f "$(command -v codex)")")/.."
+BIN="$(find "$ROOT/node_modules/@openai" -type f -name codex -perm -u+x -path '*vendor*' | head -1)"
+file "$BIN"                                                    # expect a native executable
+strings -a "$BIN" | grep -Ei "follower|thread-stream" | head    # expect no output
+strings -a "$BIN" | grep -Eo "codex-ipc|ide-context|codex-tui" | sort -u   # positive control
+```
 
-1. **TUI thread-owner registration.** On start or resume, the TUI initializes
-   with the same-user IPC router (whose client code it already links for IDE
-   discovery), registers its loaded thread ID as owner, and services
-   `thread-follower-start-turn` — running an ordinary turn with normal
-   rendering, permission handling, and interrupt behavior. This gives the TUI
-   exact parity with App and the extension and would also let the App follow
-   live TUI sessions.
-2. **Minimal externally triggered resync.** A router notification (or other
-   documented signal) that tells an idle TUI its persisted thread changed, on
-   which the TUI re-reads the rollout and renders externally appended turns.
-   This is #11957's ask with a concrete transport.
-3. **A documented supported alternative** if the team prefers a different
-   surface (for example, a discoverable per-session app-server endpoint with
-   an explicit wake method).
+**Alternatives considered and rejected.** Terminal keystroke injection —
+`TIOCSTI` is blocked on modern macOS and restricted on Linux, and
+terminal-emulator automation is emulator-specific and unsafe while a user is
+composing. Holding a `Stop` hook open — recreates the blocked-turn problem that
+detaching exists to solve. `--remote`/WebSocket attach to a shared app-server —
+architecturally sound and clearly the direction of travel since #11166 landed,
+but it requires a special invocation and a separately managed persistent
+server, so it cannot be the default for ordinary local TUI usage.
 
-Requirements that seem necessary regardless of shape, based on delivering
-this behavior safely on App and VS Code: same-user socket ownership and
-permissions; idle-boundary gating (queue or return busy during an active
-turn); idempotent, exactly-once turn creation; and preservation of composer
-state.
-
-### Alternatives considered and rejected
-
-- Terminal keystroke injection: `TIOCSTI` is blocked on modern macOS and
-  restricted on Linux; terminal-emulator automation is emulator-specific and
-  unsafe while a user is composing.
-- Hook-based waiting: holding a `Stop` hook open recreates the blocked-turn
-  problem that detaching exists to solve.
-- `--remote`/WebSocket attach to a shared app-server: works architecturally
-  but requires a special invocation and a persistent server, which cannot be
-  a default for ordinary local TUI usage.
-
-### Offer
-
-I am happy to contribute the implementation under maintainer guidance —
-option 1 or 2 — and can test across App, VS Code, and CLI on macOS and Linux.
-Codex Process Jobs already implements the guarded client side (same-user
-socket validation, pre-acceptance fallback, exactly-once acceptance
-accounting) and would adopt the supported mechanism as soon as it exists.
-
-### Environment
-
-- `codex-cli 0.145.0`, macOS arm64 (Homebrew) and Linux x86_64
-- ChatGPT.app (Codex App) 2026-07-24 build, VS Code extension `26.721.41059`
+I am not proposing a pull request, per the invitation-only contribution policy.
+I am glad to supply further analysis, additional platform testing, or
+verification against a proposed design if that would help.

@@ -397,6 +397,27 @@ test("marks local Codex App jobs for the same transport-independent next-turn re
   }, 5000), true);
 });
 
+test("classifies an escalated TUI launch from rollout metadata and keeps CLI defaults", (t) => {
+  const stubBin = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-tui-stub-"));
+  t.after(() => fs.rmSync(stubBin, { recursive: true, force: true }));
+  for (const name of ["osascript", "notify-send"]) {
+    fs.writeFileSync(path.join(stubBin, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  }
+  // An escalated sandbox retry can scrub CODEX_INTERNAL_ORIGINATOR_OVERRIDE;
+  // the owning TUI rollout's exact session metadata must keep the job on the
+  // cli surface so the desktop-notice default still applies.
+  const context = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "",
+    PATH: `${stubBin}${path.delimiter}${process.env.PATH}`,
+  });
+  writeSessionMeta(context.env, { source: "cli", originator: "codex-tui" });
+  const job = startJson(["--", process.execPath, "-e", "process.exit(0)"], context);
+  assert.equal(job.ownerSurface, "cli");
+  assert.equal(job.ownerSurfaceDetectedBy, "rollout-session-meta");
+  assert.equal(job.notifyUser, true);
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
+});
+
 test("marks mobile-to-remote Cartesian jobs for durable next-turn refresh", (t) => {
   const context = makeEnv(t, { CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "" });
   createMockCodex(t, context);

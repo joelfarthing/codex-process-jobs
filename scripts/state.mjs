@@ -66,15 +66,33 @@ export function resolveLogsDir(env = process.env) {
 }
 
 function ensurePrivateDirectory(directory) {
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const stat = fs.lstatSync(directory);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error(`Process-jobs state path is not a real directory: ${directory}`);
+  try {
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const stat = fs.lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error(`Process-jobs state path is not a real directory: ${directory}`);
+    }
+    if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+      throw new Error(`Process-jobs state directory is not owned by the current user: ${directory}`);
+    }
+    fs.chmodSync(directory, 0o700);
+  } catch (error) {
+    // A sandboxed launch commonly hits EPERM/EACCES here before anything else.
+    // Surface an actionable instruction instead of a bare errno so the agent
+    // retries the identical command through the scoped-permission path the
+    // start skill documents, rather than improvising a different state root.
+    if (error?.code === "EPERM" || error?.code === "EACCES") {
+      const wrapped = new Error(
+        `Cannot prepare durable job state at ${directory} (${error.code}): the active sandbox `
+        + "denies writes to this path. Re-run the exact same command with scoped or escalated "
+        + "permissions for this directory. Do not substitute a different state directory; "
+        + "durable job state must stay under the configured CODEX_HOME.",
+      );
+      wrapped.code = error.code;
+      throw wrapped;
+    }
+    throw error;
   }
-  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
-    throw new Error(`Process-jobs state directory is not owned by the current user: ${directory}`);
-  }
-  fs.chmodSync(directory, 0o700);
 }
 
 export function ensureStateDirs(env = process.env) {

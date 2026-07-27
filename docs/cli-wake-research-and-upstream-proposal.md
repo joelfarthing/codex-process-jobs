@@ -252,19 +252,50 @@ recap on a later prompt.
 This is the behavioral claim the upstream issue makes, verified on the current
 release under controlled conditions rather than carried from earlier notes.
 
-### Incidental finding: sandboxed launch wrote durable state outside `CODEX_HOME`
+### Incidental finding, corrected: the "missing" durable state was never missing
 
-During the same run the launch turn reported: *"The launcher hit a sandbox
-permission boundary while creating its durable job state, so I'm retrying."*
-The retry succeeded and the job ran, was tracked, and delivered its completion
-normally — but no record for `job-ms2o9bco-7ceb64e2` exists under
-`$CODEX_HOME/process-jobs/jobs`, and none was found elsewhere on disk
-afterwards. `config.toml` pins `CODEX_HOME` to `~/.codex`.
+The first write-up of this run reported that a sandboxed launch had left
+durable job state outside `CODEX_HOME`. That diagnosis was wrong, and the
+correction matters more than the alarm did.
 
-This is a CPJ issue, not a Codex one, and it is unrelated to the wake gap: the
-rollout evidence above comes from Codex's own session record. It does mean a
-sandboxed TUI launch can leave durable job state somewhere transient, which
-would break later `status`/`result` retrieval. Tracked separately.
+What actually happened, reconstructed from the rollout's exact tool calls:
+
+1. The first controller invocation failed inside the sandbox with a bare
+   `EPERM: operation not permitted, chmod '~/.codex/process-jobs-dev'`.
+2. The agent retried the identical command with escalated sandbox
+   permissions, and the launch succeeded.
+3. The record was durable the whole time — at
+   `~/.codex/process-jobs-dev/jobs/job-ms2o9bco-7ceb64e2.json`. The
+   development provider intentionally uses the suffixed `process-jobs-dev`
+   state root to isolate its state from the release provider. The forensic
+   tooling searched only the release root, and a broad filesystem search had
+   silently hit its timeout, so absence of output was misread as absence of
+   the file.
+
+Two real defects survive the correction, and both are fixed in this branch:
+
+- **The sandbox failure was unactionable.** A bare errno invites an agent to
+  improvise (for example, substituting a writable state root, which would
+  genuinely break durability). `ensurePrivateDirectory` now wraps
+  `EPERM`/`EACCES` with an instruction to re-run the exact same command with
+  scoped or escalated permissions and to never substitute a different state
+  directory.
+- **The escalated retry lost the originator environment.** The job record
+  shows `ownerSurface: unknown` because `CODEX_INTERNAL_ORIGINATOR_OVERRIDE`
+  did not survive the escalated execution path. On a build with CLI-surface
+  defaults, that would silently disable them in exactly the sandboxed-TUI
+  scenario this research targets. Surface classification now falls back to
+  the owning rollout's exact session metadata pair `source: cli`,
+  `originator: codex-tui` — the same conservative exact-pair rule already
+  used for the remote classification — so an escalated TUI launch keeps its
+  CLI-surface behavior. Any non-empty environment originator still takes
+  precedence, and other pairs remain `unknown`.
+
+`tools/experimental/verify-tui-wake.py` now scans every `process-jobs*` state
+root under `CODEX_HOME` and labels which root each job came from, so the
+false missing-state diagnosis cannot recur. None of this weakens the wake
+observation above: the completion turn evidence comes from Codex's own
+rollout, and the control passed.
 
 ## CPJ readiness once upstream lands
 

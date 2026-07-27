@@ -8,7 +8,7 @@ function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function detectRemoteSession(threadId, env) {
+function detectRolloutSession(threadId, env) {
   if (!threadId) return null;
   try {
     const rollout = resolveOwnerRolloutFile(threadId, env);
@@ -18,6 +18,14 @@ function detectRemoteSession(threadId, env) {
     const originator = normalize(metadata?.originator);
     if (source === "vscode" && originator === "codex desktop") {
       return { surface: "remote", detectedBy: "rollout-session-meta" };
+    }
+    // A TUI launch that runs the controller with escalated sandbox
+    // permissions can lose the inherited originator environment. The owning
+    // TUI rollout still records this exact unambiguous scalar pair, so the
+    // job keeps its CLI-surface behavior (desktop-notice default and
+    // hook-boundary inspection) instead of degrading to "unknown".
+    if (source === "cli" && originator === "codex-tui") {
+      return { surface: "cli", detectedBy: "rollout-session-meta" };
     }
   } catch {}
   return null;
@@ -41,8 +49,8 @@ export function detectClientSurface(env = process.env, { threadId = env.CODEX_TH
   }
   if (originator) return { surface: "unknown", detectedBy: null };
 
-  const remote = detectRemoteSession(threadId, env);
-  if (remote) return remote;
+  const inferred = detectRolloutSession(threadId, env);
+  if (inferred) return inferred;
 
   return { surface: "unknown", detectedBy: null };
 }

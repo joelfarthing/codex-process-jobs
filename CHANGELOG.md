@@ -4,6 +4,8 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-26
+
 ### Fixed
 
 - A sandboxed launch that cannot prepare the durable state directory now
@@ -183,7 +185,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.1...v0.2.2

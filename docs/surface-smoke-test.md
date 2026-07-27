@@ -50,7 +50,7 @@ Also ask “how's the build going?” during a longer smoke job. The agent shoul
 
 For a token-efficiency check, request two JSON reads of one stream. Reuse the first response's `nextOffset` and `generation`; the second response should contain only newly appended bytes. Test stdout and stderr independently. If a deliberately tiny log cap forces compaction, the next response should set `compacted: true` rather than silently treating the rewritten bytes as continuous.
 
-Optional OS notification is a separate smoke. Enable it for one harmless launch with `--notify-user`; confirm a local macOS notification appears when the App has notification permission, or a Linux notification appears when a graphical session and `notify-send` are available. Failure to display must not change terminal job state or conversational delivery.
+Optional OS notification is a separate smoke. Enable it for one harmless launch with `--notify-user` (CLI-owned launches enable it by surface default); confirm a local macOS notification appears when the App has notification permission, or a Linux notification appears when a graphical session and `notify-send` are available. A surface-defaulted notice must show only the job ID, terminal status, and exit code; a label appears only when both `--notify-user` (or the durable preference) and `--name` were explicit. Failure to display must not change terminal job state or conversational delivery.
 
 Test Codex App, Codex VS Code extension, and Codex CLI on the same host after one installation. For VS Code Remote SSH, Dev Containers, WSL, or another remote extension host, install and test the plugin in that host environment as well.
 

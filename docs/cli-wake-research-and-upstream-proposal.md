@@ -124,19 +124,29 @@ CLI must remain excluded until a TUI can be verified as the servicing owner,
 for example because the method fails when the thread is not loaded in a TUI
 or because the router exposes the owner's client type.
 
-## Interim plugin-side parity
+## Interim plugin-side improvements
 
 Until a supported wake path exists, CPJ narrows the CLI experience gap around
-content rather than trigger. A CLI-owned job now defaults to one human-facing
-desktop completion notice — the CLI substitute for live rendering — unless an
-explicit launch flag or durable preference disables it. In default `auto`
-mode, the first eligible hook boundary then gives the CLI-owned job the same
-bounded `result --peek` inspection, summary, recommended next step, and
-permission question that App and VS Code receive in their direct completion
-turns; the direct relay turn stays acknowledgment-only because the open TUI
-cannot render it. The user therefore learns of completion immediately and
-receives the App-equivalent turn at the first keypress, which is the closest
-honest approximation the current TUI permits.
+content rather than trigger. This is improved CLI completion pickup, not
+complete parity. A CLI-owned job now defaults to one human-facing desktop
+completion notice — the CLI substitute for live rendering — unless an explicit
+launch flag or durable preference disables it; surface-defaulted notices carry
+only the job ID, terminal status, and exit code so command-derived text cannot
+reach a lock screen without explicit opt-in. In default `auto` mode, the first
+eligible hook boundary then gives the CLI-owned job the same bounded
+`result --peek` inspection, summary, recommended next step, and permission
+question that App and VS Code receive in their direct completion turns; the
+direct relay turn stays acknowledgment-only because the open TUI cannot render
+it. The user therefore learns of completion immediately and receives the
+App-equivalent turn at the first keypress.
+
+The known cost of this shape: a CLI job still consumes an invisible app-server
+completion turn before the useful inspection happens at the hook boundary, so
+the CLI path spends one more turn than App or VS Code for the same outcome.
+That hidden turn preserves durable fallback context, but eliminating it — for
+example by skipping the direct relay for CLI-owned jobs and letting the hook
+boundary own the whole completion — is worth investigating as a follow-up
+once its interaction with resume-time visibility and batching is understood.
 
 A `SessionStart` hook was considered for a resume-time recap and rejected:
 SessionStart injects context but does not start a model turn, so nothing

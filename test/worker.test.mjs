@@ -63,9 +63,11 @@ test("optional user notifications use argv-only platform commands and tolerate a
   const job = {
     id: "job-user-notify",
     name: "build $(touch /tmp/must-not-run)",
+    nameExplicit: true,
     status: "completed",
     exitCode: 0,
     notifyUser: true,
+    notifyUserExplicit: true,
   };
   launchUserNotification(job, {}, fakeSpawn, "darwin");
   launchUserNotification(job, {}, fakeSpawn, "linux");
@@ -79,6 +81,35 @@ test("optional user notifications use argv-only platform commands and tolerate a
   assert.equal(launchUserNotification({ ...job, notifyUser: false }, {}, fakeSpawn, "linux"), null);
 });
 
+test("surface-defaulted or unnamed notices never expose command-derived labels", () => {
+  const calls = [];
+  const fakeSpawn = (command, args) => {
+    calls.push({ command, args });
+    return { on() {}, unref() {} };
+  };
+  const base = {
+    id: "job-user-notify-minimal",
+    name: "cmake --build /Users/example/secret-project --target llama-cuda",
+    status: "completed",
+    exitCode: 0,
+    notifyUser: true,
+  };
+
+  // Surface-defaulted notification: minimal notice even with an explicit name.
+  launchUserNotification({ ...base, nameExplicit: true, notifyUserExplicit: false }, {}, fakeSpawn, "darwin");
+  // Explicit opt-in but command-derived name: label suppressed.
+  launchUserNotification({ ...base, nameExplicit: false, notifyUserExplicit: true }, {}, fakeSpawn, "darwin");
+  // Legacy record without provenance fields: fails closed to minimal.
+  launchUserNotification({ ...base }, {}, fakeSpawn, "darwin");
+
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    const message = call.args.at(-1);
+    assert.equal(message, "job-user-notify-minimal finished completed; exit code 0.");
+    assert.doesNotMatch(message, /cmake|secret-project|llama/);
+  }
+});
+
 test("user notification labels remove controls and stay within 512 UTF-8 bytes", () => {
   const calls = [];
   const fakeSpawn = (command, args) => {
@@ -88,9 +119,11 @@ test("user notification labels remove controls and stay within 512 UTF-8 bytes",
   launchUserNotification({
     id: "job-user-notify-bounded",
     name: `${"😀".repeat(200)}\nsecond line`,
+    nameExplicit: true,
     status: "failed",
     exitCode: 2,
     notifyUser: true,
+    notifyUserExplicit: true,
   }, {}, fakeSpawn, "linux");
   const message = calls[0].args.at(-1);
   const label = message.slice(0, message.indexOf(" (job-user-notify-bounded)"));

@@ -47,7 +47,7 @@ function usage() {
     "  node scripts/job.mjs tail [job-id] [--stdout|--stderr|--both] [--bytes <n>] [--since-byte <n>] [--since-generation <hex>] [--stdout-since-byte <n>] [--stdout-since-generation <hex>] [--stderr-since-byte <n>] [--stderr-since-generation <hex>] [--json]",
     "  node scripts/job.mjs result [job-id] [--full] [--bytes <n>] [--stdout-since-byte <n>] [--stdout-since-generation <hex>] [--stderr-since-byte <n>] [--stderr-since-generation <hex>] [--peek] [--json]",
     "  node scripts/job.mjs cancel <job-id> [--force] [--json]",
-    "  node scripts/job.mjs config [--completion-mode <auto|report|inspect>] [--notify-user <true|false>] [--json]",
+    "  node scripts/job.mjs config [--completion-mode <auto|report|inspect>] [--notify-user <true|false|default>] [--json]",
     "",
     "Detached jobs never receive interactive stdin. --critical jobs require --force to cancel.",
   ].join("\n");
@@ -143,8 +143,12 @@ function parseConfigArgs(args) {
     if (arg === "--completion-mode") completionMode = takeValue(args, index++, arg).trim().toLowerCase();
     else if (arg === "--notify-user") {
       const value = takeValue(args, index++, arg).trim().toLowerCase();
-      if (!["true", "false"].includes(value)) fail("--notify-user must be true or false.");
-      notifyUser = value === "true";
+      if (!["true", "false", "default"].includes(value)) {
+        fail("--notify-user must be true, false, or default.");
+      }
+      // "default" clears the durable preference so the per-surface default
+      // (enabled for CLI-owned jobs, disabled elsewhere) applies again.
+      notifyUser = value === "default" ? "default" : value === "true";
     }
     else if (arg === "--json") json = true;
     else fail(`Unknown config option: ${arg}`);
@@ -298,12 +302,19 @@ async function handleStart(args, env = process.env) {
   }
   const ownerClient = detectClientSurface(env, { threadId: ownerThreadId });
   let notifyUser = parsed.notifyUser;
+  // Explicit means a launch flag or durable preference chose notification.
+  // A surface-defaulted notice must stay minimal: the worker includes a label
+  // only for explicit opt-in with an explicitly supplied name, so command-
+  // derived text can never reach a lock screen without a deliberate choice.
+  let notifyUserExplicit = notifyUser != null;
   if (notifyUser == null) {
     try {
       // CLI-owned jobs default to a desktop notice because the TUI cannot
       // render the completion turn live; an explicit launch flag or durable
       // preference always wins, and unreadable preferences fail closed.
-      notifyUser = readPreferences(env).notifyUser ?? ownerClient.surface === "cli";
+      const preferred = readPreferences(env).notifyUser;
+      notifyUserExplicit = preferred != null;
+      notifyUser = preferred ?? ownerClient.surface === "cli";
     } catch {
       notifyUser = false;
     }
@@ -330,11 +341,13 @@ async function handleStart(args, env = process.env) {
       {
         id,
         name: parsed.name || displayCommand.slice(0, 120),
+        nameExplicit: Boolean(parsed.name),
         status: "queued",
         phase: "queued",
         critical: parsed.critical,
         goalMode: parsed.goalMode,
         notifyUser,
+        notifyUserExplicit,
         execution: parsed.execution,
         argv: parsed.argv,
         displayCommand,

@@ -282,6 +282,8 @@ test("CLI-owned jobs default to one desktop completion notice unless overridden"
       return false;
     }
   }, 5000), true);
+  // A surface-defaulted notice is minimal: no label, even an explicit one.
+  assert.doesNotMatch(fs.readFileSync(marker, "utf8"), /cli-default-notice/);
 
   const optedOut = startJson(["--no-notify-user", "--", process.execPath, "-e", "process.exit(0)"], context);
   assert.equal(optedOut.notifyUser, false);
@@ -289,6 +291,13 @@ test("CLI-owned jobs default to one desktop completion notice unless overridden"
   runCli(["config", "--notify-user", "false", "--json"], context.env);
   const durablyOff = startJson(["--", process.execPath, "-e", "process.exit(0)"], context);
   assert.equal(durablyOff.notifyUser, false);
+
+  // `config --notify-user default` clears the durable opt-out so the CLI
+  // surface default applies again.
+  const restored = JSON.parse(runCli(["config", "--notify-user", "default", "--json"], context.env).stdout);
+  assert.equal(restored.preferences.notifyUser, null);
+  const redefaulted = startJson(["--", process.execPath, "-e", "process.exit(0)"], context);
+  assert.equal(redefaulted.notifyUser, true);
 
   const appContext = makeEnv(t, {
     CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",

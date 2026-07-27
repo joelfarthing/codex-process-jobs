@@ -86,7 +86,9 @@ export function writePreferences({ completionMode = null, notifyUser = null }, e
   const file = resolvePreferencesFile(env);
   const current = fs.existsSync(file) ? readPreferences(env) : defaultPreferences();
   const nextCompletionMode = completionMode ?? current.completionMode;
-  const nextNotifyUser = notifyUser ?? current.notifyUser;
+  // "default" clears the stored preference back to null so surface defaults
+  // apply again; null/undefined preserves whatever is currently stored.
+  const nextNotifyUser = notifyUser === "default" ? null : notifyUser ?? current.notifyUser;
   if (!COMPLETION_MODES.has(nextCompletionMode)) {
     throw new Error(`completion mode must be one of: ${[...COMPLETION_MODES].join(", ")}`);
   }

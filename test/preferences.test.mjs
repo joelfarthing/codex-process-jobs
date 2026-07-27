@@ -44,6 +44,20 @@ test("an explicit user-notification opt-out is preserved as false rather than un
   assert.equal(writePreferences({ completionMode: "report" }, env).notifyUser, false);
 });
 
+test("notify-user default clears the stored preference back to surface defaults", (t) => {
+  const env = createEnv(t);
+  writePreferences({ notifyUser: false }, env);
+  assert.equal(readPreferences(env).notifyUser, false);
+  assert.deepEqual(writePreferences({ notifyUser: "default" }, env), {
+    schemaVersion: 1,
+    completionMode: "auto",
+    notifyUser: null,
+  });
+  assert.equal(readPreferences(env).notifyUser, null);
+  writePreferences({ notifyUser: true }, env);
+  assert.equal(writePreferences({ notifyUser: "default" }, env).notifyUser, null);
+});
+
 test("completion preferences reject unknown keys and unsafe files", (t) => {
   const env = createEnv(t);
   writePreferences({ completionMode: "report" }, env);

@@ -196,12 +196,8 @@ closed-as-duplicate outcome for the same wrong reason.
 
 ## Pre-filing checklist
 
-1. **Outstanding — requires a live TUI session.** Freshly confirm on the
-   then-current release that a completion turn appended by a separate
-   app-server process does not render in an already-open TUI, so the issue
-   reports same-day observed behavior. The structural evidence above stands
-   independently of this test, but the issue's behavioral claim should be
-   freshly held rather than carried from earlier notes.
+1. **Done 2026-07-27 (UTC). Confirmed: the open TUI did not render the
+   externally appended completion turn.** See the controlled run below.
 2. Re-run the strings sweep against the then-current CLI release on filing
    day; releases move quickly. *(Done 2026-07-26 against `codex-cli 0.145.0`;
    binary unchanged since the original sweep, `follower`/`thread-stream` still
@@ -211,6 +207,54 @@ closed-as-duplicate outcome for the same wrong reason.
    the TUI-side ask exists.)*
 4. File the issue alone. Do not attach or offer a pull request, per the
    invitation-only policy above.
+
+## Controlled TUI observation, 2026-07-27 (UTC)
+
+Environment: `codex-cli 0.145.0` (macOS arm64, Homebrew), CPJ dev provider
+`0.2.4+codex.dev-20260725-143432` as the only enabled CPJ provider, thread
+`019fa1a1-ea83-7153-947c-1c2f38861e2b`.
+
+Method: a detached 90-second job was launched from inside an open TUI session,
+the launch turn was allowed to end, and the terminal was left untouched — no
+keystrokes, so no `UserPromptSubmit` boundary could surface the result.
+
+The owning rollout records both turns:
+
+```text
+03:32:56  task_started    019fa1a2-005f-78a0-9caa-178005453cf5   (launch turn)
+03:33:14  agent_message   Started `wake-probe` as detached job job-ms2o9bco-7ceb64e2.
+03:33:14  task_complete   019fa1a2-...                            (thread goes idle)
+03:34:45  task_started    019fa1a3-a8e8-7992-a7b2-3f0658953384   (notifier-owned turn)
+03:34:46  user_message    Background job `job-ms2o9bco-7ceb64e2` finished successfully with exit code 0.
+03:34:48  agent_message   Joel, `job-ms2o9bco-7ceb64e2` finished successfully with exit code 0.
+03:34:48  task_complete   019fa1a3-...
+```
+
+**Control:** a separate `codex app-server` process durably appended a complete
+turn — synthetic notice, assistant reply, and matching `task_complete` — to the
+thread of the open TUI. The launch turn had ended 90 seconds earlier, so no
+busy-turn race can explain the outcome.
+
+**Observation:** the open TUI displayed none of it. The screen still showed only
+the launch-turn output. The completion became visible only through the hook
+recap on a later prompt.
+
+This is the behavioral claim the upstream issue makes, verified on the current
+release under controlled conditions rather than carried from earlier notes.
+
+### Incidental finding: sandboxed launch wrote durable state outside `CODEX_HOME`
+
+During the same run the launch turn reported: *"The launcher hit a sandbox
+permission boundary while creating its durable job state, so I'm retrying."*
+The retry succeeded and the job ran, was tracked, and delivered its completion
+normally — but no record for `job-ms2o9bco-7ceb64e2` exists under
+`$CODEX_HOME/process-jobs/jobs`, and none was found elsewhere on disk
+afterwards. `config.toml` pins `CODEX_HOME` to `~/.codex`.
+
+This is a CPJ issue, not a Codex one, and it is unrelated to the wake gap: the
+rollout evidence above comes from Codex's own session record. It does mean a
+sandboxed TUI launch can leave durable job state somewhere transient, which
+would break later `status`/`result` retrieval. Tracked separately.
 
 ## CPJ readiness once upstream lands
 
@@ -318,8 +362,14 @@ modified).**
   requires user or agent activity, so hooks cannot substitute for a wake while
   the TUI is idle.
 - A turn appended to the same thread by a separate `codex app-server` process
-  persists correctly in the rollout, but the open TUI does not display it; it
-  appears only after the session is resumed.
+  persists correctly in the rollout, but the open TUI does not display it.
+  Controlled run on 2026-07-27 against `0.145.0`: a detached job was launched
+  from an open TUI, the launch turn ended, and the terminal was left untouched.
+  The rollout records the notifier-owned turn in full — synthetic notice at
+  `03:34:46`, assistant reply at `03:34:48`, and a matching `task_complete` —
+  while the open TUI displayed none of it. The launch turn had ended 90 seconds
+  earlier, ruling out a busy-turn race. The completion became visible only via
+  a hook boundary on a later prompt.
 
 Reproduction for the binary claims. Note that `codex` on the npm/Homebrew path
 is a Node wrapper; the sweep must target the native vendor binary, or it will

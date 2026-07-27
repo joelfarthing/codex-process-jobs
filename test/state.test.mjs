@@ -89,6 +89,32 @@ test("schema v2 validates fixed execution descriptors and schema v1 remains read
   }, { expectedId: base.id, env }));
 });
 
+test("a sandbox-style permission failure preparing state dirs is actionable", (t) => {
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    t.skip("permission bits do not restrict root");
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-state-denied-"));
+  t.after(() => {
+    fs.chmodSync(root, 0o700);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const codexHome = path.join(root, "codex-home");
+  fs.mkdirSync(codexHome);
+  fs.chmodSync(root, 0o500);
+  fs.chmodSync(codexHome, 0o500);
+  assert.throws(
+    () => ensureStateDirs({ CODEX_HOME: codexHome }),
+    (error) => {
+      assert.match(error.message, /Cannot prepare durable job state at /);
+      assert.match(error.message, /scoped or escalated permissions/);
+      assert.match(error.message, /Do not substitute a different state directory/);
+      assert.ok(["EPERM", "EACCES"].includes(error.code));
+      return true;
+    },
+  );
+});
+
 test("updating a legacy v1 shell record preserves its schema and execution semantics", async (t) => {
   const env = withTemporaryHome(t);
   ensureStateDirs(env);

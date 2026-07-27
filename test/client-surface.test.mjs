@@ -42,6 +42,42 @@ test("supports an explicit normalized surface override for wrappers and tests", 
   assert.equal(notificationPresentation("unknown", "pending"), "durable-refresh-required");
 });
 
+test("detects a TUI-owned session from exact rollout metadata when env origin is absent", (t) => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-surface-"));
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+  const threadId = "thread-tui-escalated-001";
+  const directory = path.join(codexHome, "sessions", "2026", "07", "27");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, `rollout-test-${threadId}.jsonl`), `${JSON.stringify({
+    timestamp: "2026-07-27T03:32:50.000Z",
+    type: "session_meta",
+    payload: {
+      id: threadId,
+      source: "cli",
+      originator: "codex-tui",
+    },
+  })}\n`);
+  const env = { CODEX_HOME: codexHome, CODEX_THREAD_ID: threadId };
+  // An escalated sandbox launch can lose the originator environment; the
+  // owning TUI rollout's exact scalar pair keeps the job on the cli surface.
+  assert.deepEqual(
+    detectClientSurface(env),
+    { surface: "cli", detectedBy: "rollout-session-meta" }
+  );
+  // Any non-empty env originator still takes precedence over rollout metadata.
+  assert.deepEqual(
+    detectClientSurface({ ...env, CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "codex_vscode" }),
+    { surface: "vscode", detectedBy: "codex-originator" }
+  );
+  // Other cli-source pairs stay unknown rather than being guessed.
+  fs.writeFileSync(path.join(directory, `rollout-test-${threadId}.jsonl`), `${JSON.stringify({
+    timestamp: "2026-07-27T03:32:50.000Z",
+    type: "session_meta",
+    payload: { id: threadId, source: "cli", originator: "custom-wrapper" },
+  })}\n`);
+  assert.deepEqual(detectClientSurface(env), { surface: "unknown", detectedBy: null });
+});
+
 test("detects Cartesian remote sessions from exact rollout metadata when env origin is absent", (t) => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-surface-"));
   t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));

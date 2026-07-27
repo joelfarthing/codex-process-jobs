@@ -4,6 +4,23 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Fixed
+
+- A sandboxed launch that cannot prepare the durable state directory now
+  raises an actionable error naming the denied path and directing the agent
+  to re-run the identical command with scoped or escalated permissions,
+  instead of a bare `EPERM`/`EACCES` errno that invites substituting a
+  non-durable state root.
+- A TUI launch whose escalated sandbox execution loses the inherited
+  originator environment is now classified `cli` from the owning rollout's
+  exact session metadata pair (`source: cli`, `originator: codex-tui`), so
+  CLI-surface defaults still apply. Any non-empty environment originator
+  keeps precedence, and other metadata pairs remain `unknown`.
+- `tools/experimental/verify-tui-wake.py` scans every `process-jobs*` state
+  root under `CODEX_HOME` and labels each job's root, correcting the false
+  "durable state is missing" diagnosis produced when only the release root
+  was searched while a development provider was active.
+
 ### Added
 
 - Completion-wake research for Codex CLI/TUI with binary-level evidence that

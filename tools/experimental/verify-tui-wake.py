@@ -20,17 +20,31 @@ import os
 import sys
 
 HOME = os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
-JOBS = os.path.join(HOME, "process-jobs", "jobs")
 MAX_AGE_MIN = 30
+
+
+def state_roots():
+    """All process-jobs state roots under CODEX_HOME.
+
+    Development providers use a suffixed root (e.g. process-jobs-dev) to keep
+    their state isolated from the release provider. Searching only the release
+    root once produced a false "durable state is missing" diagnosis, so this
+    tool scans every sibling root and labels which one each job came from.
+    """
+    roots = sorted(glob.glob(os.path.join(HOME, "process-jobs*")))
+    return [r for r in roots if os.path.isdir(os.path.join(r, "jobs"))]
 
 
 def load_jobs():
     out = []
-    for f in glob.glob(os.path.join(JOBS, "*.json")):
-        try:
-            out.append((os.path.getmtime(f), json.load(open(f))))
-        except Exception:
-            pass
+    for root in state_roots():
+        for f in glob.glob(os.path.join(root, "jobs", "*.json")):
+            try:
+                job = json.load(open(f))
+                job["_stateRoot"] = root
+                out.append((os.path.getmtime(f), job))
+            except Exception:
+                pass
     return [j for _, j in sorted(out, key=lambda t: t[0])]
 
 
@@ -48,7 +62,7 @@ def age_minutes(job):
 def pick(argv):
     jobs = load_jobs()
     if not jobs:
-        sys.exit("No job records found under %s" % JOBS)
+        sys.exit("No job records found under %s/process-jobs*" % HOME)
     if len(argv) > 1:
         for j in jobs:
             if j.get("id") == argv[1]:
@@ -109,6 +123,7 @@ def main():
     print("=" * 72)
     print("JOB RECORD")
     print("=" * 72)
+    print("  %-24s %s" % ("stateRoot", job.get("_stateRoot", "(unknown)")))
     for k in ("id", "ownerSurface", "ownerSurfaceDetectedBy", "ownerThreadId",
               "status", "exitCode", "notifyUser", "createdAt", "completedAt"):
         print("  %-24s %s" % (k, job.get(k)))

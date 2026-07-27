@@ -12,7 +12,7 @@ The runner uses `codex exec`, then forces the report or inspect instruction for 
 
 The harness reports total tokens, cached and uncached input, output tokens, model invocations, tool calls, and end-to-end wall time from Codex rollout records. Raw JSONL stays in a private temporary directory because it can contain full task context. Only reviewed aggregate results should be committed or published.
 
-The inspect arm also enforces the optimized completion shape: the direct relay structurally preloads CPJ's existing `result` skill, so the model must not spend a separate invocation reading `skills/result/SKILL.md`. A valid inspect trial performs exactly one bounded result command and uses at most five total model invocations while still reporting equivalent terminal evidence.
+Automatic completion inspection requires one result-skill read followed by one bounded result command. The paired compaction harness isolates the cost of that mandatory read while keeping runtime code and result inspection equivalent. It rejects runs contaminated by result-skill preloading, duplicate reads, combined read-and-result calls, cross-provider calls, or unrelated tool use.
 
 ```bash
 node benchmarks/token-savings/run.mjs \
@@ -27,5 +27,20 @@ node benchmarks/token-savings/run.mjs \
 If an arm is interrupted by capacity, transport failure, or a benchmark-validator false negative, rerun with the identical arguments plus `--resume <previous-output-directory>`. The harness revalidates and reuses completed arm rollouts, then runs only missing arms; it refuses configuration, label, argv, or behavioral mismatches.
 
 `compact` emits only two progress records plus the final marker and is the primary fairness run. `verbose` emits every synthetic compilation step and measures how proactive inspection behaves with realistic build output.
+
+To compare two result-skill versions while holding the rest of CPJ constant:
+
+```bash
+node benchmarks/token-savings/result-skill-paired.mjs \
+  --curated-root /absolute/path/to/released-plugin \
+  --dev-root /absolute/path/to/candidate-plugin \
+  --model gpt-5.6-luna \
+  --effort low \
+  --pairs 5 \
+  --duration-ms 75000 \
+  --interval-ms 1000
+```
+
+The paired harness stages equal-length control and candidate roots, substitutes only the candidate result-skill folder, alternates execution order, and writes private raw artifacts plus `summary.json` to a temporary directory unless `--output` is supplied. Treat the raw artifacts as private task context. A passing run proves behavioral equivalence for the accepted trials; token and wall-time differences remain screening observations rather than general savings claims.
 
 Multiple pairs are still a benchmark sample rather than a population estimate. The generated neutrality booleans are explicitly screening observations for that sample. The honest publication claim should distinguish total tokens, uncached input plus output, and the larger quality-of-life result: CPJ releases the conversation while the ordinary process is still running.

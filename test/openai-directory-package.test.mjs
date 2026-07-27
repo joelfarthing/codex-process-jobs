@@ -49,6 +49,11 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     assert.ok(first.entries.includes("codex-process-jobs/assets/icon.png"));
     assert.ok(first.entries.includes("codex-process-jobs/scripts/job.mjs"));
     assert.ok(
+      first.entries.includes(
+        "codex-process-jobs/skills/result/references/options.md",
+      ),
+    );
+    assert.ok(
       first.entries.includes("codex-process-jobs/skills/start/SKILL.md"),
     );
 

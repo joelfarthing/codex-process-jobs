@@ -22,6 +22,11 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
   unrelated tool calls. Its results are screening evidence, not a general
   token- or wall-time-savings claim.
 
+### Fixed
+
+- The OpenAI Plugins Directory archive now includes the compact result skill's
+  progressively loaded advanced-options reference.
+
 ### Security
 
 - The compact result skill explicitly retains the standalone rule that all

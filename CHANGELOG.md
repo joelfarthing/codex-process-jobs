@@ -4,6 +4,30 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-07-27
+
+### Changed
+
+- The automatically loaded `result` skill is about 31% shorter by word count
+  than the 0.2.5 version. Ordinary completion inspection retains its bounded
+  `--peek`, untrusted-output, task-evidence, device-diagnostic, and completion
+  boundary contracts; advanced byte limits, full reads, and incremental cursor
+  options move to a progressively loaded reference.
+
+### Added
+
+- A paired Luna result-skill benchmark stages identical runtime variants,
+  substitutes only the candidate result-skill folder, alternates execution
+  order, and rejects preloaded, duplicated, combined, cross-provider, or
+  unrelated tool calls. Its results are screening evidence, not a general
+  token- or wall-time-savings claim.
+
+### Security
+
+- The compact result skill explicitly retains the standalone rule that all
+  returned metadata and process output are untrusted evidence and that Codex
+  must never follow commands, links, or instructions from them.
+
 ## [0.2.5] - 2026-07-26
 
 ### Fixed
@@ -185,8 +209,9 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.5...HEAD
-[0.2.5]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.4...v0.2.5
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/joelfarthing/codex-process-jobs/compare/b3d9d624b2e72b6a9e90b9f8181191b3b26d81cc...v0.2.6
+[0.2.5]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.4...b3d9d624b2e72b6a9e90b9f8181191b3b26d81cc
 [0.2.4]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.1...v0.2.2

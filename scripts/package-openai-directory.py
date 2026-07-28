@@ -50,6 +50,8 @@ RUNTIME_FILES = (
     "skills/result/SKILL.md",
     "skills/result/agents/openai.yaml",
     "skills/result/references/options.md",
+    "skills/rerun/SKILL.md",
+    "skills/rerun/agents/openai.yaml",
     "skills/start/SKILL.md",
     "skills/start/agents/openai.yaml",
     "skills/status/SKILL.md",

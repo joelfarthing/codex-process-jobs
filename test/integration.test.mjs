@@ -50,6 +50,43 @@ function makeEnv(t, overrides = {}) {
   return { env, startedIds };
 }
 
+function writeTerminalRecord(context, id, overrides = {}) {
+  const stateRoot = path.join(context.env.CODEX_HOME, "process-jobs");
+  const jobs = path.join(stateRoot, "jobs");
+  const logs = path.join(stateRoot, "logs");
+  fs.mkdirSync(jobs, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(logs, { recursive: true, mode: 0o700 });
+  const logPaths = {
+    stdout: path.join(logs, `${id}.stdout.log`),
+    stderr: path.join(logs, `${id}.stderr.log`),
+  };
+  fs.writeFileSync(logPaths.stdout, "", { mode: 0o600 });
+  fs.writeFileSync(logPaths.stderr, "", { mode: 0o600 });
+  const timestamp = new Date().toISOString();
+  const record = {
+    schemaVersion: 2,
+    id,
+    status: "completed",
+    phase: "done",
+    critical: false,
+    goalMode: false,
+    execution: { kind: "argv" },
+    argv: [process.execPath, "--version"],
+    cwd: ROOT,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    completedAt: timestamp,
+    logs: logPaths,
+    ...overrides,
+  };
+  fs.writeFileSync(
+    path.join(jobs, `${id}.json`),
+    `${JSON.stringify(record, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  return record;
+}
+
 function writeSessionMeta(env, { source, originator }) {
   const threadId = env.CODEX_THREAD_ID;
   const directory = path.join(env.CODEX_HOME, "sessions", "2026", "07", "10");
@@ -207,6 +244,145 @@ test("documented shell option order launches successfully on the first invocatio
   assert.match(result.stdout, /canonical-first-launch/);
 });
 
+test("reruns a terminal invocation as a fresh job with distinct logs and lineage", (t) => {
+  const context = makeEnv(t);
+  const marker = path.join(context.env.CODEX_HOME, "rerun-marker");
+  const program = [
+    "const fs = require('node:fs');",
+    "const marker = process.argv[1];",
+    "if (!fs.existsSync(marker)) {",
+    "  fs.writeFileSync(marker, 'first run failed');",
+    "  console.error('intentional first failure');",
+    "  process.exit(7);",
+    "}",
+    "console.log('rerun succeeded');",
+  ].join("\n");
+  const source = startJson([
+    "--name", "rerun integration",
+    "--", process.execPath, "-e", program, marker,
+  ], context);
+  const first = waitJson(source.id, context.env);
+  assert.equal(first.job.status, "failed");
+  assert.equal(first.job.exitCode, 7);
+
+  const rerun = JSON.parse(runCli([
+    "rerun", source.id, "--json",
+  ], context.env).stdout).job;
+  context.startedIds.push(rerun.id);
+  assert.notEqual(rerun.id, source.id);
+  assert.equal(rerun.rerunOf, source.id);
+  assert.equal(rerun.command, source.command);
+  assert.equal(rerun.cwd, source.cwd);
+  assert.deepEqual(rerun.execution, source.execution);
+  assert.notEqual(rerun.logs.stdout, source.logs.stdout);
+  assert.notEqual(rerun.logs.stderr, source.logs.stderr);
+
+  const second = waitJson(rerun.id, context.env);
+  assert.equal(second.job.status, "completed");
+  assert.equal(second.job.exitCode, 0);
+  const result = JSON.parse(runCli([
+    "result", rerun.id, "--peek", "--json",
+  ], context.env).stdout);
+  assert.match(result.stdout, /rerun succeeded/);
+  assert.equal(result.stderr, "");
+});
+
+test("rerun preserves explicit Bash execution semantics", (t) => {
+  const context = makeEnv(t);
+  const source = startJson([
+    "--shell",
+    "--",
+    "set -o pipefail; test -n \"$BASH_VERSION\"; printf 'bash-rerun\\n' | cat",
+  ], context);
+  assert.equal(waitJson(source.id, context.env).job.status, "completed");
+
+  const rerun = JSON.parse(runCli([
+    "rerun", source.id, "--json",
+  ], context.env).stdout).job;
+  context.startedIds.push(rerun.id);
+  assert.equal(rerun.rerunOf, source.id);
+  assert.deepEqual(rerun.execution, { kind: "shell", interpreter: "bash" });
+
+  const completed = waitJson(rerun.id, context.env).job;
+  assert.equal(completed.status, "completed");
+  assert.deepEqual(completed.execution, { kind: "shell", interpreter: "bash" });
+  const result = JSON.parse(runCli([
+    "result", rerun.id, "--peek", "--json",
+  ], context.env).stdout);
+  assert.equal(result.stdout, "bash-rerun\n");
+});
+
+test("rerun refuses active jobs and critical jobs without explicit force", (t) => {
+  const context = makeEnv(t);
+  const active = startJson([
+    "--name", "active rerun refusal",
+    "--", process.execPath, "-e", "setTimeout(() => process.exit(0), 5000)",
+  ], context);
+  const activeRefusal = runCli([
+    "rerun", active.id, "--json",
+  ], context.env, { expectStatus: 1 });
+  assert.match(activeRefusal.stderr, /allowed only after terminal state/i);
+
+  const critical = startJson([
+    "--critical", "--name", "critical rerun guard",
+    "--", process.execPath, "-e", "process.exit(0)",
+  ], context);
+  assert.equal(waitJson(critical.id, context.env).job.status, "completed");
+  const guarded = runCli([
+    "rerun", critical.id, "--json",
+  ], context.env, { expectStatus: 1 });
+  assert.match(guarded.stderr, /CRITICAL/);
+  assert.match(guarded.stderr, /--force/);
+
+  const forced = JSON.parse(runCli([
+    "rerun", critical.id, "--force", "--json",
+  ], context.env).stdout).job;
+  context.startedIds.push(forced.id);
+  assert.equal(forced.critical, true);
+  assert.equal(forced.rerunOf, critical.id);
+  assert.equal(waitJson(forced.id, context.env).job.status, "completed");
+});
+
+test("rerun refuses legacy shell records whose interpreter contract is unsafe to reproduce", (t) => {
+  const context = makeEnv(t);
+  const id = "job-legacy-shell-rerun-refusal";
+  writeTerminalRecord(context, id, {
+    schemaVersion: 1,
+    shell: true,
+    execution: undefined,
+    argv: ["printf legacy"],
+  });
+
+  const refusal = runCli(["rerun", id, "--json"], context.env, { expectStatus: 1 });
+  assert.match(refusal.stderr, /legacy \/bin\/sh -lc semantics/i);
+  assert.match(refusal.stderr, /explicit --shell or --posix-sh/i);
+});
+
+test("rerun refuses missing and non-directory persisted working directories", (t) => {
+  const context = makeEnv(t);
+  const missingId = "job-missing-cwd-rerun-refusal";
+  const missingCwd = path.join(context.env.CODEX_HOME, "missing-cwd");
+  writeTerminalRecord(context, missingId, { cwd: missingCwd });
+  const missing = runCli(["rerun", missingId, "--json"], context.env, { expectStatus: 1 });
+  assert.match(missing.stderr, /working directory .* no longer exists/i);
+
+  const fileId = "job-file-cwd-rerun-refusal";
+  const fileCwd = path.join(context.env.CODEX_HOME, "not-a-directory");
+  fs.writeFileSync(fileCwd, "ordinary file\n");
+  writeTerminalRecord(context, fileId, { cwd: fileCwd });
+  const notDirectory = runCli(["rerun", fileId, "--json"], context.env, { expectStatus: 1 });
+  assert.match(notDirectory.stderr, /working directory .* is not a directory/i);
+});
+
+test("rerun refuses a terminal record with an incomplete persisted invocation", (t) => {
+  const context = makeEnv(t);
+  const id = "job-incomplete-rerun-refusal";
+  writeTerminalRecord(context, id, { argv: undefined });
+
+  const refusal = runCli(["rerun", id, "--json"], context.env, { expectStatus: 1 });
+  assert.match(refusal.stderr, /does not contain a complete persisted invocation/i);
+});
+
 test("result --peek reads bounded evidence without consuming completion fallback", (t) => {
   const context = makeEnv(t);
   const job = startJson([
@@ -298,6 +474,14 @@ test("CLI-owned jobs default to one desktop completion notice unless overridden"
   assert.equal(restored.preferences.notifyUser, null);
   const redefaulted = startJson(["--", process.execPath, "-e", "process.exit(0)"], context);
   assert.equal(redefaulted.notifyUser, true);
+  assert.equal(waitJson(redefaulted.id, context.env).job.status, "completed");
+  assert.equal(waitUntil(() => {
+    try {
+      return fs.readFileSync(marker, "utf8").includes(redefaulted.id);
+    } catch {
+      return false;
+    }
+  }, 5000), true);
 
   const appContext = makeEnv(t, {
     CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",
@@ -306,6 +490,7 @@ test("CLI-owned jobs default to one desktop completion notice unless overridden"
   const appJob = startJson(["--", process.execPath, "-e", "process.exit(0)"], appContext);
   assert.equal(appJob.ownerSurface, "app");
   assert.equal(appJob.notifyUser, false);
+  assert.equal(waitJson(appJob.id, appContext.env).job.status, "completed");
 });
 
 test("invalid owner thread ids fail closed to status-only notification", (t) => {

@@ -442,6 +442,43 @@ test("PostToolUse reinforces a successful CPJ start as a one-time hard release b
   assert.equal(second.stdout, "");
 });
 
+test("PostToolUse applies the same hard release boundary to a successful rerun", (t) => {
+  const env = createEnv(t);
+  const createdAt = new Date().toISOString();
+  writeJob(env, {
+    id: "job-hook-rerun-child",
+    rerunOf: "job-hook-rerun-source",
+    ownerThreadId: "thread-hook-rerun",
+    status: "running",
+    phase: "running",
+    cwd: ROOT,
+    argv: ["sleep", "75"],
+    shell: false,
+    createdAt,
+    updatedAt: createdAt,
+    notification: { status: "pending" },
+  });
+  const result = runHook(env, {
+    hook_event_name: "PostToolUse",
+    session_id: "thread-hook-rerun",
+    turn_id: "turn-hook-rerun",
+    tool_name: "Bash",
+    tool_input: {
+      command: `node "${path.join(ROOT, "scripts", "job.mjs")}" rerun job-hook-rerun-source --json`,
+    },
+    tool_response: {
+      output: JSON.stringify({ job: { id: "job-hook-rerun-child", status: "running" } }),
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+  assert.match(context, /successful rerun as a hard release boundary/i);
+  assert.match(context, /rerun skill's conversational contract/i);
+  assert.match(context, /source job job-hook-rerun-source/i);
+  assert.doesNotMatch(context, /sleep 75/);
+});
+
 test("PostToolUse launch reinforcement rejects unrelated commands and cross-thread records", (t) => {
   const env = createEnv(t);
   const createdAt = new Date().toISOString();
@@ -560,6 +597,7 @@ test("Stop emits a one-time continuation for an unread terminal completion", (t)
   writeJob(env, {
     id: "job-hook-stop",
     ownerThreadId: "thread-hook-stop",
+    ownerSurface: "app",
     status: "failed",
     exitCode: 2,
     notification: { status: "failed" },
@@ -573,6 +611,18 @@ test("Stop emits a one-time continuation for an unread terminal completion", (t)
   assert.equal(hookOutput.decision, "block");
   assert.match(result.stdout, /one-time Stop-hook continuation/i);
   assert.match(result.stdout, /job-hook-stop: failed \(exit 2\)/);
+  assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-stop/);
+  assert.match(result.stdout, /result <job-id> --peek/);
+  assert.match(result.stdout, /untrusted evidence/i);
+  assert.match(result.stdout, /final answer/i);
+  assert.match(result.stdout, /recommend the single next best step/i);
+  assert.match(result.stdout, /ask before acting/i);
+  assert.doesNotMatch(result.stdout, /Codex App may auto-collapse/i);
+  assert.doesNotMatch(result.stdout, /prior assistant completion/i);
+  assert.ok(
+    hookOutput.reason.split(/\s+/u).filter(Boolean).length <= 100,
+    `Stop fallback should stay compact; got ${hookOutput.reason.split(/\s+/u).filter(Boolean).length} words`,
+  );
 });
 
 test("invalid persisted records cannot poison or inject into hook context", (t) => {
@@ -919,7 +969,7 @@ test("delivered refresh-required completion receives one ordinary-prompt recap i
   });
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /job-hook-004: failed \(exit 7\)/);
-  assert.match(first.stdout, /completion turn was recorded, but the assigning client may not have refreshed the agent's context/);
+  assert.match(first.stdout, /prior completion turn may not be visible in this client/i);
   const stored = readJob(env, "job-hook-004");
   assert.equal(stored.notification.status, "delivered");
   assert.match(stored.notification.ordinaryPromptRecapInjectedAt, /T/);
@@ -991,7 +1041,7 @@ test("delivered Cartesian remote completion receives the same one-shot recap ins
   });
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /job-hook-remote: completed \(exit 0\)/);
-  assert.match(first.stdout, /assigning client may not have refreshed/);
+  assert.match(first.stdout, /prior completion turn may not be visible/i);
   const stored = readJob(env, "job-hook-remote");
   assert.equal(stored.notification.status, "delivered");
   assert.match(stored.notification.ordinaryPromptRecapInjectedAt, /T/);
@@ -1025,12 +1075,10 @@ test("delivered App completion requires live commentary when used and final-answ
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /job-hook-005: completed \(exit 0\)/);
+  assert.match(result.stdout, /prior completion turn may not be visible/i);
   assert.match(result.stdout, /briefly recap every listed job/i);
-  assert.match(result.stdout, /if you send commentary, announce each completion there/i);
-  assert.match(result.stdout, /final answer MUST also include a concise recap for every listed job/i);
-  assert.match(result.stdout, /do not treat commentary or a synthetic completion turn as satisfying the final-answer requirement/i);
-  assert.match(result.stdout, /auto-collapse commentary when the final answer renders/i);
-  assert.match(result.stdout, /cross-turn duplicate is intentional/i);
+  assert.match(result.stdout, /if you use commentary, repeat its concise completion recap in the final answer/i);
+  assert.match(result.stdout, /one-shot recap prevents silence/i);
   assert.doesNotMatch(result.stdout, /do not repeat/i);
   assert.match(readJob(env, "job-hook-005").notification.ordinaryPromptRecapInjectedAt, /T/);
 

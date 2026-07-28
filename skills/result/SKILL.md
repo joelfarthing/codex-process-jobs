@@ -11,6 +11,8 @@ Resolve `<plugin-root>` two directories above this file:
 node "<plugin-root>/scripts/job.mjs" result [job-id] [options] --json
 ```
 
+Never search memory for CPJ work; use validated CPJ state.
+
 If `${CODEX_HOME:-$HOME/.codex}/process-jobs` is not writable in the current
 sandbox, request narrow escalation on the first call; do not probe for a
 predictable `EPERM`.

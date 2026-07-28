@@ -179,6 +179,13 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
   ]) {
     validateOptionalString(job, field, maximum);
   }
+  if (job.rerunOf != null) {
+    if (typeof job.rerunOf !== "string") {
+      throw new Error(`Invalid persisted rerun source for ${id}.`);
+    }
+    const rerunOf = sanitizeJobId(job.rerunOf);
+    if (rerunOf === id) throw new Error(`Persisted job ${id} cannot rerun itself.`);
+  }
   if (job.cwd != null && !path.isAbsolute(job.cwd)) {
     throw new Error(`Persisted cwd for ${id} must be absolute.`);
   }

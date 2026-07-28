@@ -89,6 +89,42 @@ test("schema v2 validates fixed execution descriptors and schema v1 remains read
   }, { expectedId: base.id, env }));
 });
 
+test("validates rerun lineage as a distinct job id", (t) => {
+  const env = withTemporaryHome(t);
+  const base = {
+    id: "job-rerun-child",
+    status: "completed",
+    phase: "completed",
+    cwd: process.cwd(),
+    execution: { kind: "argv" },
+    argv: [process.execPath, "--version"],
+    logs: resolveJobLogs("job-rerun-child", env),
+  };
+  const created = createJob({
+    ...base,
+    rerunOf: "job-rerun-parent",
+  }, env);
+  assert.equal(created.rerunOf, "job-rerun-parent");
+  assert.throws(
+    () => createJob({
+      ...base,
+      id: "job-rerun-self",
+      rerunOf: "job-rerun-self",
+      logs: resolveJobLogs("job-rerun-self", env),
+    }, env),
+    /cannot rerun itself/i,
+  );
+  assert.throws(
+    () => createJob({
+      ...base,
+      id: "job-rerun-invalid",
+      rerunOf: "../parent",
+      logs: resolveJobLogs("job-rerun-invalid", env),
+    }, env),
+    /invalid job id/i,
+  );
+});
+
 test("a sandbox-style permission failure preparing state dirs is actionable", (t) => {
   if (typeof process.getuid === "function" && process.getuid() === 0) {
     t.skip("permission bits do not restrict root");

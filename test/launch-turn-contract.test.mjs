@@ -48,7 +48,28 @@ test("model-facing launch contracts require release without same-turn monitoring
   assert.match(agentPolicy, /Classify workload, not wrapper latency/i);
   assert.match(agentPolicy, /Task skills own preflight\/correctness; CPJ owns lifecycle/i);
   assert.match(agentPolicy, /detached launchers, route foreground payload through CPJ/i);
+  assert.match(agentPolicy, /Never search memory for CPJ work/i);
+  assert.match(agentPolicy, /current request and validated CPJ state/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140);
+});
+
+test("operational skills categorically prohibit CPJ memory searches", () => {
+  const skillPaths = [
+    "skills/start/SKILL.md",
+    "skills/status/SKILL.md",
+    "skills/tail/SKILL.md",
+    "skills/result/SKILL.md",
+    "skills/cancel/SKILL.md",
+    "skills/rerun/SKILL.md",
+  ];
+  for (const skillPath of skillPaths) {
+    const skill = normalizeProse(read(skillPath));
+    assert.match(
+      skill,
+      /Never search memory for CPJ work; use validated CPJ state/i,
+      skillPath,
+    );
+  }
 });
 
 test("model-facing routing contract composes task workflows without tracking quick wrappers", () => {

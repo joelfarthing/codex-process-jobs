@@ -226,6 +226,8 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
   assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
   assert.match(agentPolicy, /follow the selected Codex Process Jobs skills/i);
+  assert.match(agentPolicy, /Never search memory for CPJ work/i);
+  assert.match(agentPolicy, /current request and validated CPJ state/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140, "managed policy should stay compact");
   assert.match(applied.stdout, /installer never writes hook trust/i);
   assert.match(applied.stdout, /PostToolUse, Stop, and UserPromptSubmit/);

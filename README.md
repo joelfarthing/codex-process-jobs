@@ -304,6 +304,7 @@ $codex-process-jobs:status <job-id> --wait
 $codex-process-jobs:tail <job-id> --stderr
 $codex-process-jobs:tail <job-id> --stderr --since-byte <offset> --since-generation <generation> --json
 $codex-process-jobs:result <job-id>
+$codex-process-jobs:rerun <job-id>
 $codex-process-jobs:cancel <job-id>
 node scripts/job.mjs config --completion-mode inspect
 node scripts/job.mjs config --notify-user true
@@ -322,6 +323,7 @@ node scripts/job.mjs status JOB_ID --wait
 node scripts/job.mjs tail JOB_ID --both
 node scripts/job.mjs tail JOB_ID --stdout --since-byte OFFSET --since-generation GENERATION --json
 node scripts/job.mjs result JOB_ID
+node scripts/job.mjs rerun JOB_ID
 node scripts/job.mjs cancel JOB_ID
 node scripts/job.mjs config --notify-user true
 ```
@@ -335,6 +337,13 @@ node scripts/job.mjs start --shell -- 'set -o pipefail; cmake --build build 2>&1
 Use `--posix-sh` instead only for command strings intentionally limited to POSIX `/bin/sh -c`. Direct argv mode remains the default and safest option.
 
 Jobs created before this change remain schema-v1 records and retain their historical `/bin/sh -lc` behavior when read by a newer installation; new jobs record an explicit schema-v2 execution descriptor.
+
+`rerun` launches a terminal job's validated persisted argv, working directory,
+and execution mode as a new detached job with fresh logs and a `rerunOf`
+lineage field. It never reconstructs an invocation from display text or logs.
+A rerun repeats the invocation, not the historical environment: files,
+dependencies, credentials, devices, and external state may have changed.
+Active jobs cannot be rerun, and critical jobs require explicit `--force`.
 
 ## Critical jobs
 

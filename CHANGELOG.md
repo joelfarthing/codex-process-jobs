@@ -4,6 +4,8 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-07-28
+
 ### Added
 
 - Finished jobs can be launched again with the new `rerun` controller command
@@ -234,7 +236,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/joelfarthing/codex-process-jobs/compare/b3d9d624b2e72b6a9e90b9f8181191b3b26d81cc...v0.2.6
 [0.2.5]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.4...b3d9d624b2e72b6a9e90b9f8181191b3b26d81cc
 [0.2.4]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.3...v0.2.4

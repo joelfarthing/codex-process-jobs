@@ -177,9 +177,9 @@ After every Marketplace update:
    provider, and run a harmless detached smoke test.
 
 In the maintainer-only side-by-side development setup, the local provider is the
-sole active implementation: all five directory skills and all three directory
+sole active implementation: all six directory skills and all three directory
 hooks are disabled. After every directory update, explicitly re-confirm those
-eight toggles before opening the fresh test task. Do not assume a Marketplace
+nine toggles before opening the fresh test task. Do not assume a Marketplace
 update preserved disabled state, even though current clients do not ordinarily
 enable a hook without consent.
 

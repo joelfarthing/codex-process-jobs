@@ -4,6 +4,26 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Added
+
+- Finished jobs can be launched again with the new `rerun` controller command
+  and skill. CPJ reads only the private validated record, preserves argv,
+  working directory, execution mode, critical classification, and explicit
+  name, then creates a fresh job and logs with `rerunOf` lineage.
+- Rerun safety guards refuse active jobs, require `--force` for critical jobs,
+  and decline legacy shell records whose historical interpreter contract
+  cannot be preserved.
+
+### Changed
+
+- Stop-hook completion pickup now emits compact, user-legible context instead
+  of a long internal-policy transcript while retaining bounded result
+  inspection, untrusted-output handling, final-answer recap, and explicit
+  approval before the suggested next step.
+- The managed agent policy and every operational skill now forbid memory
+  searches for CPJ work and use the current request plus validated CPJ state as
+  the sole job-routing and metadata authorities.
+
 ## [0.2.6] - 2026-07-27
 
 ### Changed

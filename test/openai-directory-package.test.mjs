@@ -54,6 +54,14 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
       ),
     );
     assert.ok(
+      first.entries.includes("codex-process-jobs/skills/rerun/SKILL.md"),
+    );
+    assert.ok(
+      first.entries.includes(
+        "codex-process-jobs/skills/rerun/agents/openai.yaml",
+      ),
+    );
+    assert.ok(
       first.entries.includes("codex-process-jobs/skills/start/SKILL.md"),
     );
 

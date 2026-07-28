@@ -36,7 +36,7 @@ The installer inserts the contents of [`assets/agent-policy.md`](../assets/agent
 <!-- codex-process-jobs:end -->
 ```
 
-Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated instructions. An older verbose CPJ managed block is compacted in place. The block classifies the underlying finite workload rather than wrapper latency, composes task-specific correctness checks with CPJ lifecycle ownership, excludes interactive and persistent server/watch workloads, makes successful start a hard launch-turn boundary, and points Codex to the selected skills for the full contract. The [routing acceptance test](routing-acceptance-test.md) exercises the intended positive and negative cases.
+Re-running the installer replaces that one managed block without duplicating it and preserves all unrelated instructions. An older verbose CPJ managed block is compacted in place. The block classifies the underlying finite workload rather than wrapper latency, composes task-specific correctness checks with CPJ lifecycle ownership, excludes interactive and persistent server/watch workloads, makes successful start a hard launch-turn boundary, forbids memory searches for CPJ work because the current request and validated CPJ state are authoritative, and points Codex to the selected skills for the full contract. The [routing acceptance test](routing-acceptance-test.md) exercises the intended positive and negative cases.
 
 `--agent-policy none` never changes an `AGENTS.md`. The deprecated `--with-agent-policy` alias remains compatible with older automation and means `--agent-policy global`.
 

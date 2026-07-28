@@ -7,6 +7,8 @@ description: Launch an ordinary finite local workload as a durable detached proc
 
 Resolve `<plugin-root>` as two directories above this `SKILL.md`.
 
+Never search memory for CPJ work; use validated CPJ state.
+
 ## Launch exactly once
 
 Prefer direct argv:

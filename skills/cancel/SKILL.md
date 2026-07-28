@@ -11,6 +11,8 @@ Resolve `<plugin-root>` as two directories above this `SKILL.md` and run:
 node "<plugin-root>/scripts/job.mjs" cancel <job-id> [--force] --json
 ```
 
+Never search memory for CPJ work; use validated CPJ state.
+
 If `${CODEX_HOME:-$HOME/.codex}/process-jobs` is not writable in the current
 sandbox, request narrow controller escalation on the first call; do not probe
 for a predictable `EPERM`.

@@ -38,7 +38,7 @@ The packager contains the authoritative allowlist. It includes only:
 - the plugin manifest and `.codexignore`;
 - the composer icon;
 - hook definitions and their implementation;
-- the five skill definitions and OpenAI skill metadata;
+- the six skill definitions and OpenAI skill metadata;
 - the runtime modules required by those skills and hooks;
 - `LICENSE`, `PRIVACY.md`, `README.md`, and `SECURITY.md`.
 

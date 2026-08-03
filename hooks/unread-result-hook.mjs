@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isCliEntry } from "../scripts/cli-entry.mjs";
-import { completionMode, hookCompletionMode } from "../scripts/notifier.mjs";
+import { buildNotificationPrompt, completionMode, hookCompletionMode } from "../scripts/notifier.mjs";
 import { ACTIVE_STATUSES, TERMINAL_STATUSES, listJobs, nowIso, tryReadJob, updateJob } from "../scripts/state.mjs";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -405,6 +405,15 @@ function buildContext(jobs, eventName = "UserPromptSubmit", env = process.env) {
   return instructions.join("\n");
 }
 
+function completionNoticeSource(job) {
+  if (job.notification?.status === "delivering") return "relay";
+  if (
+    job.notification?.stopContinuationPromptedAt
+    && !job.notification?.stopContinuationContextInjectedAt
+  ) return "stop-continuation";
+  return null;
+}
+
 function verifiedSyntheticNotificationJobs(prompt, sessionId, jobs) {
   const stated = parseConciseCompletionNotice(String(prompt ?? "").trim());
   if (!stated) return [];
@@ -412,26 +421,71 @@ function verifiedSyntheticNotificationJobs(prompt, sessionId, jobs) {
   const verified = [];
   for (const item of stated) {
     const job = byId.get(item.id);
+    const source = completionNoticeSource(job ?? {});
     if (
       !job
       || job.ownerThreadId !== sessionId
-      || job.notification?.status !== "delivering"
+      || !source
       || job.status !== item.status
       || (Number.isInteger(job.exitCode) ? job.exitCode : null) !== item.exitCode
     ) return [];
-    verified.push(job);
+    verified.push({ job, source });
   }
+  if (new Set(verified.map((item) => item.source)).size !== 1) return [];
   return verified;
 }
 
-function buildSyntheticNotificationContext(jobs, env = process.env) {
+async function claimStopContinuationContext(items, timestamp, {
+  update = updateJob,
+  onError = () => {},
+} = {}) {
+  const claimed = [];
+  for (const item of items) {
+    if (item.source !== "stop-continuation") {
+      claimed.push(item);
+      continue;
+    }
+    let accepted = false;
+    try {
+      const updated = await update(item.job.id, (current) => {
+        if (
+          current.ownerThreadId !== item.job.ownerThreadId
+          || current.status !== item.job.status
+          || current.exitCode !== item.job.exitCode
+          || !current.notification?.stopContinuationPromptedAt
+          || current.notification?.stopContinuationContextInjectedAt
+        ) return current;
+        accepted = true;
+        return {
+          ...current,
+          notification: {
+            ...current.notification,
+            stopContinuationContextInjectedAt: timestamp,
+          },
+        };
+      });
+      if (accepted) claimed.push({ job: updated, source: item.source });
+    } catch (error) {
+      onError(item.job, error);
+    }
+  }
+  return claimed;
+}
+
+function buildSyntheticNotificationContext(jobs, env = process.env, { stopContinuation = false } = {}) {
   const goalJobs = jobs.filter((job) => job.goalMode);
   const ordinaryJobs = jobs.filter((job) => !job.goalMode);
-  const inspectJobs = ordinaryJobs.filter((job) => completionMode(job, env) === "inspect");
+  const modeFor = stopContinuation ? hookCompletionMode : completionMode;
+  const inspectJobs = ordinaryJobs.filter((job) => modeFor(job, env) === "inspect");
   const reportJobs = ordinaryJobs.filter((job) => !inspectJobs.includes(job));
   const instructions = [
     "Codex Process Jobs verified this as its automatic completion turn. The visible user message contains only sanitized terminal metadata and no process output.",
   ];
+  if (stopContinuation) {
+    instructions.push(
+      "This is a one-time Stop-hook continuation. Include every completion recap in the final answer; if commentary mentions a completion, repeat its concise recap in the final answer.",
+    );
+  }
   if (goalJobs.length > 0) {
     instructions.push(
       `Goal-mode job IDs: ${goalJobs.map((job) => job.id).join(", ")}.`,
@@ -460,7 +514,7 @@ export async function claimCandidates(
   candidates,
   sessionId,
   timestamp,
-  { update = updateJob, onError = () => {} } = {},
+  { update = updateJob, onError = () => {}, eventName = "UserPromptSubmit" } = {},
 ) {
   const claimed = [];
   for (const candidate of candidates) {
@@ -476,6 +530,7 @@ export async function claimCandidates(
           notification.status = "fallback_notified";
           notification.hookNotifiedAt = timestamp;
         }
+        if (eventName === "Stop") notification.stopContinuationPromptedAt = timestamp;
         return { ...current, notification };
       });
       if (claimedKind) claimed.push({ ...updated, fallbackKind: claimedKind });
@@ -486,7 +541,7 @@ export async function claimCandidates(
   return claimed;
 }
 
-function writeHookContext(eventName, context) {
+function writeHookContext(eventName, context, { stopJobs = [] } = {}) {
   if (!context) return;
   if (eventName === "PostToolUse") {
     process.stdout.write(`${JSON.stringify({
@@ -498,7 +553,11 @@ function writeHookContext(eventName, context) {
     return;
   }
   if (eventName === "Stop") {
-    process.stdout.write(`${JSON.stringify({ decision: "block", reason: context })}\n`);
+    if (stopJobs.length === 0) return;
+    process.stdout.write(`${JSON.stringify({
+      decision: "block",
+      reason: buildNotificationPrompt(stopJobs),
+    })}\n`);
     return;
   }
   process.stdout.write(`${context}\n`);
@@ -514,9 +573,23 @@ async function main() {
   ) return;
   if (eventName === "UserPromptSubmit") {
     const jobs = listJobs();
-    const synthetic = verifiedSyntheticNotificationJobs(input.prompt, sessionId, jobs);
+    const verified = verifiedSyntheticNotificationJobs(input.prompt, sessionId, jobs);
+    const synthetic = await claimStopContinuationContext(verified, nowIso(), {
+      onError(job, error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Could not claim completion context for ${job.id}: ${message}\n`);
+      },
+    });
     if (synthetic.length > 0) {
-      writeHookContext(eventName, buildSyntheticNotificationContext(synthetic, process.env));
+      const stopContinuation = synthetic.every((item) => item.source === "stop-continuation");
+      writeHookContext(
+        eventName,
+        buildSyntheticNotificationContext(
+          synthetic.map((item) => item.job),
+          process.env,
+          { stopContinuation },
+        ),
+      );
       return;
     }
     if (isSyntheticNotificationPrompt(input.prompt) || isExplicitJobRequest(input.prompt)) return;
@@ -543,6 +616,7 @@ async function main() {
     .filter((job) => fallbackKind(job, sessionId))
     .slice(0, MAX_JOBS);
   const claimed = await claimCandidates(candidates, sessionId, timestamp, {
+    eventName,
     onError(candidate, error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`Could not claim recap for ${candidate.id}: ${message}\n`);
@@ -554,7 +628,9 @@ async function main() {
     activeGoalJobs.length > 0 ? buildGoalContinuationBoundaryContext(activeGoalJobs) : null,
     claimed.length > 0 ? buildContext(claimed, eventName, process.env) : null,
   ].filter(Boolean);
-  writeHookContext(eventName, contexts.join("\n\n"));
+  writeHookContext(eventName, contexts.join("\n\n"), {
+    stopJobs: eventName === "Stop" ? claimed : [],
+  });
 }
 
 if (isCliEntry(import.meta.url)) {

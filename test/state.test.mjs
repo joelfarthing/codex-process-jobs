@@ -272,6 +272,31 @@ test("validates persisted launch-boundary claim metadata", (t) => {
   assert.equal(created.notification.launchBoundaryTurnId, "turn-valid-launch-marker");
 });
 
+test("validates persisted Stop-continuation timestamps", (t) => {
+  const env = withTemporaryHome(t);
+  for (const field of ["stopContinuationPromptedAt", "stopContinuationContextInjectedAt"]) {
+    assert.throws(() => createJob({
+      id: `job-invalid-${field.toLowerCase()}`,
+      status: "completed",
+      notification: { status: "fallback_notified", [field]: "not-a-time" },
+      logs: resolveJobLogs(`job-invalid-${field.toLowerCase()}`, env),
+    }, env), new RegExp(field, "i"));
+  }
+
+  const created = createJob({
+    id: "job-valid-stop-continuation",
+    status: "failed",
+    exitCode: 1,
+    notification: {
+      status: "fallback_notified",
+      stopContinuationPromptedAt: "2026-08-03T19:00:00.000Z",
+      stopContinuationContextInjectedAt: "2026-08-03T19:00:01.000Z",
+    },
+    logs: resolveJobLogs("job-valid-stop-continuation", env),
+  }, env);
+  assert.equal(created.notification.stopContinuationContextInjectedAt, "2026-08-03T19:00:01.000Z");
+});
+
 test("rejects a non-boolean persisted Goal-mode marker", (t) => {
   const env = withTemporaryHome(t);
   assert.throws(() => createJob({

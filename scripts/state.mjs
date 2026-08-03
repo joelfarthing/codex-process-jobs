@@ -291,6 +291,18 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
     ) {
       throw new Error(`Invalid persisted launch-boundary timestamp for ${id}.`);
     }
+    for (const field of ["stopContinuationPromptedAt", "stopContinuationContextInjectedAt"]) {
+      if (
+        job.notification[field] != null
+        && (
+          typeof job.notification[field] !== "string"
+          || job.notification[field].length > 64
+          || !Number.isFinite(Date.parse(job.notification[field]))
+        )
+      ) {
+        throw new Error(`Invalid persisted ${field} for ${id}.`);
+      }
+    }
     if (
       job.notification.launchBoundaryTurnId != null
       && (

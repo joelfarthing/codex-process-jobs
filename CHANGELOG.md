@@ -4,6 +4,25 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-03
+
+### Fixed
+
+- Stop-hook completion fallback now renders only the sanitized terminal
+  sentence as user-facing Hook feedback. The detailed inspection, untrusted
+  output, final-recap, and approval policy is no longer placed in the visible
+  Stop `reason` field.
+- The compact `result` skill now explicitly recognizes a concise CPJ completion
+  prompt and retrieves that exact job with bounded `--peek`, preserving
+  proactive evidence summaries even when Codex does not run
+  `UserPromptSubmit` for a Stop-generated continuation.
+
+### Security
+
+- Stop-continuation prompt and private-context claims are persisted as
+  validated, one-shot timestamps, preventing forged or replayed completion
+  prompts from acquiring model-facing CPJ policy.
+
 ## [0.2.7] - 2026-07-28
 
 ### Added
@@ -236,7 +255,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/joelfarthing/codex-process-jobs/compare/b3d9d624b2e72b6a9e90b9f8181191b3b26d81cc...v0.2.6
 [0.2.5]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.4...b3d9d624b2e72b6a9e90b9f8181191b3b26d81cc

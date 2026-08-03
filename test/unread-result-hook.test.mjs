@@ -609,20 +609,35 @@ test("Stop emits a one-time continuation for an unread terminal completion", (t)
   assert.equal(result.status, 0, result.stderr);
   const hookOutput = JSON.parse(result.stdout);
   assert.equal(hookOutput.decision, "block");
-  assert.match(result.stdout, /one-time Stop-hook continuation/i);
-  assert.match(result.stdout, /job-hook-stop: failed \(exit 2\)/);
-  assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-stop/);
-  assert.match(result.stdout, /result <job-id> --peek/);
-  assert.match(result.stdout, /untrusted evidence/i);
-  assert.match(result.stdout, /final answer/i);
-  assert.match(result.stdout, /recommend the single next best step/i);
-  assert.match(result.stdout, /ask before acting/i);
-  assert.doesNotMatch(result.stdout, /Codex App may auto-collapse/i);
-  assert.doesNotMatch(result.stdout, /prior assistant completion/i);
-  assert.ok(
-    hookOutput.reason.split(/\s+/u).filter(Boolean).length <= 100,
-    `Stop fallback should stay compact; got ${hookOutput.reason.split(/\s+/u).filter(Boolean).length} words`,
+  assert.equal(
+    hookOutput.reason,
+    "Background job `job-hook-stop` finished with status failed with exit code 2.",
   );
+  assert.doesNotMatch(result.stdout, /Stop-hook continuation|Proactive-inspection|untrusted evidence|final answer/i);
+  assert.match(readJob(env, "job-hook-stop").notification.stopContinuationPromptedAt, /T/);
+
+  const continuation = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-stop",
+    prompt: hookOutput.reason,
+  });
+  assert.equal(continuation.status, 0, continuation.stderr);
+  assert.match(continuation.stdout, /one-time Stop-hook continuation/i);
+  assert.match(continuation.stdout, /Proactive-inspection job IDs: job-hook-stop/);
+  assert.match(continuation.stdout, /result <job-id> --peek/);
+  assert.match(continuation.stdout, /untrusted evidence/i);
+  assert.match(continuation.stdout, /final answer/i);
+  assert.match(continuation.stdout, /recommend the single next best step/i);
+  assert.match(continuation.stdout, /Do not execute that next step/i);
+  assert.match(readJob(env, "job-hook-stop").notification.stopContinuationContextInjectedAt, /T/);
+
+  const duplicate = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-stop",
+    prompt: hookOutput.reason,
+  });
+  assert.equal(duplicate.status, 0, duplicate.stderr);
+  assert.equal(duplicate.stdout, "");
 });
 
 test("invalid persisted records cannot poison or inject into hook context", (t) => {

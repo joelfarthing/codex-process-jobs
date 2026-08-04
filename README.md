@@ -85,7 +85,9 @@ The July 21, 2026 publication-hardening run used [HOL Guard `plugin-scanner` 2.0
 - critical, high, medium, and low findings: **zero**;
 - HOL runtime verification: **PASS**;
 - Cisco skill scanner: completed against all five bundled skills with the balanced policy and advisory-only findings; and
-- Codex plugin validation plus the full local suite: **PASS**, including 165/165 tests.
+- Codex plugin validation plus the full local suite at that publication-hardening checkpoint: **PASS**, including 165/165 tests.
+
+The subsequent v0.2.8 release validation also passed the expanded local suite: **214/214 tests**.
 
 The remaining scanner notices are informational schema differences: HOL currently treats six absent optional interface URL/asset fields as invalid, while its own runtime verifier and the Codex validator accept the manifest; Cisco recommends a per-skill license field, while Codex skill authoring permits only `name` and `description` frontmatter. The repository and plugin manifest declare Apache-2.0.
 

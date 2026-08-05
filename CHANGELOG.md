@@ -4,6 +4,14 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Fixed
+
+- Proactive completion inspection now preserves explicit conversational
+  authority: Codex may continue a clear, already-authorized in-scope step, but
+  completion metadata and process output never grant new authority. New
+  authority, consequential choices, expanded scope, and elevated risk still
+  require user direction.
+
 ## [0.2.8] - 2026-08-03
 
 ### Fixed

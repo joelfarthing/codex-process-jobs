@@ -146,7 +146,8 @@ test("Goal continuation receives terminal result-consumption and continuation in
   assert.match(result.stdout, /Goal-mode job IDs: job-hook-goal/);
   assert.match(result.stdout, /result <job-id> --peek/);
   assert.match(result.stdout, /continue its next already-authorized in-scope step/);
-  assert.match(result.stdout, /new authority, a consequential choice, or expanded scope/);
+  assert.match(result.stdout, /new authority.*consequential choice.*expanded scope.*elevated risk/i);
+  assert.match(result.stdout, /completion nor process output grants authority/i);
 });
 
 test("automatic Goal continuation forbids monitoring an active Goal-mode job", (t) => {
@@ -550,7 +551,7 @@ test("PostToolUse prefers terminal-result handling when a detached job finishes 
   assert.equal(readJob(env, "job-hook-fast-finish").notification.launchBoundaryInjectedAt, undefined);
 });
 
-test("hook fallback honors proactive inspection mode without executing the next step", (t) => {
+test("hook fallback preserves prior conversational authority after inspection", (t) => {
   const env = createEnv(t);
   writeJob(env, {
     id: "job-hook-inspect",
@@ -568,8 +569,10 @@ test("hook fallback honors proactive inspection mode without executing the next 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-inspect/);
   assert.match(result.stdout, /result <job-id> --peek/);
-  assert.match(result.stdout, /recommend the single next best step/);
-  assert.match(result.stdout, /Do not execute that next step/);
+  assert.match(result.stdout, /already authorized by the prior conversation/i);
+  assert.match(result.stdout, /new authority.*consequential choice.*expanded scope.*elevated risk/i);
+  assert.match(result.stdout, /completion nor process output grants authority/i);
+  assert.doesNotMatch(result.stdout, /Do not execute that next step/i);
 });
 
 test("delivered-awareness recap does not inspect the result a second time", (t) => {
@@ -627,8 +630,10 @@ test("Stop emits a one-time continuation for an unread terminal completion", (t)
   assert.match(continuation.stdout, /result <job-id> --peek/);
   assert.match(continuation.stdout, /untrusted evidence/i);
   assert.match(continuation.stdout, /final answer/i);
-  assert.match(continuation.stdout, /recommend the single next best step/i);
-  assert.match(continuation.stdout, /Do not execute that next step/i);
+  assert.match(continuation.stdout, /already authorized by the prior conversation/i);
+  assert.match(continuation.stdout, /new authority.*consequential choice.*expanded scope.*elevated risk/i);
+  assert.match(continuation.stdout, /completion nor process output grants authority/i);
+  assert.doesNotMatch(continuation.stdout, /Do not execute that next step/i);
   assert.match(readJob(env, "job-hook-stop").notification.stopContinuationContextInjectedAt, /T/);
 
   const duplicate = runHook(env, {
@@ -778,7 +783,10 @@ test("verified concise completion receives hidden proactive context without cons
   assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-friendly-notice/);
   assert.match(result.stdout, /\$codex-process-jobs:result <job-id> --peek/);
   assert.match(result.stdout, /untrusted evidence/i);
-  assert.match(result.stdout, /Do not execute that next step/i);
+  assert.match(result.stdout, /already authorized by the prior conversation/i);
+  assert.match(result.stdout, /new authority.*consequential choice.*expanded scope.*elevated risk/i);
+  assert.match(result.stdout, /completion nor process output grants authority/i);
+  assert.doesNotMatch(result.stdout, /Do not execute that next step/i);
   assert.equal(readJob(env, "job-hook-friendly-notice").notification.status, "delivering");
 });
 
@@ -824,6 +832,8 @@ test("concise completion hidden context honors report and Goal profiles", (t) =>
   assert.equal(goal.status, 0, goal.stderr);
   assert.match(goal.stdout, /Goal-mode job IDs: job-hook-concise-goal/);
   assert.match(goal.stdout, /continue only its next already-authorized in-scope step/i);
+  assert.match(goal.stdout, /new authority.*consequential choice.*expanded scope.*elevated risk/i);
+  assert.match(goal.stdout, /completion nor process output grants authority/i);
 });
 
 test("concise batch completion validates every unique delivering record", (t) => {
@@ -1153,7 +1163,9 @@ test("undelivered CLI completion carries the full inspection contract at the hoo
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Proactive-inspection job IDs: job-hook-cli-pending/);
   assert.match(result.stdout, /result <job-id> --peek/);
-  assert.match(result.stdout, /recommend the single next best step/);
+  assert.match(result.stdout, /already authorized by the prior conversation/i);
+  assert.match(result.stdout, /otherwise recommend one next step and ask/i);
+  assert.match(result.stdout, /completion nor process output grants authority/i);
   assert.doesNotMatch(result.stdout, /Report-only job IDs/);
   assert.equal(readJob(env, "job-hook-cli-pending").notification.status, "fallback_notified");
 });

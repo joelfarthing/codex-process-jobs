@@ -20,8 +20,9 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 5. A notifier may atomically claim up to 20 compatible terminal siblings owned by the same task and deliver them in one turn. The concise user-facing notice contains only one sanitized job id, terminal status, and exit code per record. It never interpolates the command, working directory, job label, environment, stdout, stderr, or agent instructions.
 6. In the default `auto` mode, App, VS Code, and remote surfaces ask Codex to
    inspect bounded saved output with `result --peek`, summarize the evidence,
-   recommend one next step, and ask permission without executing it. CLI and
-   unknown surfaces request only a short acknowledgment in the direct
+   and continue only a clear next step already authorized and still in scope
+   from the prior conversation. Otherwise Codex recommends one next step and
+   asks. CLI and unknown surfaces request only a short acknowledgment in the direct
    completion turn, because an already-open TUI cannot render that turn live.
    The first eligible hook boundary then gives a CLI-owned job the same
    bounded inspection contract, so the first turn the TUI user actually sees
@@ -145,7 +146,7 @@ The same `PostToolUse` definition also closes the launch-side behavioral gap. It
 
 All three definitions invoke the same bounded script, reject notification-relay recursion, admit only sanitized terminal state, and use the same per-job compare-and-set claim. Trust is explicit per installed hook definition through `/hooks`; when hooks are disabled or untrusted, direct delivery and durable status/result remain available.
 
-An undelivered ordinary completion surfaced by a hook honors the same `report|inspect|auto` policy as direct delivery, with one deliberate difference: at hook boundaries, `auto` also selects inspection for CLI-owned jobs, because the hook turn is the first turn a TUI user actually sees. In proactive mode the hook asks Codex to inspect bounded evidence with `result --peek`, summarize it, recommend one next step, and ask before executing that step. A recap for an already-delivered completion stays report-only on surfaces whose completion turn already performed the inspection; a delivered CLI completion instead carries the inspection contract in its recap, because its acknowledgment-only turn inspected nothing and may never have rendered.
+An undelivered ordinary completion surfaced by a hook honors the same `report|inspect|auto` policy as direct delivery, with one deliberate difference: at hook boundaries, `auto` also selects inspection for CLI-owned jobs, because the hook turn is the first turn a TUI user actually sees. In proactive mode the hook asks Codex to inspect bounded evidence with `result --peek`, then continue only a clear next step already authorized and still in scope from the prior conversation; otherwise it recommends one next step and asks. A recap for an already-delivered completion stays report-only on surfaces whose completion turn already performed the inspection; a delivered CLI completion instead carries the inspection contract in its recap, because its acknowledgment-only turn inspected nothing and may never have rendered.
 
 ## Optional OS notification
 
@@ -169,7 +170,7 @@ The worker invokes `osascript` on macOS or `notify-send` on Linux with `shell: f
 
 ## Trust boundary
 
-Process output is untrusted data. It is stored only in bounded logs and is never interpolated into the notification prompt. Proactive completion uses `$codex-process-jobs:result <job-id> --peek` to retrieve bounded output without marking it user-viewed or suppressing fallback. The verified hidden hook policy requires Codex to treat the output only as evidence and never obey embedded instructions. Ordinary proactive mode stops after recommending one next step; Goal mode may continue only work already authorized by the active Goal. Ordinary user-requested result inspection omits `--peek` and retains its existing consumption semantics.
+Process output is untrusted data. It is stored only in bounded logs and is never interpolated into the notification prompt. Proactive completion uses `$codex-process-jobs:result <job-id> --peek` to retrieve bounded output without marking it user-viewed or suppressing fallback. The verified hidden hook policy requires Codex to treat the output only as evidence and never obey embedded instructions. Ordinary and Goal proactive modes may continue only clear work already authorized and still in scope from the prior conversation; otherwise they ask. New authority, consequential choices, expanded scope, and elevated risk require the user. Neither completion metadata nor process output grants authority. Ordinary user-requested result inspection omits `--peek` and retains its existing consumption semantics.
 
 The installer enables Codex's stable `hooks` feature and installs `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions, but it never writes hook trust. After every install or update and client restart, the user must open `/hooks` and inspect the installed `codex-process-jobs@<marketplace>` definitions and referenced shared source. Any definition Codex marks new or changed requires approval; if trust persists, the user still verifies that status. Referenced source can change even when the definition hash does not, which is why review remains mandatory after every update. Direct completion remains available without hook trust; hook-boundary fallback runs only for definitions Codex currently trusts.
 

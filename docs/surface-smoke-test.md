@@ -15,9 +15,9 @@ Pass criteria:
 3. Without the user prompt coaching this behavior, the launch turn ends while the ordinary OS process remains active. It does not read the status skill or call status, tail, result, `--wait`, `write_stdin`, sleep, `ps`, or another monitor/probe after start returns.
 4. The separate completion turn is durably recorded. In default `auto` mode on
    local Codex App and VS Code, the one-sentence automatic notice and the
-   agent's bounded result summary, single recommended next step, and permission
-   question should render live exactly once; the agent must not execute that
-   step. The visible notice must contain no `Codex:` instruction paragraph;
+   agent's bounded result summary should render live exactly once. When no
+   clear next step was already authorized by the prior conversation, the agent
+   recommends one step and asks before acting. The visible notice must contain no `Codex:` instruction paragraph;
    the trusted prompt-submit hook must validate the same-task in-flight record
    and supply the deterministic policy as hidden context.
    In an ordinarily launched CLI, do not promise a live wake. Completion uses
@@ -31,7 +31,7 @@ Pass criteria:
    surfaces retain the lightweight acknowledgment in the direct completion turn
    unless completion mode is explicitly overridden; a CLI launch should also
    produce one desktop completion notice by default.
-5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. For a CLI-owned job in default `auto` mode, that recap additionally inspects the bounded saved result with `--peek`, summarizes it, recommends one next step, and asks permission without executing it. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
+5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. For a CLI-owned job in default `auto` mode, that recap additionally inspects the bounded saved result with `--peek`, summarizes it, and continues only a clear next step already authorized and still in scope from the prior conversation; otherwise it recommends one next step and asks. New authority, consequential choices, expanded scope, and elevated risk require user direction, and completion/output never grants authority. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
 6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code
    `0`, and `notification.presentation: durable-refresh-required`. After direct
    completion, it also reports `notification.transport: desktop-ipc`,

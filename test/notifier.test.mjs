@@ -743,6 +743,39 @@ test("notifier persists the exact bounded App private IPC fallback reason", asyn
   );
 });
 
+test("CLI live injection falls back safely and records why the shared endpoint was unavailable", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-cli-live-fallback-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex-home");
+  const promptFile = path.join(root, "prompt.txt");
+  const codex = createMockCodex(t, root);
+  const env = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+    CODEX_PROCESS_JOBS_CLI_LIVE_INJECTION: "1",
+    CODEX_PROCESS_JOBS_CLI_APP_SERVER_SOCKET: path.join(root, "missing", "app-server.sock"),
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    MOCK_NOTIFY_PROMPT: promptFile,
+  };
+  const id = "job-cli-live-fallback";
+  createJob(terminalJob({
+    id,
+    ownerSurface: "cli",
+    logs: resolveJobLogs(id, env),
+  }), env);
+
+  await runNotifier(id, env);
+  const stored = readJob(id, env);
+  assert.equal(stored.notification.status, "delivered");
+  assert.equal(stored.notification.transport, "app-server");
+  assert.equal(
+    stored.notification.cliLiveInjectionFallbackReason,
+    "Shared Codex App Server endpoint is unavailable (ENOENT).",
+  );
+});
+
 test("notifier batches compatible sibling completions into one shared turn", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notifier-batch-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -20,22 +20,28 @@ Pass criteria:
    recommends one step and asks before acting. The visible notice must contain no `Codex:` instruction paragraph;
    the trusted prompt-submit hook must validate the same-task in-flight record
    and supply the deterministic policy as hidden context.
-   In an ordinarily launched CLI, do not promise a live wake. Completion uses
-   the portable app-server path and the first eligible later prompt retains the
-   one-shot recap.
+	   In a default CLI installation, do not promise a live wake. Completion uses
+	   the portable app-server path and the first eligible later prompt retains the
+	   one-shot recap. For the separate experimental live-CLI smoke, explicitly
+	   verify that the active Codex distribution supports `codex app-server
+	   daemon start`; do not install another distribution or change `PATH` for
+	   this smoke. When supported, enable `config --cli-live-injection true`,
+	   start the daemon, then start a fresh ordinary `codex` TUI. The notice and proactive
+	   response should render there exactly once without another prompt.
    App should record `notification.transport: desktop-ipc`, VS Code should
    record `notification.transport: vscode-ipc`, and CLI should record
-   `notification.transport: app-server`. The non-consuming inspection leaves
+   `notification.transport: app-server` by default or
+   `notification.transport: cli-app-server` in the opt-in live smoke. The non-consuming inspection leaves
    `resultViewedAt` unset. Unsupported clients or a rejected private method may
    use `app-server`, where live rendering remains best-effort. CLI and unknown
    surfaces retain the lightweight acknowledgment in the direct completion turn
    unless completion mode is explicitly overridden; a CLI launch should also
    produce one desktop completion notice by default.
-5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc` or `vscode-ipc` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed private delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. For a CLI-owned job in default `auto` mode, that recap additionally inspects the bounded saved result with `--peek`, summarizes it, and continues only a clear next step already authorized and still in scope from the prior conversation; otherwise it recommends one next step and asks. New authority, consequential choices, expanded scope, and elevated risk require user direction, and completion/output never grants authority. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
+5. Ordinary prompts submitted while the job is still active or while notifier-owned delivery is in flight continue normally. After a matching completed `desktop-ipc`, `vscode-ipc`, or `cli-app-server` turn, the first unrelated prompt must not repeat the completion. Portable `app-server`, uncertain, or failed live delivery retains one fallback recap on the first eligible unrelated non-status prompt after delivery settles; a second eligible prompt must not repeat it. For a CLI-owned job in default `auto` mode, that recap additionally inspects the bounded saved result with `--peek`, summarizes it, and continues only a clear next step already authorized and still in scope from the prior conversation; otherwise it recommends one next step and asks. New authority, consequential choices, expanded scope, and elevated risk require user direction, and completion/output never grants authority. In Codex App fallback, commentary should announce completion live when commentary is used, and the final answer must independently retain the concise recap because commentary auto-collapses when the final renders. Commentary-only fallback is a failure.
 6. `$codex-process-jobs:status <job-id> --json` reports `completed`, exit code
    `0`, and `notification.presentation: durable-refresh-required`. After direct
    completion, it also reports `notification.transport: desktop-ipc`,
-   `vscode-ipc`, or `app-server`.
+   `vscode-ipc`, `cli-app-server`, or `app-server`.
 7. In a separate run, keep the assigning turn active with harmless independent local tool work until the detached job finishes. The approved `PostToolUse` hook should surface it after a supported tool boundary; if completion occurs at finalization instead, the approved `Stop` hook should continue once to include the recap. Neither path may create a duplicate direct turn or expose process output in hook context.
 8. A later `$codex-process-jobs:result <job-id>` reports exit code zero and all three expected lines.
 
@@ -64,9 +70,9 @@ Run the same acceptance contract in every row. Record the host OS, Codex client/
 |---|---|---|---|
 | macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through Desktop IPC; no later duplicate recap |
 | macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through VS Code private IPC; no later duplicate recap |
-| macOS | Codex CLI | Exit/restart CLI; review `/hooks`; fresh task | Terminal presentation plus durable final recap |
+| macOS | Codex CLI | Default: exit/restart CLI. Live smoke: start official App Server daemon first, then launch ordinary CLI; review `/hooks`; fresh task | Default durable recap plus separate opt-in live render/no-duplicate proof |
 | Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local private IPC live render when the remote extension host exposes the router; safe app-server fallback otherwise |
-| Linux | Codex CLI | Reinstall on Linux host; restart CLI; review `/hooks`; fresh task | Portable detached lifecycle and recap |
+| Linux | Codex CLI | Reinstall on Linux host. Live smoke: start official App Server daemon first, then launch ordinary CLI; review `/hooks`; fresh task | Default portable recap plus separate opt-in live render/no-duplicate proof |
 | macOS or Linux | ChatGPT mobile/iOS driving the host | Reinstall on execution host; review `/hooks` and approve if required through Codex CLI or VS Code attached to that host; reconnect/start fresh mobile task | `ownerSurface: remote`, durable delivery, eligible-turn final retention |
 
 Pulling source commits does not update an installed runtime snapshot. On every execution host with the updated source checkout, run and review the installer preview, then run the authorized apply step before restarting clients. Select the compact managed policy as `global`, `project`, or `none` only after separate user consent. No runtime `npm install`, persistent daemon, or manual `codex plugin marketplace add` is required for the default personal marketplace.

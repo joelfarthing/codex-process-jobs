@@ -4,6 +4,34 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-09
+
+### Added
+
+- Experimental, explicit-opt-in live completion delivery for ordinary Codex
+  CLI/TUI sessions through Codex's official shared local App Server. When the
+  daemon is already running before the TUI starts, CPJ can send the sanitized
+  completion turn through its private same-user Unix socket and confirm the
+  matching durable turn before suppressing the later recap.
+- Maintainers can preview and install an isolated
+  `codex-process-jobs-dev` runtime with `node scripts/install.mjs --dev`.
+  The generated snapshot uses a distinct plugin and skill namespace,
+  `process-jobs-dev` durable state, personal-marketplace entry, and visible
+  development identity so it can coexist with a disabled Marketplace copy.
+
+### Changed
+
+- The optional managed `AGENTS.md` policy now refers to the enabled CPJ skills
+  without hard-coding a production or development plugin namespace.
+
+### Security
+
+- CLI live delivery validates a real same-user socket and parent directory
+  that are inaccessible to group or other users, applies bounded WebSocket
+  handshake/frame/message parsing, targets only the validated owning thread,
+  falls back only before possible turn acceptance, and never starts or enables
+  the App Server daemon automatically.
+
 ## [0.2.9] - 2026-08-04
 
 ### Fixed
@@ -136,6 +164,12 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
   acknowledgment-only because the open TUI cannot render it; the CLI path
   therefore still spends one extra hidden turn, documented as a known
   limitation.
+### Security
+
+- Production packaging requires the exact public plugin identity and refuses
+  development install markers. Development identity rewriting occurs only in
+  the transactional staging copy, and a generated development snapshot cannot
+  be used as a release or installer source.
 
 ## [0.2.4] - 2026-07-25
 
@@ -265,7 +299,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.9...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.9...v0.3.0
 [0.2.9]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.6...v0.2.7

@@ -7,7 +7,12 @@ import { ensureStateDirs, resolveStateRoot } from "./state.mjs";
 export const PREFERENCES_SCHEMA_VERSION = 1;
 export const COMPLETION_MODES = new Set(["auto", "report", "inspect"]);
 const MAX_PREFERENCES_BYTES = 16 * 1024;
-const PREFERENCE_KEYS = new Set(["schemaVersion", "completionMode", "notifyUser"]);
+const PREFERENCE_KEYS = new Set([
+  "schemaVersion",
+  "completionMode",
+  "notifyUser",
+  "cliLiveInjection",
+]);
 
 export function resolvePreferencesFile(env = process.env) {
   return path.join(resolveStateRoot(env), "config.json");
@@ -18,6 +23,7 @@ function defaultPreferences() {
     schemaVersion: PREFERENCES_SCHEMA_VERSION,
     completionMode: "auto",
     notifyUser: null,
+    cliLiveInjection: false,
   };
 }
 
@@ -39,12 +45,18 @@ function validatePreferences(value, file) {
   if (value.notifyUser != null && typeof value.notifyUser !== "boolean") {
     throw new Error(`Invalid notifyUser in ${file}.`);
   }
+  if (value.cliLiveInjection != null && typeof value.cliLiveInjection !== "boolean") {
+    throw new Error(`Invalid cliLiveInjection in ${file}.`);
+  }
   return {
     schemaVersion: PREFERENCES_SCHEMA_VERSION,
     completionMode: value.completionMode,
     // null means "no durable preference": launch resolution may then apply a
     // surface default instead of treating the absence as an explicit opt-out.
     notifyUser: value.notifyUser ?? null,
+    // Experimental CLI injection remains fail-closed and opt-in. Missing this
+    // field in an older schema-v1 file therefore preserves the safe default.
+    cliLiveInjection: value.cliLiveInjection ?? false,
   };
 }
 
@@ -81,7 +93,10 @@ export function readPreferences(env = process.env) {
   return validatePreferences(parsed, file);
 }
 
-export function writePreferences({ completionMode = null, notifyUser = null }, env = process.env) {
+export function writePreferences(
+  { completionMode = null, notifyUser = null, cliLiveInjection = null },
+  env = process.env,
+) {
   ensureStateDirs(env);
   const file = resolvePreferencesFile(env);
   const current = fs.existsSync(file) ? readPreferences(env) : defaultPreferences();
@@ -89,16 +104,21 @@ export function writePreferences({ completionMode = null, notifyUser = null }, e
   // "default" clears the stored preference back to null so surface defaults
   // apply again; null/undefined preserves whatever is currently stored.
   const nextNotifyUser = notifyUser === "default" ? null : notifyUser ?? current.notifyUser;
+  const nextCliLiveInjection = cliLiveInjection ?? current.cliLiveInjection;
   if (!COMPLETION_MODES.has(nextCompletionMode)) {
     throw new Error(`completion mode must be one of: ${[...COMPLETION_MODES].join(", ")}`);
   }
   if (nextNotifyUser != null && typeof nextNotifyUser !== "boolean") {
     throw new Error("notifyUser must be a boolean.");
   }
+  if (typeof nextCliLiveInjection !== "boolean") {
+    throw new Error("cliLiveInjection must be a boolean.");
+  }
   const preferences = {
     schemaVersion: PREFERENCES_SCHEMA_VERSION,
     completionMode: nextCompletionMode,
     notifyUser: nextNotifyUser,
+    cliLiveInjection: nextCliLiveInjection,
   };
   const temporary = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
   try {

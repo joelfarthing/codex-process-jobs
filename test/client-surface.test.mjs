@@ -78,6 +78,27 @@ test("detects a TUI-owned session from exact rollout metadata when env origin is
   assert.deepEqual(detectClientSurface(env), { surface: "unknown", detectedBy: null });
 });
 
+test("detects an App-Server-backed TUI from its rollout metadata", (t) => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-surface-"));
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+  const threadId = "thread-tui-app-server-001";
+  const directory = path.join(codexHome, "sessions", "2026", "08", "09");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, `rollout-test-${threadId}.jsonl`), `${JSON.stringify({
+    timestamp: "2026-08-09T14:15:46.000Z",
+    type: "session_meta",
+    payload: {
+      id: threadId,
+      source: "vscode",
+      originator: "codex-tui",
+    },
+  })}\n`);
+  assert.deepEqual(
+    detectClientSurface({ CODEX_HOME: codexHome, CODEX_THREAD_ID: threadId }),
+    { surface: "cli", detectedBy: "rollout-session-meta" }
+  );
+});
+
 test("detects Cartesian remote sessions from exact rollout metadata when env origin is absent", (t) => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-surface-"));
   t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));

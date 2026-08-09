@@ -5,7 +5,16 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 
 import { isCliEntry } from "./cli-entry.mjs";
+import {
+  cliLiveInjectionEnabled,
+  startCliAppServerNotificationTurn,
+} from "./cli-app-server-ipc.mjs";
 import { startDesktopNotificationTurn } from "./desktop-ipc.mjs";
+import {
+  RUNTIME_DISPLAY_NAME,
+  RUNTIME_PLUGIN_NAME,
+  RUNTIME_PLUGIN_VERSION,
+} from "./plugin-identity.mjs";
 import { COMPLETION_MODES, readPreferences } from "./preferences.mjs";
 import { resolveOwnerRolloutFile, sanitizeThreadId } from "./session.mjs";
 import { listJobs, nowIso, readJob, updateJob } from "./state.mjs";
@@ -163,7 +172,7 @@ function relayError(message, { accepted = false, retryWhenIdle = false } = {}) {
   return error;
 }
 
-function boundedPrivateIpcFallbackReason(value) {
+function boundedIpcFallbackReason(value) {
   const message = value instanceof Error ? value.message : String(value ?? "");
   if (!message) return null;
   return Buffer.from(message, "utf8")
@@ -360,9 +369,9 @@ async function deliverAppServerNotificationTurn(job, threadId, input, timeoutMs,
       method: "initialize",
       params: {
         clientInfo: {
-          name: "codex-process-jobs",
-          title: "Codex Process Jobs",
-          version: "0.1.0",
+          name: RUNTIME_PLUGIN_NAME,
+          title: RUNTIME_DISPLAY_NAME,
+          version: RUNTIME_PLUGIN_VERSION,
         },
         capabilities: { experimentalApi: true },
       },
@@ -384,12 +393,52 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
   const idle = await waitForOwnerIdle(job, env);
   if (!idle.idle) throw relayError(`Owning Codex thread is not safely idle: ${idle.reason}.`, { retryWhenIdle: true });
 
+  let cliLiveInjectionFallbackReason = null;
+  if (job.ownerSurface === "cli" && cliLiveInjectionEnabled(env)) {
+    try {
+      const accepted = await startCliAppServerNotificationTurn(
+        job,
+        input,
+        threadId,
+        timeoutMs,
+        env,
+        {
+          onUnavailable: (reason) => {
+            cliLiveInjectionFallbackReason = boundedIpcFallbackReason(reason);
+          },
+          beforeStart: async () => {
+            const rolloutFile = resolveOwnerRolloutFile(job.ownerThreadId, env);
+            const latest = rolloutFile ? readLatestTaskLifecycle(rolloutFile) : null;
+            if (latest?.type !== "task_complete" || latest.turnId !== idle.turnId) {
+              throw relayError(
+                "Owning Codex thread changed before CLI live injection could start.",
+                { retryWhenIdle: true },
+              );
+            }
+          },
+        },
+      );
+      if (accepted) {
+        return await waitForNotificationTurnComplete(
+          job,
+          accepted.turnId,
+          timeoutMs,
+          env,
+          accepted.transport,
+        );
+      }
+    } catch (error) {
+      if (error?.turnAccepted || error?.retryWhenIdle) throw error;
+      cliLiveInjectionFallbackReason = boundedIpcFallbackReason(error);
+    }
+  }
+
   let privateIpcFallbackReason = null;
   try {
     const accepted = await startDesktopNotificationTurn(job, input, threadId, timeoutMs, env, {
       onUnavailable: (reason) => {
         if (PRIVATE_IPC_SURFACES.has(job.ownerSurface)) {
-          privateIpcFallbackReason = boundedPrivateIpcFallbackReason(reason);
+          privateIpcFallbackReason = boundedIpcFallbackReason(reason);
         }
       },
       beforeStart: async () => {
@@ -414,13 +463,14 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
     }
   } catch (error) {
     if (error?.turnAccepted || error?.retryWhenIdle) throw error;
-    privateIpcFallbackReason = boundedPrivateIpcFallbackReason(error);
+    privateIpcFallbackReason = boundedIpcFallbackReason(error);
   }
 
   const delivered = await deliverAppServerNotificationTurn(job, threadId, input, timeoutMs, env);
   return {
     ...delivered,
     ...(privateIpcFallbackReason ? { privateIpcFallbackReason } : {}),
+    ...(cliLiveInjectionFallbackReason ? { cliLiveInjectionFallbackReason } : {}),
   };
 }
 
@@ -579,6 +629,7 @@ async function attemptNotificationBatch(jobId, attempt, options, env) {
       turnId: delivered.turnId,
       transport: delivered.transport,
       privateIpcFallbackReason: delivered.privateIpcFallbackReason ?? null,
+      cliLiveInjectionFallbackReason: delivered.cliLiveInjectionFallbackReason ?? null,
       relayPid: null,
       errorMessage: null,
     }), env);

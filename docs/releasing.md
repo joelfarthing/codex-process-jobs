@@ -78,6 +78,13 @@ Inside the release worktree, confirm that `HEAD` is the expected `origin/main` c
 - Search tracked files and history for credentials, tokens, private keys, private logs, absolute user paths, hostnames, and unintended project names.
 - Re-read `SECURITY.md`, hook definitions, fixed synthetic prompts, and every place process output can cross into model context.
 - Confirm the installer previews all persistent changes and still requires explicit `global`, `project`, or `none` agent-policy consent.
+- Confirm `.codex-plugin/plugin.json` and `package.json` retain the exact
+  production name `codex-process-jobs`, the display name is exactly
+  `Codex Process Jobs`, and `.codex-plugin/dev-install.json` is absent.
+- Exercise `node scripts/install.mjs --dev` only against an isolated test home.
+  The transformation must occur after copying into the staged destination; no
+  `codex-process-jobs-dev` manifest or generated marker may exist in tracked
+  production source.
 - Confirm every update still requires an explicit `/hooks` review, new or changed definitions require approval, retained trust is verified, and no development or automation flag bypasses the consent flow.
 - Review screenshots and examples for information the author does not intend to publish.
 
@@ -92,6 +99,8 @@ Inside the release worktree, confirm that `HEAD` is the expected `origin/main` c
 - Exercise the packed tarball in an isolated Node environment.
 - Build the deterministic OpenAI-directory ZIP, inspect its allowlist and
   SHA-256, and validate its extracted runtime.
+- Confirm the packager refuses transformed dev metadata and that the ZIP
+  contains neither `.codex-plugin/dev-install.json` nor a dev manifest identity.
 - Keep package metadata, plugin manifest, Marketplace archive, Git tag, and
   GitHub Release versions identical.
 

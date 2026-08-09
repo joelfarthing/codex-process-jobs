@@ -21,10 +21,11 @@ function detectRolloutSession(threadId, env) {
     }
     // A TUI launch that runs the controller with escalated sandbox
     // permissions can lose the inherited originator environment. The owning
-    // TUI rollout still records this exact unambiguous scalar pair, so the
-    // job keeps its CLI-surface behavior (desktop-notice default and
-    // hook-boundary inspection) instead of degrading to "unknown".
-    if (source === "cli" && originator === "codex-tui") {
+    // TUI rollout still records this unambiguous originator. Direct TUI
+    // sessions use source=cli, while App-Server-backed TUI sessions currently
+    // use source=vscode; both remain CLI surfaces rather than degrading to
+    // "unknown".
+    if ((source === "cli" || source === "vscode") && originator === "codex-tui") {
       return { surface: "cli", detectedBy: "rollout-session-meta" };
     }
   } catch {}

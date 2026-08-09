@@ -1,6 +1,6 @@
 ---
 name: start
-description: Launch an ordinary finite local workload as a durable detached process job, then release the assigning Codex turn instead of monitoring it. Use proactively for builds, test suites, evaluations, benchmarks, inference/model A/B runs, data jobs, and repairs whose underlying work may exceed 60 seconds or has uncertain duration, even when a task-specific workflow emits a quick wrapper or launcher.
+description: Launch an ordinary finite local workload as a durable detached process job, then release the assigning Codex turn instead of monitoring it. Use proactively for builds, test suites, evaluations, benchmarks, inference/model A/B runs, data jobs, and repairs whose underlying work may exceed 60 seconds or has uncertain duration, even when a task-specific workflow emits a quick wrapper or launcher. Also use when the user explicitly asks to enable or disable CPJ's experimental live CLI completion delivery.
 ---
 
 # Start Process Job
@@ -8,6 +8,26 @@ description: Launch an ordinary finite local workload as a durable detached proc
 Resolve `<plugin-root>` as two directories above this `SKILL.md`.
 
 Never search memory for CPJ work; use validated CPJ state.
+
+## Optional live CLI completion
+
+Only when the user explicitly requests it, configure CPJ's experimental live
+CLI delivery with:
+
+```text
+node "<plugin-root>/scripts/job.mjs" config --cli-live-injection true --json
+codex app-server daemon start
+```
+
+The official App Server daemon must be running before an ordinary `codex` TUI
+starts, so tell the user to restart every open CLI session afterward. Do not
+enable remote control, create another service, edit Codex configuration, or
+start the daemon merely because a job was launched. The normal CPJ fallback
+remains authoritative if the daemon or its private socket is unavailable.
+
+Disable the CPJ preference with `config --cli-live-injection false`. Stop the
+official daemon only if the user explicitly asks and it is not needed by other
+Codex work.
 
 ## Launch exactly once
 

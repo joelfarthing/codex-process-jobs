@@ -6,25 +6,36 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 
 1. `$codex-process-jobs:start` records the owning `CODEX_THREAD_ID` and launches the ordinary OS command in a detached process group.
 2. The worker records the terminal state before attempting notification, so status and result remain available even if notification fails.
-3. For a local macOS Codex App task or a macOS or Linux VS Code task, a
+3. For an explicitly opted-in CLI task, the notifier first checks Codex's
+   official shared local App Server Unix socket. The user must have started
+   `codex app-server daemon` before the ordinary TUI session began; CPJ never
+   starts or installs it automatically. The command is not available from
+   every Codex distribution: the npm-distributed CLI 0.147.0 tested for v0.3.0
+   required a separate managed standalone installation, so CPJ retained its
+   daemon-free fallback instead of altering the host's Codex installation or
+   `PATH`. The notifier requires a real private
+   same-user socket and parent directory, initializes the App Server, targets
+   the validated owning thread, and confirms the matching durable completion.
+4. For a local macOS Codex App task or a macOS or Linux VS Code task, a
    separate lightweight notifier first
    attempts Codex's private same-user IPC router. It verifies private socket
    ownership and permissions, targets the validated owning task ID, waits for a
    settled idle boundary, and confirms the returned turn ID reaches durable
    `task_complete`. App and VS Code have demonstrated live rendering.
-4. If guarded private IPC or its private start-turn method is unavailable
+5. If either guarded live path is unavailable
    before possible acceptance, the notifier automatically falls back to a
    separate local `codex app-server` connection. Remote/mobile, unsupported
-   clients, and App, CLI, or VS Code clients without a live private router
-   continue to use this portable path.
-5. A notifier may atomically claim up to 20 compatible terminal siblings owned by the same task and deliver them in one turn. The concise user-facing notice contains only one sanitized job id, terminal status, and exit code per record. It never interpolates the command, working directory, job label, environment, stdout, stderr, or agent instructions.
-6. In the default `auto` mode, App, VS Code, and remote surfaces ask Codex to
+   clients, default CLI, and App or VS Code clients without a live router
+   continue to use this portable path. A failure after possible acceptance
+   never starts a competing second turn.
+6. A notifier may atomically claim up to 20 compatible terminal siblings owned by the same task and deliver them in one turn. The concise user-facing notice contains only one sanitized job id, terminal status, and exit code per record. It never interpolates the command, working directory, job label, environment, stdout, stderr, or agent instructions.
+7. In the default `auto` mode, App, VS Code, remote, and confirmed live CLI surfaces ask Codex to
    inspect bounded saved output with `result --peek`, summarize the evidence,
    and continue only a clear next step already authorized and still in scope
    from the prior conversation. Otherwise Codex recommends one next step and
-   asks. CLI and unknown surfaces request only a short acknowledgment in the direct
-   completion turn, because an already-open TUI cannot render that turn live.
-   The first eligible hook boundary then gives a CLI-owned job the same
+   asks. The default portable CLI path and unknown surfaces request only a
+   short acknowledgment in the direct completion turn. The first eligible
+   hook boundary then gives a default-path CLI-owned job the same
    bounded inspection contract, so the first turn the TUI user actually sees
    carries the App-equivalent content; unknown surfaces stay report-only. A durable
    execution-host preference at `$CODEX_HOME/process-jobs/config.json` can
@@ -41,8 +52,8 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
    hook is disabled or untrusted, the direct turn safely degrades to reporting
    the visible terminal status while the durable result remains available.
    For jobs explicitly launched with `--goal-mode`, the fixed Goal instruction takes precedence over this surface preference: inspect `result --peek`, then continue already-authorized in-scope work if the Goal remains active; otherwise recommend one next step and ask.
-7. Consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks share the same terminal-result claim logic. A terminal job can therefore surface after a supported local tool call during an active turn, as a one-time stop continuation, or on the first eligible ordinary non-status prompt. A completed owner-routed private-IPC turn suppresses the later ordinary-prompt recap because that live transport already delivered the user-facing exchange. Portable app-server delivery, uncertain acceptance, and failed delivery retain the one-shot recap: a recorded app-server message is not proof that the assigning client rendered it. Explicit status/result user prompts bypass the prompt-submit recap because they retrieve durable state directly. Separately, `PostToolUse` recognizes the validated result of this installed plugin's own `start` controller and atomically injects one hard-release reminder for that newly created same-thread job.
-8. `$codex-process-jobs:status` and `$codex-process-jobs:result` remain the durable fallback.
+8. Consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks share the same terminal-result claim logic. A terminal job can therefore surface after a supported local tool call during an active turn, as a one-time stop continuation, or on the first eligible ordinary non-status prompt. A completed owner-routed private-IPC or shared-CLI-App-Server turn suppresses the later ordinary-prompt recap because that live transport already delivered the user-facing exchange. Portable app-server delivery, uncertain acceptance, and failed delivery retain the one-shot recap: a recorded app-server message is not proof that the assigning client rendered it. Explicit status/result user prompts bypass the prompt-submit recap because they retrieve durable state directly. Separately, `PostToolUse` recognizes the validated result of this installed plugin's own `start` controller and atomically injects one hard-release reminder for that newly created same-thread job.
+9. `$codex-process-jobs:status` and `$codex-process-jobs:result` remain the durable fallback.
 
 Successful start is a hard boundary for the assigning launch turn. Codex reports the launch and ends that turn after any already-requested independent work; it does not load status, wait, poll, or probe the process. This idle boundary is also what allows the notifier to resume the owning task after completion. Work that depends on the result is deferred to completion delivery, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. If the user explicitly requested that the exact launch turn remain open and wait, Codex may make one bounded wait and inspect the bounded result only if the job becomes terminal; a timeout ends the turn with an active-status report.
 
@@ -64,7 +75,7 @@ Normal user turns do not disturb a running job, and hooks ignore it until its pr
 - If a hook boundary changes `pending`, `failed`, or `accepted` to `fallback_notified` first, the notifier or idle watcher stops and that agent turn owns presentation.
 - Worker relay bookkeeping preserves either claim instead of resetting it to `pending`.
 
-A live `delivering` attempt is protected from prompt fallback. If its notifier process disappears, the hook can recover the stale attempt after a short startup grace; an apparently live attempt older than the maximum relay window is also recoverable. After portable app-server delivery succeeds, the later ordinary-prompt recap remains deliberately separate: it marks `ordinaryPromptRecapInjectedAt` once and requires Codex to recap the sanitized terminal state even if a synthetic announcement is already present in context. Successful `desktop-ipc` and `vscode-ipc` delivery suppress that recap after the matching notification turn reaches durable completion.
+A live `delivering` attempt is protected from prompt fallback. If its notifier process disappears, the hook can recover the stale attempt after a short startup grace; an apparently live attempt older than the maximum relay window is also recoverable. After portable app-server delivery succeeds, the later ordinary-prompt recap remains deliberately separate: it marks `ordinaryPromptRecapInjectedAt` once and requires Codex to recap the sanitized terminal state even if a synthetic announcement is already present in context. Successful `desktop-ipc`, `vscode-ipc`, and `cli-app-server` delivery suppress that recap after the matching notification turn reaches durable completion.
 
 ## Separate-transport presentation note
 
@@ -100,6 +111,18 @@ available instead of attempting a second direct turn. If the owner becomes
 active after initialization but before dispatch, the retry-when-idle signal is
 preserved and no competing app-server turn starts.
 
+The CLI path is a separate experimental use of Codex's official shared local
+App Server rather than the App/VS Code private router. Enable it with
+`config --cli-live-injection true`, run `codex app-server daemon start` before
+the ordinary `codex` TUI, and restart the TUI. CPJ validates the default
+`$CODEX_HOME/app-server-control/app-server-control.sock`, uses bounded
+dependency-free WebSocket framing, and records `notification.transport:
+cli-app-server` only after matching durable completion. Missing, insecure, or
+incompatible endpoints fall back before acceptance. The setting never starts
+the daemon and defaults to false. If the active Codex distribution cannot
+start the managed daemon, do not install another Codex distribution or change
+`PATH` solely for CPJ; use the normal durable next-turn pickup.
+
 Set `CODEX_PROCESS_JOBS_DISABLE_PRIVATE_IPC=1` to force the portable app-server
 path for diagnosis or compatibility testing.
 `CODEX_PROCESS_JOBS_DISABLE_DESKTOP_IPC=1` remains a backward-compatible alias.
@@ -108,7 +131,7 @@ path for diagnosis or compatibility testing.
 test/integration overrides; normal operation resolves the socket under the
 active `$CODEX_HOME`.
 
-Start records `notification.presentation` as `durable-refresh-required` for every owning client and discloses that live presentation is best-effort. Surface detection remains diagnostic metadata; the completed transport decides recap eligibility. A matching completed `desktop-ipc` or `vscode-ipc` turn suppresses the next-prompt recap. CLI, portable app-server delivery, and uncertain or failed private delivery retain the one-shot recap.
+Start records `notification.presentation` as `durable-refresh-required` for every owning client and discloses that live presentation is best-effort. Surface detection remains diagnostic metadata; the completed transport decides recap eligibility. A matching completed `desktop-ipc`, `vscode-ipc`, or `cli-app-server` turn suppresses the next-prompt recap. Default CLI, portable app-server delivery, and uncertain or failed live delivery retain the one-shot recap.
 
 Codex App can present a hook-surfaced response in two useful phases: live commentary while work continues, followed by a final answer that causes commentary to auto-collapse. When fallback is required, the hook tells Codex to announce completion in commentary if commentary is used and independently requires a concise recap in the final answer. This intentional within-turn repetition keeps the durable visible answer complete; it does not apply after confirmed private-IPC delivery.
 
@@ -123,13 +146,14 @@ ordinary-turn fallback checks. Legacy `Codex Process Jobs notice:` lines,
 Markdown notices, hidden `<!-- codex-process-jobs:notification ... -->`
 comments, and `<process_job_notification>` envelopes remain recognized after
 upgrades. Successful direct delivery remains `delivered`;
-`notification.transport` records `desktop-ipc`, `vscode-ipc`, or
-`app-server`.
+`notification.transport` records `desktop-ipc`, `vscode-ipc`,
+`cli-app-server`, or `app-server`.
 The separate `ordinaryPromptRecapInjectedAt` timestamp records only that the
 hook injected its one recap instruction on a fallback-eligible path. It does not
 claim the model complied or that the client rendered the response. Completed
 confirmed-live App and VS Code private-IPC records need no such marker.
-CLI app-server records remain eligible for the marker. The legacy `awarenessCheckedAt` and
+Portable CLI app-server records remain eligible for the marker; completed
+`cli-app-server` records do not. The legacy `awarenessCheckedAt` and
 `surfaceFallbackNotifiedAt` markers are still honored after upgrades so
 historical jobs do not resurface. That migration choice cannot retroactively
 prove old client rendering; it deliberately applies the stronger recap
@@ -166,7 +190,7 @@ The worker invokes `osascript` on macOS or `notify-send` on Linux with `shell: f
 - `disabled`: the launch used `--no-notify` or notification was disabled for tests.
 - `unavailable`: no valid persistent owning thread id was available.
 
-`ordinaryPromptRecapInjectedAt` is orthogonal to these delivery states. It honestly marks the one-shot recap instruction on an eligible ordinary prompt without claiming user-visible presentation or rewriting a successful `delivered` state. Completed `desktop-ipc` and `vscode-ipc` deliveries are not eligible because their matching owner-routed turn already completed and rendered in controlled tests. CLI remains eligible through its portable app-server path.
+`ordinaryPromptRecapInjectedAt` is orthogonal to these delivery states. It honestly marks the one-shot recap instruction on an eligible ordinary prompt without claiming user-visible presentation or rewriting a successful `delivered` state. Completed `desktop-ipc`, `vscode-ipc`, and `cli-app-server` deliveries are not eligible because their matching owner-routed turn already completed and rendered in controlled tests. CLI remains eligible through its default portable app-server path.
 
 ## Trust boundary
 

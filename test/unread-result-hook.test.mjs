@@ -1009,11 +1009,12 @@ test("delivered refresh-required completion receives one ordinary-prompt recap i
   assert.equal(readJob(env, "job-hook-004").notification.status, "delivered");
 });
 
-test("completed private IPC delivery suppresses the later ordinary-prompt recap", (t) => {
+test("completed live IPC delivery suppresses the later ordinary-prompt recap", (t) => {
   const env = createEnv(t);
   for (const [id, ownerSurface, transport] of [
     ["job-hook-private-app", "app", "desktop-ipc"],
     ["job-hook-private-vscode", "vscode", "vscode-ipc"],
+    ["job-hook-live-cli", "cli", "cli-app-server"],
   ]) {
     writeJob(env, {
       id,
@@ -1037,7 +1038,7 @@ test("completed private IPC delivery suppresses the later ordinary-prompt recap"
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
-  for (const id of ["job-hook-private-app", "job-hook-private-vscode"]) {
+  for (const id of ["job-hook-private-app", "job-hook-private-vscode", "job-hook-live-cli"]) {
     const stored = readJob(env, id);
     assert.equal(stored.notification.status, "delivered");
     assert.equal(stored.notification.ordinaryPromptRecapInjectedAt, undefined);

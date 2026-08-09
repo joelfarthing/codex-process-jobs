@@ -8,6 +8,30 @@
   JavaScript layers; the Rust TUI does not participate. Closing the gap
   requires an upstream change to `openai/codex`, drafted below.
 
+## 2026-08-09 update: an official opt-in path now exists
+
+The historical conclusion remains correct under its original **no daemon**
+constraint, but Codex CLI 0.147.0 changed the practical boundary. Codex now
+ships an official shared local App Server daemon, and an ordinary `codex` TUI
+silently discovers its private default Unix socket when the daemon is already
+running before the TUI starts. This does not require `codex --remote`, a
+wrapper, or a changed everyday CLI invocation.
+
+A controlled macOS proof started `codex app-server daemon`, then launched an
+ordinary `codex` TUI. A dependency-free same-user Unix-WebSocket client
+initialized the shared App Server and sent `turn/start` for the TUI's loaded
+thread. The open TUI rendered the injected prompt and assistant response live.
+The matching rollout recorded one accepted and completed turn. Socket
+inspection showed a mode-0700 parent directory and mode-0600 socket owned by
+the current user.
+
+CPJ therefore implements an experimental **explicit opt-in** path: the user
+starts Codex's official daemon, enables CPJ's CLI preference, and restarts the
+TUI. CPJ never installs or starts the daemon automatically. It validates the
+private same-user endpoint, sends only sanitized completion input, confirms
+durable completion, and otherwise preserves the existing portable next-turn
+fallback. See the official [Codex App Server documentation](https://developers.openai.com/codex/app-server).
+
 ## Goal and constraints
 
 Codex Process Jobs delivers a live conversational completion into an

@@ -410,6 +410,7 @@ test("config command reads and writes durable completion and user-notification p
   const context = makeEnv(t);
   const initial = JSON.parse(runCli(["config", "--json"], context.env).stdout);
   assert.equal(initial.preferences.completionMode, "auto");
+  assert.equal(initial.preferences.cliLiveInjection, false);
 
   const changed = JSON.parse(runCli([
     "config",
@@ -417,17 +418,22 @@ test("config command reads and writes durable completion and user-notification p
     "inspect",
     "--notify-user",
     "true",
+    "--cli-live-injection",
+    "true",
     "--json",
   ], context.env).stdout);
   assert.equal(changed.preferences.completionMode, "inspect");
   assert.equal(changed.preferences.notifyUser, true);
+  assert.equal(changed.preferences.cliLiveInjection, true);
   assert.equal(fs.statSync(changed.file).mode & 0o777, 0o600);
 
   const reread = JSON.parse(runCli(["config", "--json"], context.env).stdout);
   assert.equal(reread.preferences.completionMode, "inspect");
   assert.equal(reread.preferences.notifyUser, true);
+  assert.equal(reread.preferences.cliLiveInjection, true);
   runCli(["config", "--completion-mode", "arbitrary"], context.env, { expectStatus: 1 });
   runCli(["config", "--notify-user", "sometimes"], context.env, { expectStatus: 1 });
+  runCli(["config", "--cli-live-injection", "sometimes"], context.env, { expectStatus: 1 });
 });
 
 test("CLI-owned jobs default to one desktop completion notice unless overridden", (t) => {

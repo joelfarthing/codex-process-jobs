@@ -16,20 +16,32 @@ function createEnv(t) {
   return { CODEX_HOME: codexHome };
 }
 
-test("completion preferences default to auto and persist privately", (t) => {
+test("completion preferences default safely and persist privately", (t) => {
   const env = createEnv(t);
-  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "auto", notifyUser: null });
+  assert.deepEqual(readPreferences(env), {
+    schemaVersion: 1,
+    completionMode: "auto",
+    notifyUser: null,
+    cliLiveInjection: false,
+  });
   assert.deepEqual(writePreferences({ completionMode: "inspect" }, env), {
     schemaVersion: 1,
     completionMode: "inspect",
     notifyUser: null,
+    cliLiveInjection: false,
   });
   assert.deepEqual(writePreferences({ notifyUser: true }, env), {
     schemaVersion: 1,
     completionMode: "inspect",
     notifyUser: true,
+    cliLiveInjection: false,
   });
-  assert.deepEqual(readPreferences(env), { schemaVersion: 1, completionMode: "inspect", notifyUser: true });
+  assert.deepEqual(readPreferences(env), {
+    schemaVersion: 1,
+    completionMode: "inspect",
+    notifyUser: true,
+    cliLiveInjection: false,
+  });
   assert.equal(fs.statSync(resolvePreferencesFile(env)).mode & 0o777, 0o600);
 });
 
@@ -39,6 +51,7 @@ test("an explicit user-notification opt-out is preserved as false rather than un
     schemaVersion: 1,
     completionMode: "auto",
     notifyUser: false,
+    cliLiveInjection: false,
   });
   assert.equal(readPreferences(env).notifyUser, false);
   assert.equal(writePreferences({ completionMode: "report" }, env).notifyUser, false);
@@ -52,10 +65,23 @@ test("notify-user default clears the stored preference back to surface defaults"
     schemaVersion: 1,
     completionMode: "auto",
     notifyUser: null,
+    cliLiveInjection: false,
   });
   assert.equal(readPreferences(env).notifyUser, null);
   writePreferences({ notifyUser: true }, env);
   assert.equal(writePreferences({ notifyUser: "default" }, env).notifyUser, null);
+});
+
+test("experimental CLI live injection is opt-in and preserves other preferences", (t) => {
+  const env = createEnv(t);
+  assert.deepEqual(writePreferences({ cliLiveInjection: true }, env), {
+    schemaVersion: 1,
+    completionMode: "auto",
+    notifyUser: null,
+    cliLiveInjection: true,
+  });
+  assert.equal(writePreferences({ completionMode: "inspect" }, env).cliLiveInjection, true);
+  assert.equal(writePreferences({ cliLiveInjection: false }, env).cliLiveInjection, false);
 });
 
 test("completion preferences reject unknown keys and unsafe files", (t) => {
@@ -95,4 +121,16 @@ test("completion preferences reject a non-boolean user notification setting", (t
     notifyUser: "yes",
   }), { mode: 0o600 });
   assert.throws(() => readPreferences(env), /Invalid notifyUser/);
+});
+
+test("completion preferences reject a non-boolean CLI live-injection setting", (t) => {
+  const env = createEnv(t);
+  writePreferences({ completionMode: "report" }, env);
+  const file = resolvePreferencesFile(env);
+  fs.writeFileSync(file, JSON.stringify({
+    schemaVersion: 1,
+    completionMode: "report",
+    cliLiveInjection: "yes",
+  }), { mode: 0o600 });
+  assert.throws(() => readPreferences(env), /Invalid cliLiveInjection/);
 });

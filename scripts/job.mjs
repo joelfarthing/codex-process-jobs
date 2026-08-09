@@ -48,7 +48,7 @@ function usage() {
     "  node scripts/job.mjs tail [job-id] [--stdout|--stderr|--both] [--bytes <n>] [--since-byte <n>] [--since-generation <hex>] [--stdout-since-byte <n>] [--stdout-since-generation <hex>] [--stderr-since-byte <n>] [--stderr-since-generation <hex>] [--json]",
     "  node scripts/job.mjs result [job-id] [--full] [--bytes <n>] [--stdout-since-byte <n>] [--stdout-since-generation <hex>] [--stderr-since-byte <n>] [--stderr-since-generation <hex>] [--peek] [--json]",
     "  node scripts/job.mjs cancel <job-id> [--force] [--json]",
-    "  node scripts/job.mjs config [--completion-mode <auto|report|inspect>] [--notify-user <true|false|default>] [--json]",
+    "  node scripts/job.mjs config [--completion-mode <auto|report|inspect>] [--notify-user <true|false|default>] [--cli-live-injection <true|false>] [--json]",
     "",
     "Detached jobs never receive interactive stdin. --critical jobs require --force to cancel.",
   ].join("\n");
@@ -170,6 +170,7 @@ function parseCommonJobArgs(args) {
 function parseConfigArgs(args) {
   let completionMode = null;
   let notifyUser = null;
+  let cliLiveInjection = null;
   let json = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -183,13 +184,20 @@ function parseConfigArgs(args) {
       // (enabled for CLI-owned jobs, disabled elsewhere) applies again.
       notifyUser = value === "default" ? "default" : value === "true";
     }
+    else if (arg === "--cli-live-injection") {
+      const value = takeValue(args, index++, arg).trim().toLowerCase();
+      if (!["true", "false"].includes(value)) {
+        fail("--cli-live-injection must be true or false.");
+      }
+      cliLiveInjection = value === "true";
+    }
     else if (arg === "--json") json = true;
     else fail(`Unknown config option: ${arg}`);
   }
   if (completionMode != null && !COMPLETION_MODES.has(completionMode)) {
     fail(`--completion-mode must be one of: ${[...COMPLETION_MODES].join(", ")}`);
   }
-  return { completionMode, notifyUser, json };
+  return { completionMode, notifyUser, cliLiveInjection, json };
 }
 
 function publicJob(job) {
@@ -746,11 +754,16 @@ async function handleConfig(args, env = process.env) {
   const options = parseConfigArgs(args);
   const preferences = options.completionMode == null
     && options.notifyUser == null
+    && options.cliLiveInjection == null
     ? readPreferences(env)
-    : writePreferences({ completionMode: options.completionMode, notifyUser: options.notifyUser }, env);
+    : writePreferences({
+        completionMode: options.completionMode,
+        notifyUser: options.notifyUser,
+        cliLiveInjection: options.cliLiveInjection,
+      }, env);
   output(
     { preferences, file: resolvePreferencesFile(env) },
-    `Completion mode: ${preferences.completionMode}\nUser notification: ${preferences.notifyUser == null ? "surface default (enabled for CLI-owned jobs)" : preferences.notifyUser ? "enabled" : "disabled"}\nPreferences: ${resolvePreferencesFile(env)}`,
+    `Completion mode: ${preferences.completionMode}\nUser notification: ${preferences.notifyUser == null ? "surface default (enabled for CLI-owned jobs)" : preferences.notifyUser ? "enabled" : "disabled"}\nExperimental CLI live injection: ${preferences.cliLiveInjection ? "enabled" : "disabled"}\nPreferences: ${resolvePreferencesFile(env)}`,
     options.json,
   );
 }

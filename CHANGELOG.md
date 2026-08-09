@@ -4,6 +4,22 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+### Added
+
+- Experimental, explicit-opt-in live completion delivery for ordinary Codex
+  CLI/TUI sessions through Codex's official shared local App Server. When the
+  daemon is already running before the TUI starts, CPJ can send the sanitized
+  completion turn through its private same-user Unix socket and confirm the
+  matching durable turn before suppressing the later recap.
+
+### Security
+
+- CLI live delivery validates a real same-user socket and parent directory
+  that are inaccessible to group or other users, applies bounded WebSocket
+  handshake/frame/message parsing, targets only the validated owning thread,
+  falls back only before possible turn acceptance, and never starts or enables
+  the App Server daemon automatically.
+
 ## [0.2.9] - 2026-08-04
 
 ### Fixed

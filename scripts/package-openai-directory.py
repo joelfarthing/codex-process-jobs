@@ -34,6 +34,7 @@ RUNTIME_FILES = (
     "README.md",
     "SECURITY.md",
     "scripts/cli-entry.mjs",
+    "scripts/cli-app-server-ipc.mjs",
     "scripts/client-surface.mjs",
     "scripts/desktop-ipc.mjs",
     "scripts/execution.mjs",

@@ -38,7 +38,12 @@ const NOTIFICATION_PRESENTATIONS = new Set([
   "status-only",
   "disabled",
 ]);
-const NOTIFICATION_TRANSPORTS = new Set(["app-server", "desktop-ipc", "vscode-ipc"]);
+const NOTIFICATION_TRANSPORTS = new Set([
+  "app-server",
+  "cli-app-server",
+  "desktop-ipc",
+  "vscode-ipc",
+]);
 const OWNER_SURFACES = new Set(["app", "cli", "vscode", "remote", "unknown"]);
 
 const LOCK_TIMEOUT_MS = 5_000;
@@ -274,6 +279,15 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
       )
     ) {
       throw new Error(`Invalid persisted private IPC fallback reason for ${id}.`);
+    }
+    if (
+      job.notification.cliLiveInjectionFallbackReason != null
+      && (
+        typeof job.notification.cliLiveInjectionFallbackReason !== "string"
+        || Buffer.byteLength(job.notification.cliLiveInjectionFallbackReason, "utf8") > 4096
+      )
+    ) {
+      throw new Error(`Invalid persisted CLI live-injection fallback reason for ${id}.`);
     }
     if (
       job.notification.attempts != null

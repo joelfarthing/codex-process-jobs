@@ -13,7 +13,11 @@ const DELIVERY_STARTUP_GRACE_MS = 5_000;
 const DELIVERY_STALE_MS = 11 * 60_000;
 const LAUNCH_MATCH_WINDOW_MS = 5 * 60_000;
 const MAX_RESPONSE_JOB_IDS = 8;
-const LIVE_PRIVATE_IPC_TRANSPORTS = new Set(["desktop-ipc", "vscode-ipc"]);
+const LIVE_PRIVATE_IPC_TRANSPORTS = new Set([
+  "cli-app-server",
+  "desktop-ipc",
+  "vscode-ipc",
+]);
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const JOB_CONTROLLER = path.join(PLUGIN_ROOT, "scripts", "job.mjs");
 
@@ -357,8 +361,9 @@ function buildContext(jobs, eventName = "UserPromptSubmit", env = process.env) {
     && (
       job.fallbackKind === "delivery-fallback"
       // A delivered-awareness recap stays report-only where the synthetic turn
-      // already inspected. A CLI synthetic turn is acknowledgment-only and
-      // cannot render, so its recap carries the inspection instead.
+      // already inspected. A portable CLI app-server turn may not render, so
+      // its recap carries the inspection instead. Confirmed cli-app-server
+      // delivery is filtered above with the other live transports.
       || (job.fallbackKind === "delivered-awareness" && job.ownerSurface === "cli")
     )
   );

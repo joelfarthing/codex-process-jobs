@@ -231,6 +231,14 @@ test("accepts only known persisted notification transports", (t) => {
   }, env);
   assert.equal(vscode.notification.transport, "vscode-ipc");
 
+  const cli = createJob({
+    id: "job-cli-live-transport",
+    status: "completed",
+    notification: { status: "delivered", transport: "cli-app-server" },
+    logs: resolveJobLogs("job-cli-live-transport", env),
+  }, env);
+  assert.equal(cli.notification.transport, "cli-app-server");
+
   assert.throws(() => createJob({
     id: "job-oversized-ipc-diagnostic",
     status: "completed",
@@ -241,6 +249,17 @@ test("accepts only known persisted notification transports", (t) => {
     },
     logs: resolveJobLogs("job-oversized-ipc-diagnostic", env),
   }, env), /private IPC fallback reason/i);
+
+  assert.throws(() => createJob({
+    id: "job-oversized-cli-live-diagnostic",
+    status: "completed",
+    notification: {
+      status: "delivered",
+      transport: "app-server",
+      cliLiveInjectionFallbackReason: "x".repeat(4097),
+    },
+    logs: resolveJobLogs("job-oversized-cli-live-diagnostic", env),
+  }, env), /CLI live-injection fallback reason/i);
 });
 
 test("validates persisted launch-boundary claim metadata", (t) => {

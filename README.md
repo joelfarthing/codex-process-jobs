@@ -87,7 +87,9 @@ The July 21, 2026 publication-hardening run used [HOL Guard `plugin-scanner` 2.0
 - Cisco skill scanner: completed against all five bundled skills with the balanced policy and advisory-only findings; and
 - Codex plugin validation plus the full local suite at that publication-hardening checkpoint: **PASS**, including 165/165 tests.
 
-The subsequent v0.2.8 release validation also passed the expanded local suite: **214/214 tests**.
+The subsequent v0.2.8 release validation passed the expanded local suite at
+**214/214 tests**. The v0.3.0 release candidate passed **225/225 tests**, plus a
+controlled live macOS CLI wake and no-duplicate follow-up test.
 
 The remaining scanner notices are informational schema differences: HOL currently treats six absent optional interface URL/asset fields as invalid, while its own runtime verifier and the Codex validator accept the manifest; Cisco recommends a per-skill license field, while Codex skill authoring permits only `name` and `description` frontmatter. The repository and plugin manifest declare Apache-2.0.
 
@@ -370,17 +372,30 @@ shows a best-effort OS notification, and supplies the result on the first
 eligible later TUI turn. Codex CLI 0.147.0 added a stronger opt-in path. An
 ordinary `codex` TUI can automatically discover Codex's official shared local
 App Server when that daemon is already running before the TUI starts. CPJ can
-then deliver and render the same live completion turn used by App and VS Code.
+then deliver and render the same live completion turn used by App and VS Code,
+and a matching completed turn suppresses the later duplicate recap.
+
+This path currently requires a Codex installation for which `codex app-server
+daemon start` is available. In the npm-distributed Codex CLI 0.147.0 tested for
+v0.3.0, that managed-daemon command declined to start because no managed
+standalone Codex installation existed. Do not install a second Codex CLI or
+change `PATH` merely to enable this experiment. Leave the preference disabled
+unless the daemon command already works on the active Codex installation; the
+default daemon-free pickup remains the supported fallback.
 
 Ask Codex:
 
 ```text
 Enable CPJ's experimental live CLI completion delivery on this host. Use the
-active CPJ plugin root, start only Codex's official local App Server daemon,
-do not enable remote control, and tell me which clients must restart.
+active CPJ plugin root. First verify whether this Codex installation supports
+the official local App Server daemon. If it does, start that daemon without
+enabling remote control, enable CPJ's preference, and tell me which clients
+must restart. If it does not, make no installation or PATH changes and leave
+CPJ on its daemon-free fallback.
 ```
 
-Equivalent source-checkout commands are:
+When the active Codex installation already supports the managed daemon, the
+equivalent source-checkout commands are:
 
 ```bash
 node scripts/job.mjs config --cli-live-injection true

@@ -23,8 +23,10 @@ Pass criteria:
 	   In a default CLI installation, do not promise a live wake. Completion uses
 	   the portable app-server path and the first eligible later prompt retains the
 	   one-shot recap. For the separate experimental live-CLI smoke, explicitly
-	   enable `config --cli-live-injection true`, run `codex app-server daemon
-	   start`, then start a fresh ordinary `codex` TUI. The notice and proactive
+	   verify that the active Codex distribution supports `codex app-server
+	   daemon start`; do not install another distribution or change `PATH` for
+	   this smoke. When supported, enable `config --cli-live-injection true`,
+	   start the daemon, then start a fresh ordinary `codex` TUI. The notice and proactive
 	   response should render there exactly once without another prompt.
    App should record `notification.transport: desktop-ipc`, VS Code should
    record `notification.transport: vscode-ipc`, and CLI should record

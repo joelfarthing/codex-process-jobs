@@ -11,35 +11,41 @@
 ## 2026-08-09 update: an official opt-in path now exists
 
 The historical conclusion remains correct under its original **no daemon**
-constraint, but Codex CLI 0.147.0 changed the practical boundary. Codex now
-ships an official shared local App Server daemon, and an ordinary `codex` TUI
-silently discovers its private default Unix socket when the daemon is already
-running before the TUI starts. This does not require `codex --remote`, a
-wrapper, or a changed everyday CLI invocation.
+constraint, but Codex CLI 0.147.0 changed the practical boundary. An ordinary
+`codex` TUI now silently discovers Codex's official shared local App Server at
+its private default Unix socket when the server is already running before the
+TUI starts. This does not require `codex --remote`, a wrapper, or a changed
+everyday CLI invocation.
 
-A controlled macOS proof started `codex app-server daemon`, then launched an
-ordinary `codex` TUI. A dependency-free same-user Unix-WebSocket client
+A controlled macOS proof started an isolated foreground `codex app-server
+--listen unix://`, then launched an ordinary `codex` TUI. A dependency-free
+same-user Unix-WebSocket client
 initialized the shared App Server and sent `turn/start` for the TUI's loaded
 thread. The open TUI rendered the injected prompt and assistant response live.
 The matching rollout recorded one accepted and completed turn. Socket
 inspection showed a mode-0700 parent directory and mode-0600 socket owned by
 the current user.
 
-CPJ therefore implements an experimental **explicit opt-in** path: the user
-starts Codex's official daemon, enables CPJ's CLI preference, and restarts the
-TUI. CPJ never installs or starts the daemon automatically. It validates the
+CPJ therefore implements an experimental **explicit opt-in** path: when the
+active Codex distribution supports the official managed daemon, the user
+starts it, enables CPJ's CLI preference, and restarts the TUI. The
+npm-distributed CLI 0.147.0 tested here could not start that managed daemon
+without a separate managed standalone installation; CPJ did not add one or
+change `PATH`. CPJ never installs or starts the daemon automatically. It validates the
 private same-user endpoint, sends only sanitized completion input, confirms
 durable completion, and otherwise preserves the existing portable next-turn
 fallback. See the official [Codex App Server documentation](https://developers.openai.com/codex/app-server).
 
-## Goal and constraints
+## Goal and original constraints
 
 Codex Process Jobs delivers a live conversational completion into an
 already-open Codex App or VS Code task through Codex's private same-user IPC
 router. The remaining surface is Codex CLI/TUI: a finished detached job should
-wake the owning idle TUI session substantially the same way. The solution must
-not require a persistent daemon or a special invocation of Codex CLI, and CLI
-behavior must remain substantially the same as App and VS Code.
+wake the owning idle TUI session substantially the same way. The original
+desired solution must not require a persistent daemon or a special invocation
+of Codex CLI, and CLI behavior must remain substantially the same as App and VS
+Code. Version 0.3.0 deliberately treats the shared App Server path as an opt-in
+experiment rather than claiming that original zero-setup goal is solved.
 
 ## Executive finding
 

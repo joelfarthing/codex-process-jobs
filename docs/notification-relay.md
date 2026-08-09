@@ -9,7 +9,11 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
 3. For an explicitly opted-in CLI task, the notifier first checks Codex's
    official shared local App Server Unix socket. The user must have started
    `codex app-server daemon` before the ordinary TUI session began; CPJ never
-   starts or installs it automatically. The notifier requires a real private
+   starts or installs it automatically. The command is not available from
+   every Codex distribution: the npm-distributed CLI 0.147.0 tested for v0.3.0
+   required a separate managed standalone installation, so CPJ retained its
+   daemon-free fallback instead of altering the host's Codex installation or
+   `PATH`. The notifier requires a real private
    same-user socket and parent directory, initializes the App Server, targets
    the validated owning thread, and confirms the matching durable completion.
 4. For a local macOS Codex App task or a macOS or Linux VS Code task, a
@@ -115,7 +119,9 @@ the ordinary `codex` TUI, and restart the TUI. CPJ validates the default
 dependency-free WebSocket framing, and records `notification.transport:
 cli-app-server` only after matching durable completion. Missing, insecure, or
 incompatible endpoints fall back before acceptance. The setting never starts
-the daemon and defaults to false.
+the daemon and defaults to false. If the active Codex distribution cannot
+start the managed daemon, do not install another Codex distribution or change
+`PATH` solely for CPJ; use the normal durable next-turn pickup.
 
 Set `CODEX_PROCESS_JOBS_DISABLE_PRIVATE_IPC=1` to force the portable app-server
 path for diagnosis or compatibility testing.
@@ -146,7 +152,8 @@ The separate `ordinaryPromptRecapInjectedAt` timestamp records only that the
 hook injected its one recap instruction on a fallback-eligible path. It does not
 claim the model complied or that the client rendered the response. Completed
 confirmed-live App and VS Code private-IPC records need no such marker.
-CLI app-server records remain eligible for the marker. The legacy `awarenessCheckedAt` and
+Portable CLI app-server records remain eligible for the marker; completed
+`cli-app-server` records do not. The legacy `awarenessCheckedAt` and
 `surfaceFallbackNotifiedAt` markers are still honored after upgrades so
 historical jobs do not resurface. That migration choice cannot retroactively
 prove old client rendering; it deliberately applies the stronger recap
@@ -183,7 +190,7 @@ The worker invokes `osascript` on macOS or `notify-send` on Linux with `shell: f
 - `disabled`: the launch used `--no-notify` or notification was disabled for tests.
 - `unavailable`: no valid persistent owning thread id was available.
 
-`ordinaryPromptRecapInjectedAt` is orthogonal to these delivery states. It honestly marks the one-shot recap instruction on an eligible ordinary prompt without claiming user-visible presentation or rewriting a successful `delivered` state. Completed `desktop-ipc` and `vscode-ipc` deliveries are not eligible because their matching owner-routed turn already completed and rendered in controlled tests. CLI remains eligible through its portable app-server path.
+`ordinaryPromptRecapInjectedAt` is orthogonal to these delivery states. It honestly marks the one-shot recap instruction on an eligible ordinary prompt without claiming user-visible presentation or rewriting a successful `delivered` state. Completed `desktop-ipc`, `vscode-ipc`, and `cli-app-server` deliveries are not eligible because their matching owner-routed turn already completed and rendered in controlled tests. CLI remains eligible through its default portable app-server path.
 
 ## Trust boundary
 

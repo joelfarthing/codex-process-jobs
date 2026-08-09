@@ -185,7 +185,7 @@ It does not persist the inherited environment or raw rollout metadata. `CODEX_PR
 | Surface | Completion behavior | Launch wording |
 |---|---|---|
 | Codex App | Guarded private IPC can render the completion live; a matching completed private turn suppresses the later recap, while portable or uncertain delivery retains it | Completion will be recorded; a live notification may appear. If live delivery cannot be confirmed, I'll recap the outcome as soon as our conversation can pick it up. |
-| Codex CLI | Completion uses the portable app-server path; live rendering is not promised, so the first eligible non-status prompt still receives one recap | Same transport-honest wording as App. |
+| Codex CLI | Default completion uses the portable app-server path and the first eligible non-status prompt receives one recap. Explicitly opted-in sessions can render live through a pre-existing official shared App Server and suppress the recap after matching durable completion. | Same transport-honest wording as App. |
 | Codex VS Code | Guarded private IPC can render the completion and response in the already-open task; a matching completed private turn suppresses the later recap, while unsupported clients retain it | Same transport-honest wording, with status available any time. |
 | Mobile/remote | Completion turn is recorded; live presentation is best-effort; the first eligible non-status prompt after delivery settles requires one recap | Same transport-honest wording, with status available any time. |
 | Unknown surface with an owning thread | Completion turn is attempted and recorded when possible; live presentation is best-effort; the same eligible recap applies | Same transport-honest wording, with status available any time. |
@@ -215,7 +215,9 @@ ordinary non-status prompt when live owner-routed delivery was not confirmed.
 The proven private App/VS Code path is a presentation enhancement above it:
 after its matching turn reaches durable completion, CPJ suppresses the later
 recap rather than repeating an exchange that the owning client already
-received. CLI remains on the portable path and retains the recap.
+received. CLI retains that portable default; an explicitly opted-in session
+can use the separate guarded shared-App-Server path when its active Codex
+distribution already supports the managed daemon.
 
 ### 2. Companion VS Code extension
 

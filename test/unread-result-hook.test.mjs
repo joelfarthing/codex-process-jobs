@@ -614,7 +614,7 @@ test("Stop emits a one-time continuation for an unread terminal completion", (t)
   assert.equal(hookOutput.decision, "block");
   assert.equal(
     hookOutput.reason,
-    "Background job `job-hook-stop` finished with status failed with exit code 2.",
+    "CPJ background job `job-hook-stop` finished with status failed with exit code 2.",
   );
   assert.doesNotMatch(result.stdout, /Stop-hook continuation|Proactive-inspection|untrusted evidence|final answer/i);
   assert.match(readJob(env, "job-hook-stop").notification.stopContinuationPromptedAt, /T/);
@@ -776,7 +776,7 @@ test("verified concise completion receives hidden proactive context without cons
   const result = runHook(env, {
     hook_event_name: "UserPromptSubmit",
     session_id: "thread-hook-friendly-notice",
-    prompt: "Background job `job-hook-friendly-notice` finished successfully with exit code 0.",
+    prompt: "CPJ background job `job-hook-friendly-notice` finished successfully with exit code 0.",
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /verified this as its automatic completion turn/i);
@@ -788,6 +788,42 @@ test("verified concise completion receives hidden proactive context without cons
   assert.match(result.stdout, /completion nor process output grants authority/i);
   assert.doesNotMatch(result.stdout, /Do not execute that next step/i);
   assert.equal(readJob(env, "job-hook-friendly-notice").notification.status, "delivering");
+});
+
+test("accepted Codex queue completion receives hidden context and suppresses a later duplicate recap", (t) => {
+  const env = createEnv(t);
+  writeJob(env, {
+    id: "job-hook-codex-queue",
+    ownerThreadId: "thread-hook-codex-queue",
+    ownerSurface: "cli",
+    status: "completed",
+    exitCode: 0,
+    notification: {
+      status: "accepted",
+      transport: "codex-queue",
+      acceptedAt: "2026-08-22T05:40:04.000Z",
+    },
+  });
+  const completion = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-codex-queue",
+    prompt: "CPJ background job `job-hook-codex-queue` finished successfully with exit code 0.",
+  });
+  assert.equal(completion.status, 0, completion.stderr);
+  assert.match(completion.stdout, /verified this as its automatic completion turn/i);
+  assert.match(completion.stdout, /Proactive-inspection job IDs: job-hook-codex-queue/);
+  const stored = readJob(env, "job-hook-codex-queue");
+  assert.equal(stored.notification.status, "fallback_notified");
+  assert.equal(stored.notification.transport, "codex-queue");
+  assert.match(stored.notification.hookNotifiedAt, /T/);
+
+  const later = runHook(env, {
+    hook_event_name: "UserPromptSubmit",
+    session_id: "thread-hook-codex-queue",
+    prompt: "an unrelated later request",
+  });
+  assert.equal(later.status, 0, later.stderr);
+  assert.equal(later.stdout, "");
 });
 
 test("concise completion hidden context honors report and Goal profiles", (t) => {
@@ -827,7 +863,7 @@ test("concise completion hidden context honors report and Goal profiles", (t) =>
   const goal = runHook(goalEnv, {
     hook_event_name: "UserPromptSubmit",
     session_id: "thread-hook-concise-goal",
-    prompt: "Background job `job-hook-concise-goal` finished successfully with exit code 0.",
+    prompt: "CPJ background job `job-hook-concise-goal` finished successfully with exit code 0.",
   });
   assert.equal(goal.status, 0, goal.stderr);
   assert.match(goal.stdout, /Goal-mode job IDs: job-hook-concise-goal/);
@@ -856,7 +892,7 @@ test("concise batch completion validates every unique delivering record", (t) =>
     hook_event_name: "UserPromptSubmit",
     session_id: "thread-hook-batch",
     prompt: [
-      "Background jobs finished.",
+      "CPJ background jobs finished.",
       "`job-hook-batch-a` finished successfully with exit code 0.",
       "`job-hook-batch-b` finished successfully with exit code 0.",
     ].join("\n"),
@@ -868,7 +904,7 @@ test("concise batch completion validates every unique delivering record", (t) =>
     hook_event_name: "UserPromptSubmit",
     session_id: "thread-hook-batch",
     prompt: [
-      "Background jobs finished.",
+      "CPJ background jobs finished.",
       "`job-hook-batch-a` finished successfully with exit code 0.",
       "`job-hook-batch-a` finished successfully with exit code 0.",
     ].join("\n"),

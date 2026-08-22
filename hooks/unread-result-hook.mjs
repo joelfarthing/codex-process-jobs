@@ -68,13 +68,18 @@ function parseConciseJobLine(line) {
 }
 
 function parseConciseCompletionNotice(text) {
-  const singlePrefix = "Background job ";
-  if (text.startsWith(singlePrefix)) {
-    const parsed = parseConciseJobLine(text.slice(singlePrefix.length));
-    return parsed ? [parsed] : null;
+  for (const singlePrefix of ["CPJ background job ", "Background job "]) {
+    if (text.startsWith(singlePrefix)) {
+      const parsed = parseConciseJobLine(text.slice(singlePrefix.length));
+      return parsed ? [parsed] : null;
+    }
   }
   const lines = text.split("\n");
-  if (lines.length < 2 || lines.length > MAX_JOBS + 1 || lines[0] !== "Background jobs finished.") {
+  if (
+    lines.length < 2
+    || lines.length > MAX_JOBS + 1
+    || !["CPJ background jobs finished.", "Background jobs finished."].includes(lines[0])
+  ) {
     return null;
   }
   const parsed = lines.slice(1).map(parseConciseJobLine);
@@ -416,6 +421,10 @@ function buildContext(jobs, eventName = "UserPromptSubmit", env = process.env) {
 function completionNoticeSource(job) {
   if (job.notification?.status === "delivering") return "relay";
   if (
+    job.notification?.status === "accepted"
+    && job.notification?.transport === "codex-queue"
+  ) return "codex-queue";
+  if (
     job.notification?.stopContinuationPromptedAt
     && !job.notification?.stopContinuationContextInjectedAt
   ) return "stop-continuation";
@@ -449,7 +458,7 @@ async function claimStopContinuationContext(items, timestamp, {
 } = {}) {
   const claimed = [];
   for (const item of items) {
-    if (item.source !== "stop-continuation") {
+    if (item.source === "relay") {
       claimed.push(item);
       continue;
     }
@@ -460,6 +469,25 @@ async function claimStopContinuationContext(items, timestamp, {
           current.ownerThreadId !== item.job.ownerThreadId
           || current.status !== item.job.status
           || current.exitCode !== item.job.exitCode
+        ) return current;
+        if (item.source === "codex-queue") {
+          if (
+            current.notification?.status !== "accepted"
+            || current.notification?.transport !== "codex-queue"
+            || current.notification?.hookNotifiedAt
+          ) return current;
+          accepted = true;
+          return {
+            ...current,
+            notification: {
+              ...current.notification,
+              status: "fallback_notified",
+              hookNotifiedAt: timestamp,
+            },
+          };
+        }
+        if (
+          item.source !== "stop-continuation"
           || !current.notification?.stopContinuationPromptedAt
           || current.notification?.stopContinuationContextInjectedAt
         ) return current;
@@ -480,10 +508,14 @@ async function claimStopContinuationContext(items, timestamp, {
   return claimed;
 }
 
-function buildSyntheticNotificationContext(jobs, env = process.env, { stopContinuation = false } = {}) {
+function buildSyntheticNotificationContext(
+  jobs,
+  env = process.env,
+  { stopContinuation = false, queueAccepted = false } = {},
+) {
   const goalJobs = jobs.filter((job) => job.goalMode);
   const ordinaryJobs = jobs.filter((job) => !job.goalMode);
-  const modeFor = stopContinuation ? hookCompletionMode : completionMode;
+  const modeFor = stopContinuation || queueAccepted ? hookCompletionMode : completionMode;
   const inspectJobs = ordinaryJobs.filter((job) => modeFor(job, env) === "inspect");
   const reportJobs = ordinaryJobs.filter((job) => !inspectJobs.includes(job));
   const instructions = [
@@ -590,12 +622,13 @@ async function main() {
     });
     if (synthetic.length > 0) {
       const stopContinuation = synthetic.every((item) => item.source === "stop-continuation");
+      const queueAccepted = synthetic.every((item) => item.source === "codex-queue");
       writeHookContext(
         eventName,
         buildSyntheticNotificationContext(
           synthetic.map((item) => item.job),
           process.env,
-          { stopContinuation },
+          { stopContinuation, queueAccepted },
         ),
       );
       return;

@@ -76,7 +76,7 @@ test("optional user notifications use argv-only platform commands and tolerate a
   assert.match(calls[0].args.at(-1), /\$\(touch/);
   assert.equal(calls[1].command, "notify-send");
   assert.equal(calls[1].options.shell, false);
-  assert.deepEqual(calls[1].args.slice(0, 4), ["--app-name", "Codex Process Jobs", "--", "Background job finished"]);
+  assert.deepEqual(calls[1].args.slice(0, 4), ["--app-name", "Codex Process Jobs", "--", "CPJ background job finished"]);
   assert.doesNotThrow(() => launchUserNotification(job, {}, () => { throw new Error("ENOENT"); }, "linux"));
   assert.equal(launchUserNotification({ ...job, notifyUser: false }, {}, fakeSpawn, "linux"), null);
 });

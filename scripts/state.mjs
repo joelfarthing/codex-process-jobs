@@ -42,6 +42,7 @@ const NOTIFICATION_PRESENTATIONS = new Set([
 const NOTIFICATION_TRANSPORTS = new Set([
   "app-server",
   "cli-app-server",
+  "codex-queue",
   "desktop-ipc",
   "vscode-ipc",
 ]);
@@ -260,8 +261,11 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
     ) {
       throw new Error(`Invalid persisted notification transport for ${id}.`);
     }
-    if (job.notification.transport != null && job.notification.status !== "delivered") {
-      throw new Error(`Persisted notification transport for ${id} requires delivered status.`);
+    if (
+      job.notification.transport != null
+      && !["accepted", "delivered", "fallback_notified"].includes(job.notification.status)
+    ) {
+      throw new Error(`Persisted notification transport for ${id} requires accepted, delivered, or fallback-notified status.`);
     }
     if (
       job.notification.errorMessage != null
@@ -271,6 +275,15 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
       )
     ) {
       throw new Error(`Invalid persisted notification error for ${id}.`);
+    }
+    if (
+      job.notification.codexQueueFallbackReason != null
+      && (
+        typeof job.notification.codexQueueFallbackReason !== "string"
+        || Buffer.byteLength(job.notification.codexQueueFallbackReason, "utf8") > 4096
+      )
+    ) {
+      throw new Error(`Invalid persisted Codex queue fallback reason for ${id}.`);
     }
     if (
       job.notification.privateIpcFallbackReason != null
@@ -306,7 +319,7 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
     ) {
       throw new Error(`Invalid persisted launch-boundary timestamp for ${id}.`);
     }
-    for (const field of ["stopContinuationPromptedAt", "stopContinuationContextInjectedAt"]) {
+    for (const field of ["acceptedAt", "stopContinuationPromptedAt", "stopContinuationContextInjectedAt"]) {
       if (
         job.notification[field] != null
         && (

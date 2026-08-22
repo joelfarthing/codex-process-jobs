@@ -4,6 +4,39 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-22
+
+### Added
+
+- Codex CLI 0.149.0 and newer now receive zero-setup live completion turns
+  through the official `codex queue` command. Ordinary `codex` sessions need
+  no daemon, wrapper, special invocation, or CPJ preference.
+- Queue-first delivery is covered by a real idle-TUI wake proof plus regression
+  tests for stale active writers, bounded fallback diagnostics, uncertain
+  acknowledgment, exactly-once enqueue, proactive inspection, and duplicate
+  suppression on the next unrelated prompt.
+
+### Changed
+
+- The notifier now asks Codex itself to queue the sanitized completion before
+  consulting private IPC or portable App Server fallbacks. This lets Codex
+  defer the message behind a legitimate active writer instead of making CPJ
+  repeatedly guess when the client is idle.
+- Launch announcements now name **Codex Process Jobs** instead of referring to
+  a generic detached-job skill or workflow. Automatic visible notices begin
+  with `CPJ background job`, while the hook continues to accept the earlier
+  unbranded grammar for in-flight jobs and upgrade compatibility.
+- The start skill no longer presents the pre-0.149 shared-App-Server daemon as
+  ordinary CLI setup; official queue delivery now requires no special launch
+  path or persistent helper.
+
+### Security
+
+- Queue delivery passes the validated owning thread and sanitized completion
+  sentence as fixed argv with `shell: false`, bounds acknowledgment output and
+  time, and never falls through to another transport after acceptance becomes
+  uncertain.
+
 ## [0.3.0] - 2026-08-09
 
 ### Added
@@ -299,7 +332,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.9...v0.3.0
 [0.2.9]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.7...v0.2.8

@@ -160,6 +160,9 @@ function createMockCodex(t, context) {
     "});",
   ].join("\n") + "\n", { mode: 0o755 });
   context.env.CODEX_PROCESS_JOBS_CODEX_BIN = executable;
+  // This fixture exercises the legacy app-server relay protocol. Queue-first
+  // behavior has dedicated notifier coverage with a queue-aware mock.
+  context.env.CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE = "1";
   context.env.MOCK_NOTIFY_PROMPT = promptFile;
   context.env.CODEX_PROCESS_JOBS_DISABLE_NOTIFY = "0";
   context.env.CODEX_THREAD_ID = "thread-integration-001";

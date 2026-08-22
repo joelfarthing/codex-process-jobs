@@ -5,6 +5,7 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 
 import { isCliEntry } from "./cli-entry.mjs";
+import { enqueueCodexNotification } from "./codex-queue.mjs";
 import {
   cliLiveInjectionEnabled,
   startCliAppServerNotificationTurn,
@@ -34,9 +35,10 @@ const MAX_NOTIFICATION_BATCH = 20;
 const MAX_PRIVATE_IPC_FALLBACK_REASON_BYTES = 4096;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "cancel_failed"]);
 const INSPECT_SURFACES = new Set(["app", "remote", "vscode"]);
-// A CLI completion turn cannot be rendered by the already-open TUI, so CLI
-// stays acknowledgment-only there; the hook boundary is the first turn the CLI
-// user actually sees, so it carries the full inspection contract instead.
+// Codex 0.149+ can render a queued completion turn in an already-open TUI.
+// The queue prompt itself stays concise, while its trusted hook boundary carries
+// the full inspection contract. Legacy CLI fallbacks use that same contract on
+// the next visible user turn.
 const HOOK_INSPECT_SURFACES = new Set(["app", "remote", "vscode", "cli"]);
 const PRIVATE_IPC_SURFACES = new Set(["app", "vscode"]);
 
@@ -98,8 +100,8 @@ export function buildNotificationPrompt(jobOrJobs, env = process.env) {
     const exitCode = Number.isInteger(job.exitCode) ? ` with exit code ${job.exitCode}` : "";
     return `\`${job.id}\` ${outcome}${exitCode}.`;
   });
-  if (jobs.length === 1) return `Background job ${lines[0]}`;
-  return ["Background jobs finished.", ...lines].join("\n");
+  if (jobs.length === 1) return `CPJ background job ${lines[0]}`;
+  return ["CPJ background jobs finished.", ...lines].join("\n");
 }
 
 export function buildNotificationInput(jobOrJobs, env = process.env) {
@@ -178,6 +180,14 @@ function boundedIpcFallbackReason(value) {
   return Buffer.from(message, "utf8")
     .subarray(0, MAX_PRIVATE_IPC_FALLBACK_REASON_BYTES)
     .toString("utf8");
+}
+
+function attachDeliveryDiagnostics(error, diagnostics) {
+  if (!error || typeof error !== "object") return error;
+  for (const [key, value] of Object.entries(diagnostics)) {
+    if (value) error[key] = value;
+  }
+  return error;
 }
 
 export async function waitForNotificationTurnComplete(
@@ -284,7 +294,11 @@ async function deliverAppServerNotificationTurn(job, threadId, input, timeoutMs,
 
       if (message.id === 2) {
         if (message.error) {
-          finish(reject, relayError(`Unable to resume owning Codex thread: ${JSON.stringify(message.error)}`));
+          const serialized = JSON.stringify(message.error);
+          finish(reject, relayError(
+            `Unable to resume owning Codex thread: ${serialized}`,
+            { retryWhenIdle: /already has an active writer/i.test(serialized) },
+          ));
           return;
         }
         const threadStatus = message.result?.thread?.status?.type ?? "unknown";
@@ -390,8 +404,26 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
     10 * 60_000
   );
 
+  let codexQueueFallbackReason = null;
+  try {
+    const queued = await enqueueCodexNotification(input, threadId, timeoutMs, env, {
+      onUnavailable: (reason) => {
+        codexQueueFallbackReason = boundedIpcFallbackReason(reason);
+      },
+    });
+    if (queued) return queued;
+  } catch (error) {
+    if (error?.turnAccepted) throw error;
+    codexQueueFallbackReason = boundedIpcFallbackReason(error);
+  }
+
   const idle = await waitForOwnerIdle(job, env);
-  if (!idle.idle) throw relayError(`Owning Codex thread is not safely idle: ${idle.reason}.`, { retryWhenIdle: true });
+  if (!idle.idle) {
+    throw attachDeliveryDiagnostics(
+      relayError(`Owning Codex thread is not safely idle: ${idle.reason}.`, { retryWhenIdle: true }),
+      { codexQueueFallbackReason },
+    );
+  }
 
   let cliLiveInjectionFallbackReason = null;
   if (job.ownerSurface === "cli" && cliLiveInjectionEnabled(env)) {
@@ -428,7 +460,9 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
         );
       }
     } catch (error) {
-      if (error?.turnAccepted || error?.retryWhenIdle) throw error;
+      if (error?.turnAccepted || error?.retryWhenIdle) {
+        throw attachDeliveryDiagnostics(error, { codexQueueFallbackReason });
+      }
       cliLiveInjectionFallbackReason = boundedIpcFallbackReason(error);
     }
   }
@@ -462,16 +496,30 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
       );
     }
   } catch (error) {
-    if (error?.turnAccepted || error?.retryWhenIdle) throw error;
+    if (error?.turnAccepted || error?.retryWhenIdle) {
+      throw attachDeliveryDiagnostics(error, {
+        codexQueueFallbackReason,
+        cliLiveInjectionFallbackReason,
+      });
+    }
     privateIpcFallbackReason = boundedIpcFallbackReason(error);
   }
 
-  const delivered = await deliverAppServerNotificationTurn(job, threadId, input, timeoutMs, env);
-  return {
-    ...delivered,
-    ...(privateIpcFallbackReason ? { privateIpcFallbackReason } : {}),
-    ...(cliLiveInjectionFallbackReason ? { cliLiveInjectionFallbackReason } : {}),
-  };
+  try {
+    const delivered = await deliverAppServerNotificationTurn(job, threadId, input, timeoutMs, env);
+    return {
+      ...delivered,
+      ...(codexQueueFallbackReason ? { codexQueueFallbackReason } : {}),
+      ...(privateIpcFallbackReason ? { privateIpcFallbackReason } : {}),
+      ...(cliLiveInjectionFallbackReason ? { cliLiveInjectionFallbackReason } : {}),
+    };
+  } catch (error) {
+    throw attachDeliveryDiagnostics(error, {
+      codexQueueFallbackReason,
+      privateIpcFallbackReason,
+      cliLiveInjectionFallbackReason,
+    });
+  }
 }
 
 function delay(ms) {
@@ -621,13 +669,16 @@ async function attemptNotificationBatch(jobId, attempt, options, env) {
   if (claimed.jobs.length === 0) return { done: true, watch: false, batchIds: [] };
   try {
     const delivered = await deliverNotificationTurn(claimed.jobs, env);
+    const accepted = delivered.status === "accepted";
     await finalizeNotificationBatch(claimed.batchId, claimed.jobs, (notification) => ({
       ...notification,
-      status: "delivered",
-      deliveredAt: nowIso(),
+      status: accepted ? "accepted" : "delivered",
+      acceptedAt: accepted ? nowIso() : notification.acceptedAt ?? null,
+      deliveredAt: accepted ? notification.deliveredAt ?? null : nowIso(),
       threadId: delivered.threadId,
       turnId: delivered.turnId,
       transport: delivered.transport,
+      codexQueueFallbackReason: delivered.codexQueueFallbackReason ?? null,
       privateIpcFallbackReason: delivered.privateIpcFallbackReason ?? null,
       cliLiveInjectionFallbackReason: delivered.cliLiveInjectionFallbackReason ?? null,
       relayPid: null,
@@ -642,8 +693,14 @@ async function attemptNotificationBatch(jobId, attempt, options, env) {
     await finalizeNotificationBatch(claimed.batchId, claimed.jobs, (notification) => ({
       ...notification,
       status: accepted ? "accepted" : retry ? "pending" : "failed",
+      acceptedAt: accepted ? nowIso() : notification.acceptedAt ?? null,
+      threadId: error?.threadId ?? notification.threadId ?? null,
+      transport: error?.transport ?? notification.transport ?? null,
+      codexQueueFallbackReason: error?.codexQueueFallbackReason ?? notification.codexQueueFallbackReason ?? null,
+      privateIpcFallbackReason: error?.privateIpcFallbackReason ?? notification.privateIpcFallbackReason ?? null,
+      cliLiveInjectionFallbackReason: error?.cliLiveInjectionFallbackReason ?? notification.cliLiveInjectionFallbackReason ?? null,
       errorMessage: message,
-      failedAt: accepted || !retry ? nowIso() : null,
+      failedAt: !accepted && !retry ? nowIso() : null,
       idleWatchStartedAt: watch ? nowIso() : notification.idleWatchStartedAt ?? null,
       relayPid: accepted || !retry ? null : notification.relayPid ?? null,
     }), env);

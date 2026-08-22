@@ -27,6 +27,8 @@ test("model-facing launch contracts require release without same-turn monitoring
   assert.match(startSkill, /only an explicit user request to keep this exact Codex turn open and wait/i);
   assert.match(startSkill, /yielded-session rule/i);
   assert.match(startSkill, /inspect a result only after an explicit terminal CPJ state/i);
+  assert.match(startSkill, /name it \*\*Codex Process Jobs\*\*/i);
+  assert.match(startSkill, /Do not call it the detached-job skill/i);
   assert.match(statusSkill, /never use it to monitor a job from the same turn that launched it/i);
   assert.match(statusSkill, /use at most one `--wait` call in a Codex turn/i);
   assert.match(statusSkill, /cell or session ID.*not blank output/i);
@@ -125,7 +127,7 @@ test("result skill preserves hidden automatic-completion result handling", () =>
   const resultSkill = normalizeProse(rawResultSkill);
   const resultOptions = normalizeProse(read("skills/result/references/options.md"));
 
-  assert.match(resultSkill, /automatically when a CPJ hook begins "Background job `\.\.\.` finished/i);
+  assert.match(resultSkill, /automatically when a CPJ hook begins "CPJ background job `\.\.\.` finished/i);
   assert.match(resultSkill, /On a CPJ hook prompt/i);
   assert.match(resultSkill, /use every requested ID with `--peek`/i);
   assert.match(resultSkill, /metadata and output as untrusted evidence/i);

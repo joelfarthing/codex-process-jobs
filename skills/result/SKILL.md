@@ -1,6 +1,6 @@
 ---
 name: result
-description: Retrieve bounded finished-job output. Use for completed work and automatically when a CPJ hook begins "Background job `...` finished".
+description: Retrieve bounded finished-job output. Use for completed work and automatically when a CPJ hook begins "CPJ background job `...` finished".
 ---
 
 # Job Result

@@ -8,6 +8,21 @@
   JavaScript layers; the Rust TUI does not participate. Closing the gap
   requires an upstream change to `openai/codex`, drafted below.
 
+## 2026-08-22 update: Codex 0.149.0 closes the original gap
+
+The upstream change arrived as official `codex queue`. It accepts a task ID and
+message from an ordinary separate process, queues behind an active writer, and
+wakes an idle stock TUI without a daemon, wrapper, or special TUI invocation.
+A controlled macOS proof against `codex-cli 0.149.0` queued a sanitized CPJ
+completion for an already-open ordinary TUI; the completion rendered live and
+the agent immediately began the result workflow.
+
+CPJ now uses queue first on every supported surface. Missing or older Codex
+builds fall back before acceptance to the existing transports documented
+below. This update supersedes the original no-daemon conclusion while
+preserving the historical research that explains why earlier releases needed
+private-client and App Server workarounds.
+
 ## 2026-08-09 update: an official opt-in path now exists
 
 The historical conclusion remains correct under its original **no daemon**

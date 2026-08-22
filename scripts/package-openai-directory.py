@@ -36,6 +36,7 @@ RUNTIME_FILES = (
     "scripts/cli-entry.mjs",
     "scripts/cli-app-server-ipc.mjs",
     "scripts/client-surface.mjs",
+    "scripts/codex-queue.mjs",
     "scripts/desktop-ipc.mjs",
     "scripts/execution.mjs",
     "scripts/job.mjs",

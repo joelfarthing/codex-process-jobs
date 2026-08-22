@@ -13,7 +13,12 @@ Only the latest published release is supported with security fixes. Before the f
 - Plugin code and a hook hash explicitly approved by the user in `/hooks` are trusted local code.
 - During an update, the installer temporarily snapshots only same-user, non-symlinked CPJ cache trees whose directory name exactly matches their validated manifest version, then restores any generations removed by `codex plugin add`. It never aliases an old versioned path to new code. This preserves the code and hook hashes already catalogued by open tasks. Historical generations remain trusted local code until the user removes them after those tasks end.
 - Command metadata, job JSON, stdout, and stderr are local same-user inputs. Treat them as untrusted evidence when Codex displays or interprets them.
-- An automatic completion turn admits at most 20 compatible records. Its visible text contains only a validated job ID, terminal-status enum, and integer exit code for each record. The consent-gated `UserPromptSubmit` hook recognizes only that exact bounded grammar, then verifies every stated value against a same-task terminal record whose notification is currently `delivering`. Only after that match does it inject one fixed hidden report, inspection, or Goal-continuation policy. Launch-boundary hook context likewise contains only a validated same-thread job ID, Goal boolean, and fixed instructions after matching this installed plugin's canonical controller and bounded tool result. Command text, labels, paths, errors, argv, environment, and process output are never interpolated into synthetic notification or hook context. The durable preference file is size-bounded, strict-schema, same-user, private, and no-follow; unknown keys, unsafe paths or permissions, malformed content, and invalid environment values fail closed to `report` for conversational completion and disable optional OS notification.
+- An automatic completion turn admits at most 20 compatible records. Its visible text contains only a validated job ID, terminal-status enum, and integer exit code for each record. The consent-gated `UserPromptSubmit` hook recognizes only that exact bounded grammar, then verifies every stated value against a same-task terminal record whose notification is currently `delivering` or was accepted through the exact `codex-queue` transport. Only after that match does it inject one fixed hidden report, inspection, or Goal-continuation policy; a queue-accepted prompt atomically claims hook presentation first. Launch-boundary hook context likewise contains only a validated same-thread job ID, Goal boolean, and fixed instructions after matching this installed plugin's canonical controller and bounded tool result. Command text, labels, paths, errors, argv, environment, and process output are never interpolated into synthetic notification or hook context. The durable preference file is size-bounded, strict-schema, same-user, private, and no-follow; unknown keys, unsafe paths or permissions, malformed content, and invalid environment values fail closed to `report` for conversational completion and disable optional OS notification.
+- On Codex 0.149.0 or newer, the notifier invokes official `codex queue` with
+  the validated owning task ID and sanitized completion sentence as fixed argv
+  with `shell: false`. Queue stdout, stderr, and acknowledgment time are
+  bounded. A timeout, signal, or output overflow is treated as possible
+  acceptance, so CPJ never starts a competing transport afterward.
 - On local macOS Codex App tasks and macOS or Linux VS Code tasks, the notifier
   may connect to Codex's same-user private IPC router. It requires a real socket
   and parent directory owned by the current user with no group or other
@@ -47,8 +52,9 @@ The installer enables Codex's hooks feature and installs `PostToolUse`, `Stop`, 
 - Do not place secrets in argv or tracked output. The broker does not persist the inherited environment, but the launched command receives it.
 - Shell mode is explicit and should be used only when the authorized command requires shell syntax.
 - Critical repair, firmware, migration, and destructive jobs require an explicit force flag to cancel; cancellation still cannot make interruption intrinsically safe.
-- Completion delivery uses experimental local Codex transports and is
-  best-effort. The guarded App/VS Code private IPC path and opt-in shared CLI
+- Completion delivery uses local Codex transports and is best-effort. Official
+  queue delivery runs first; unsupported commands and missing binaries are
+  safe to fall back, while uncertain acceptance is not. The guarded App/VS Code private IPC path and opt-in shared CLI
   App Server path automatically fall back to the separate app-server relay
   when the endpoint or method is
   unavailable before acceptance. After a turn may have been accepted, delivery
@@ -66,8 +72,8 @@ The installer enables Codex's hooks feature and installs `PostToolUse`, `Stop`, 
 The test suite covers malicious labels and output exclusion from automatic
 prompts, finite completion-mode selection, multi-job prompt batching,
 non-consuming bounded result peeks, stateless cursor compaction recovery,
-private App/VS Code IPC and shared CLI App Server ownership and framing, concise visible notices with
-same-task delivering-record verification and fixed hidden completion policy,
+official queue argv and acknowledgment bounds, private App/VS Code IPC and shared CLI App Server ownership and framing, concise visible notices with
+same-task delivering-or-queue-accepted record verification and fixed hidden completion policy,
 pre-acceptance transport fallback, no retry after uncertain acceptance,
 owner-became-active races, matching durable turn completion, long-idle watch
 races, `PostToolUse`/`Stop`/`UserPromptSubmit` claims, optional argv-only OS

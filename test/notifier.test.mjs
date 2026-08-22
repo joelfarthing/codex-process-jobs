@@ -20,6 +20,10 @@ import {
 } from "../scripts/notifier.mjs";
 import { createJob, readJob, resolveJobLogs, updateJob } from "../scripts/state.mjs";
 
+// Existing relay tests exercise the compatibility transports explicitly.
+// Queue-first behavior is enabled only in the dedicated regression cases below.
+process.env.CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE = "1";
+
 function createMockCodex(t, root) {
   const executable = path.join(root, "mock-codex");
   fs.writeFileSync(executable, [
@@ -158,7 +162,7 @@ async function waitForNotificationStatus(jobId, status, env, timeoutMs = 2000) {
 
 test("notification prompt is one concise user-facing sentence with only sanitized state", () => {
   const prompt = buildNotificationPrompt(terminalJob(), { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" });
-  assert.equal(prompt, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.equal(prompt, "CPJ background job `job-notify-001` finished successfully with exit code 0.");
   assert.equal((prompt.match(/`/g) ?? []).length, 2);
   assert.match(prompt, /`job-notify-001`/);
   assert.doesNotMatch(prompt, /Codex:|notice:|--peek|untrusted|<!--|-->|(?:^|\n)[#>]|[*_]/);
@@ -180,7 +184,7 @@ test("all surfaces receive only the concise visible completion text", () => {
       { CODEX_PROCESS_JOBS_COMPLETION_MODE: "auto" },
     );
     assert.deepEqual(input.map((item) => item.type), ["text"]);
-    assert.equal(input[0].text, "Background job `job-notify-001` finished successfully with exit code 0.");
+    assert.equal(input[0].text, "CPJ background job `job-notify-001` finished successfully with exit code 0.");
   }
 });
 
@@ -188,7 +192,7 @@ test("notification input never exposes an agent instruction or structured attach
   const input = buildNotificationInput(terminalJob({ ownerSurface: "app" }));
   assert.deepEqual(input, [{
     type: "text",
-    text: "Background job `job-notify-001` finished successfully with exit code 0.",
+    text: "CPJ background job `job-notify-001` finished successfully with exit code 0.",
   }]);
   assert.doesNotMatch(JSON.stringify(input), /malicious|untrusted process output|ignore prior instructions|skill/);
 });
@@ -198,7 +202,7 @@ test("Goal-mode notice remains the same concise visible sentence", () => {
     terminalJob({ goalMode: true, ownerSurface: "vscode" }),
     { CODEX_PROCESS_JOBS_COMPLETION_MODE: "report" },
   );
-  assert.equal(input[0].text, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.equal(input[0].text, "CPJ background job `job-notify-001` finished successfully with exit code 0.");
   assert.equal(input.length, 1);
 });
 
@@ -382,6 +386,112 @@ test("relay refuses to start a completion turn while the owner is active", async
   );
 });
 
+test("Codex queue bypasses a stale active writer and is accepted exactly once", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-queue-writer-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-queue");
+  const invocations = path.join(root, "queue-invocations.jsonl");
+  const appServerMarker = path.join(root, "app-server-started");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "const fs = require('node:fs');",
+    "if (process.argv[2] === 'queue') {",
+    "  fs.appendFileSync(process.env.MOCK_QUEUE_INVOCATIONS, JSON.stringify(process.argv.slice(2)) + '\\n');",
+    "  process.exit(0);",
+    "}",
+    "fs.writeFileSync(process.env.MOCK_APP_SERVER_MARKER, 'started');",
+    "process.exit(91);",
+  ].join("\n") + "\n", { mode: 0o755 });
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+    CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE: "0",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    MOCK_QUEUE_INVOCATIONS: invocations,
+    MOCK_APP_SERVER_MARKER: appServerMarker,
+  };
+  const id = "job-queue-active-writer";
+  createJob(terminalJob({
+    id,
+    ownerSurface: "app",
+    logs: resolveJobLogs(id, env),
+  }), env);
+
+  await runNotifier(id, env);
+  await runNotifier(id, env);
+
+  const stored = readJob(id, env);
+  assert.equal(stored.notification.status, "accepted");
+  assert.equal(stored.notification.transport, "codex-queue");
+  assert.equal(stored.notification.threadId, "thread-notify-001");
+  assert.equal(stored.notification.turnId, null);
+  assert.match(stored.notification.acceptedAt, /T/);
+  assert.equal(stored.notification.attempts, 1);
+  assert.equal(fs.existsSync(appServerMarker), false);
+  const queued = fs.readFileSync(invocations, "utf8").trim().split("\n").map(JSON.parse);
+  assert.equal(queued.length, 1);
+  assert.deepEqual(queued[0], [
+    "queue",
+    "--thread",
+    "thread-notify-001",
+    "--message",
+    "CPJ background job `job-queue-active-writer` finished successfully with exit code 0.",
+  ]);
+});
+
+test("failed queue and private IPC diagnostics survive an active-writer fallback failure", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-queue-diagnostics-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const executable = path.join(root, "mock-codex-active-writer");
+  fs.writeFileSync(executable, [
+    "#!/usr/bin/env node",
+    "const readline = require('node:readline');",
+    "if (process.argv[2] === 'queue') {",
+    "  process.stderr.write(\"error: unrecognized subcommand 'queue'\\n\");",
+    "  process.exit(2);",
+    "}",
+    "const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });",
+    "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+    "lines.on('line', (line) => {",
+    "  const message = JSON.parse(line);",
+    "  if (message.id === 1) send({ id: 1, result: {} });",
+    "  else if (message.id === 2) send({ id: 2, error: { code: -32600, message: 'thread already has an active writer' } });",
+    "});",
+  ].join("\n") + "\n", { mode: 0o755 });
+  const env = {
+    ...process.env,
+    CODEX_HOME: path.join(root, "codex-home"),
+    CODEX_PROCESS_JOBS_CODEX_BIN: executable,
+    CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE: "0",
+    CODEX_PROCESS_JOBS_NOTIFY_MAX_ATTEMPTS: "1",
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_MS: "20",
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_POLL_MS: "5",
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+  };
+  const id = "job-queue-diagnostics";
+  createJob(terminalJob({
+    id,
+    ownerSurface: "app",
+    logs: resolveJobLogs(id, env),
+  }), env);
+
+  await runNotifier(id, env);
+
+  const stored = readJob(id, env);
+  assert.equal(stored.notification.status, "failed");
+  assert.equal(
+    stored.notification.codexQueueFallbackReason,
+    "Codex queue is unavailable (exit 2): error: unrecognized subcommand 'queue'",
+  );
+  assert.equal(
+    stored.notification.privateIpcFallbackReason,
+    "Private Codex IPC endpoint is unavailable (ENOENT).",
+  );
+  assert.match(stored.notification.errorMessage, /already has an active writer/);
+});
+
 test("app-server relay resumes the owner and completes a synthetic turn", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-notify-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -404,7 +514,7 @@ test("app-server relay resumes the owner and completes a synthetic turn", async 
   });
   assert.equal(
     fs.readFileSync(promptFile, "utf8"),
-    "Background job `job-notify-001` finished successfully with exit code 0.",
+    "CPJ background job `job-notify-001` finished successfully with exit code 0.",
   );
   const input = JSON.parse(fs.readFileSync(inputFile, "utf8"));
   assert.deepEqual(input.map((item) => item.type), ["text"]);
@@ -520,7 +630,7 @@ test("Codex App relay uses private IPC and confirms the matching durable turn", 
     transport: "desktop-ipc",
   });
   const prompt = fs.readFileSync(promptFile, "utf8");
-  assert.equal(prompt, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.equal(prompt, "CPJ background job `job-notify-001` finished successfully with exit code 0.");
   assert.doesNotMatch(prompt, /Codex:|Codex Process Jobs notice:/);
   assert.doesNotMatch(prompt, /malicious|untrusted process output|ignore prior instructions/);
   const input = JSON.parse(fs.readFileSync(`${promptFile}.input.json`, "utf8"));
@@ -563,7 +673,7 @@ test("VS Code relay uses private IPC and confirms the matching durable turn", as
   });
   assert.equal(fs.readFileSync(`${promptFile}.thread.txt`, "utf8"), threadId);
   const prompt = fs.readFileSync(promptFile, "utf8");
-  assert.equal(prompt, "Background job `job-notify-001` finished successfully with exit code 0.");
+  assert.equal(prompt, "CPJ background job `job-notify-001` finished successfully with exit code 0.");
   assert.doesNotMatch(prompt, /Codex:|--peek|untrusted/);
   const input = JSON.parse(fs.readFileSync(`${promptFile}.input.json`, "utf8"));
   assert.deepEqual(input.map((item) => item.type), ["text"]);
@@ -646,7 +756,7 @@ test("VS Code private IPC protocol rejection falls back before acceptance", asyn
   assert.equal(fs.existsSync(privatePrompt), false);
   assert.equal(
     fs.readFileSync(fallbackPrompt, "utf8"),
-    "Background job `job-notify-001` finished successfully with exit code 0.",
+    "CPJ background job `job-notify-001` finished successfully with exit code 0.",
   );
 });
 
@@ -801,7 +911,7 @@ test("notifier batches compatible sibling completions into one shared turn", asy
   assert.equal(one.notification.turnId, two.notification.turnId);
   const prompt = fs.readFileSync(promptFile, "utf8");
   assert.equal(prompt, [
-    "Background jobs finished.",
+    "CPJ background jobs finished.",
     "`job-batch-one` finished successfully with exit code 0.",
     "`job-batch-two` finished successfully with exit code 0.",
   ].join("\n"));

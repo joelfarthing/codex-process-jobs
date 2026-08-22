@@ -76,7 +76,7 @@ export function launchUserNotification(job, env = process.env, spawnImpl = spawn
     ];
   } else if (platform === "linux") {
     command = "notify-send";
-    args = ["--app-name", "Codex Process Jobs", "--", "Background job finished", message];
+    args = ["--app-name", "Codex Process Jobs", "--", "CPJ background job finished", message];
   } else {
     return null;
   }

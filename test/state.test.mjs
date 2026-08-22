@@ -213,7 +213,19 @@ test("accepts only known persisted notification transports", (t) => {
     status: "completed",
     notification: { status: "pending", transport: "desktop-ipc" },
     logs: resolveJobLogs("job-premature-transport", env),
-  }, env), /requires delivered status/i);
+  }, env), /requires accepted, delivered, or fallback-notified status/i);
+
+  const queued = createJob({
+    id: "job-codex-queue-transport",
+    status: "completed",
+    notification: {
+      status: "accepted",
+      transport: "codex-queue",
+      acceptedAt: "2026-08-22T05:40:04.000Z",
+    },
+    logs: resolveJobLogs("job-codex-queue-transport", env),
+  }, env);
+  assert.equal(queued.notification.transport, "codex-queue");
 
   const created = createJob({
     id: "job-desktop-transport",
@@ -238,6 +250,16 @@ test("accepts only known persisted notification transports", (t) => {
     logs: resolveJobLogs("job-cli-live-transport", env),
   }, env);
   assert.equal(cli.notification.transport, "cli-app-server");
+
+  assert.throws(() => createJob({
+    id: "job-oversized-queue-diagnostic",
+    status: "completed",
+    notification: {
+      status: "failed",
+      codexQueueFallbackReason: "x".repeat(4097),
+    },
+    logs: resolveJobLogs("job-oversized-queue-diagnostic", env),
+  }, env), /Codex queue fallback reason/i);
 
   assert.throws(() => createJob({
     id: "job-oversized-ipc-diagnostic",

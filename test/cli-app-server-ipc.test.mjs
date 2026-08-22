@@ -170,7 +170,7 @@ test("CLI App Server injection initializes and starts the exact owning turn", as
     onMessage: (message) => messages.push(message),
   });
   let beforeStart = 0;
-  const input = [{ type: "text", text: "Background job `job-cli-live` finished successfully with exit code 0." }];
+  const input = [{ type: "text", text: "CPJ background job `job-cli-live` finished successfully with exit code 0." }];
   const result = await startCliAppServerNotificationTurn(
     { ownerSurface: "cli" },
     input,
@@ -266,6 +266,6 @@ test("notifier prefers confirmed CLI live injection over the invisible portable 
   const started = messages.find((message) => message.method === "turn/start");
   assert.equal(
     started.params.input[0].text,
-    "Background job `job-cli-notifier-001` finished successfully with exit code 0.",
+    "CPJ background job `job-cli-notifier-001` finished successfully with exit code 0.",
   );
 });

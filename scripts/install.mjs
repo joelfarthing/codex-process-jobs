@@ -15,19 +15,38 @@ export const POLICY_BEGIN = "<!-- codex-process-jobs:begin -->";
 export const POLICY_END = "<!-- codex-process-jobs:end -->";
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const INSTALL_ENTRIES = [
-  ".codex-plugin",
-  "assets",
-  "docs",
-  "hooks",
-  "skills",
-  "scripts",
-  "package.json",
-  "README.md",
-  "LICENSE",
-  "NOTICE",
-  "SECURITY.md",
-];
+const RUNTIME_ALLOWLIST_FILE = path.join(SOURCE_ROOT, "scripts", "runtime-files.json");
+
+function validateSafeRelativePath(value) {
+  if (typeof value !== "string" || !value || path.isAbsolute(value)) {
+    fail(`Unsafe runtime allowlist path: ${String(value)}`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    fail(`Unsafe runtime allowlist path: ${value}`);
+  }
+  return parts.join(path.sep);
+}
+
+function readRuntimeAllowlist() {
+  const value = JSON.parse(fs.readFileSync(RUNTIME_ALLOWLIST_FILE, "utf8"));
+  if (!Array.isArray(value?.files) || value.files.length === 0) {
+    fail("Runtime allowlist files must be a non-empty array.");
+  }
+  if (!Array.isArray(value?.executables)) {
+    fail("Runtime allowlist executables must be an array.");
+  }
+  const files = value.files.map((relative) => validateSafeRelativePath(relative));
+  const executables = value.executables.map((relative) => validateSafeRelativePath(relative));
+  if (new Set(files).size !== files.length) fail("Runtime allowlist files must be unique.");
+  if (new Set(executables).size !== executables.length) fail("Runtime allowlist executables must be unique.");
+  if (executables.some((relative) => !files.includes(relative))) {
+    fail("Every runtime executable must also be a runtime file.");
+  }
+  return { files, executables: new Set(executables) };
+}
+
+const RUNTIME_ALLOWLIST = readRuntimeAllowlist();
 const ACTIVE_STATUSES = new Set(["queued", "starting", "running", "cancelling"]);
 const AGENT_POLICY_MODES = new Set(["global", "project", "none"]);
 
@@ -677,7 +696,7 @@ function planLines(plan, options) {
         : currentProviders.join(", ") || "none"
     }`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
-    "  completion hooks: enable hooks and install PostToolUse, Stop, and UserPromptSubmit definitions; review definitions and referenced source in /hooks after every install or update, and approve any definition Codex marks new or changed",
+    "  lifecycle hooks: enable hooks and install PreToolUse, PostToolUse, Stop, and UserPromptSubmit definitions; review definitions and referenced source in /hooks after every install or update, and approve any definition Codex marks new or changed",
     "  open-task compatibility: preserve validated prior CPJ cache generations across plugin refresh",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
@@ -780,10 +799,16 @@ function copyPlugin(plan) {
   fs.mkdirSync(stage, { mode: 0o700 });
   let destinationBackup = null;
   try {
-    for (const entry of INSTALL_ENTRIES) {
-      const source = path.join(plan.sourceRoot, entry);
-      if (!fs.existsSync(source)) continue;
-      fs.cpSync(source, path.join(stage, entry), { recursive: true, preserveTimestamps: true });
+    for (const relative of RUNTIME_ALLOWLIST.files) {
+      const source = path.join(plan.sourceRoot, relative);
+      const sourceStat = fs.lstatSync(source);
+      if (sourceStat.isSymbolicLink() || !sourceStat.isFile()) {
+        fail(`Runtime source must be a regular non-symlink file: ${source}`);
+      }
+      const destination = path.join(stage, relative);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(source, destination);
+      fs.chmodSync(destination, RUNTIME_ALLOWLIST.executables.has(relative) ? 0o755 : 0o644);
     }
     const stagedManifestFile = path.join(stage, ".codex-plugin", "plugin.json");
     const devMarkerFile = path.join(stage, ".codex-plugin", "dev-install.json");
@@ -810,11 +835,6 @@ function copyPlugin(plan) {
       fail("Refusing a production install from a transformed development snapshot.");
     }
     atomicWrite(stagedManifestFile, `${JSON.stringify(stagedManifest, null, 2)}\n`);
-
-    for (const script of ["job.mjs", "worker.mjs", "notifier.mjs", "install.mjs", "smoke.mjs"]) {
-      const file = path.join(stage, "scripts", script);
-      if (fs.existsSync(file)) fs.chmodSync(file, 0o755);
-    }
 
     if (fs.existsSync(plan.destination)) {
       const currentManifestFile = path.join(plan.destination, ".codex-plugin", "plugin.json");
@@ -990,7 +1010,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     `Installed ${result.selector} (${result.version}).`,
     "Restart every open Codex client before testing this install.",
     "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
-    `After restart, open /hooks and review the ${result.selector} PostToolUse, Stop, and UserPromptSubmit definitions and referenced shared source. If Codex marks a definition new or changed, approve its exact hash; if trust persists, verify that status. The installer never writes hook trust.`,
+    `After restart, open /hooks and review the ${result.selector} PreToolUse, PostToolUse, Stop, and UserPromptSubmit definitions and referenced shared source. If Codex marks a definition new or changed, approve its exact hash; if trust persists, verify that status. The installer never writes hook trust.`,
     "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,

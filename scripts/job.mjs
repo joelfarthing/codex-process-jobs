@@ -10,7 +10,7 @@ import { DEFAULT_READ_BYTES, MAX_MODEL_LOG_BYTES, readLog, readLogSince } from "
 import { detectClientSurface, notificationPresentation } from "./client-surface.mjs";
 import { assertExecutionAvailable, renderExecution } from "./execution.mjs";
 import { COMPLETION_MODES, readPreferences, resolvePreferencesFile, writePreferences } from "./preferences.mjs";
-import { sanitizeThreadId } from "./session.mjs";
+import { resolveNotificationOwnerThreadId, sanitizeThreadId } from "./session.mjs";
 import {
   renderCommand,
   terminateTrackedProcess,
@@ -335,10 +335,16 @@ async function launchJob(parsed, env = process.env, { rerunOf = null } = {}) {
     throw error;
   }
   const displayCommand = renderCommand(parsed.argv, parsed.execution.kind === "shell");
-  let ownerThreadId = null;
+  let launchThreadId = null;
   if (env.CODEX_THREAD_ID) {
     try {
-      ownerThreadId = sanitizeThreadId(env.CODEX_THREAD_ID);
+      launchThreadId = sanitizeThreadId(env.CODEX_THREAD_ID);
+    } catch {}
+  }
+  let ownerThreadId = launchThreadId;
+  if (launchThreadId) {
+    try {
+      ownerThreadId = resolveNotificationOwnerThreadId(launchThreadId, env);
     } catch {}
   }
   const ownerClient = detectClientSurface(env, { threadId: ownerThreadId });
@@ -395,6 +401,7 @@ async function launchJob(parsed, env = process.env, { rerunOf = null } = {}) {
         cwd: parsed.cwd,
         platform: process.platform,
         ownerThreadId,
+        launchThreadId,
         ownerSurface: ownerClient.surface,
         ownerSurfaceDetectedBy: ownerClient.detectedBy,
         rerunOf,
@@ -451,7 +458,7 @@ async function launchJob(parsed, env = process.env, { rerunOf = null } = {}) {
     "The process is detached and receives no interactive stdin.",
     parsed.goalMode
       ? "Goal mode is active. Release this launch turn and use later Goal continuations only for independent in-scope work while the process runs. An automatic Goal continuation is not permission to monitor: if the Goal is result-gated, do not call status, wait, sleep, or probe the job; apply the host Goal blocked audit instead. When a hook surfaces terminal state, inspect its bounded saved result and continue the already-authorized Goal."
-      : "Do not monitor this job from its launch turn. After reporting the launch, end the Codex turn (or finish only already-requested independent work); status/result belong to a later user-initiated turn. Only an explicit request to keep this exact turn open and wait overrides this boundary; that override permits one bounded wait and, if terminal, bounded result inspection.",
+      : "Do not monitor this job from its launch turn. After reporting the launch, end the Codex turn (or finish only already-requested independent work); status/result belong to completion delivery or a later user-initiated turn. A request for the final result when it finishes does not permit same-turn waiting.",
     parsed.goalMode && job.notification.status === "pending"
       ? "Completion is recorded durably. Automatic Goal continuation should pick up the terminal result; direct completion delivery remains an idle-thread fallback, and status is available on request."
       : job.notification.status === "pending" && job.notification.presentation === "durable-refresh-required"

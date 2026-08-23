@@ -23,54 +23,26 @@ STRICT_SEMVER = re.compile(
     r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
 )
 
-RUNTIME_FILES = (
-    ".codex-plugin/plugin.json",
-    ".codexignore",
-    "assets/icon.png",
-    "hooks/hooks.json",
-    "hooks/unread-result-hook.mjs",
-    "LICENSE",
-    "PRIVACY.md",
-    "README.md",
-    "SECURITY.md",
-    "scripts/cli-entry.mjs",
-    "scripts/cli-app-server-ipc.mjs",
-    "scripts/client-surface.mjs",
-    "scripts/codex-queue.mjs",
-    "scripts/desktop-ipc.mjs",
-    "scripts/execution.mjs",
-    "scripts/job.mjs",
-    "scripts/logs.mjs",
-    "scripts/notifier.mjs",
-    "scripts/plugin-identity.mjs",
-    "scripts/preferences.mjs",
-    "scripts/process-control.mjs",
-    "scripts/session.mjs",
-    "scripts/state.mjs",
-    "scripts/worker.mjs",
-    "skills/cancel/SKILL.md",
-    "skills/cancel/agents/openai.yaml",
-    "skills/result/SKILL.md",
-    "skills/result/agents/openai.yaml",
-    "skills/result/references/options.md",
-    "skills/rerun/SKILL.md",
-    "skills/rerun/agents/openai.yaml",
-    "skills/start/SKILL.md",
-    "skills/start/agents/openai.yaml",
-    "skills/status/SKILL.md",
-    "skills/status/agents/openai.yaml",
-    "skills/tail/SKILL.md",
-    "skills/tail/agents/openai.yaml",
-)
+RUNTIME_ALLOWLIST_FILE = ROOT / "scripts" / "runtime-files.json"
 
-EXECUTABLE_FILES = frozenset(
-    {
-        "hooks/unread-result-hook.mjs",
-        "scripts/job.mjs",
-        "scripts/notifier.mjs",
-        "scripts/worker.mjs",
-    }
-)
+
+def load_runtime_allowlist() -> tuple[tuple[str, ...], frozenset[str]]:
+    with RUNTIME_ALLOWLIST_FILE.open("r", encoding="utf-8") as handle:
+        value = json.load(handle)
+    files = value.get("files") if isinstance(value, dict) else None
+    executables = value.get("executables") if isinstance(value, dict) else None
+    if not isinstance(files, list) or not files or not all(isinstance(item, str) for item in files):
+        raise ValueError("runtime allowlist files must be a non-empty string array")
+    if len(files) != len(set(files)):
+        raise ValueError("runtime allowlist files must be unique")
+    if not isinstance(executables, list) or not all(isinstance(item, str) for item in executables):
+        raise ValueError("runtime allowlist executables must be a string array")
+    if not set(executables).issubset(files):
+        raise ValueError("every executable must also be a runtime file")
+    return tuple(files), frozenset(executables)
+
+
+RUNTIME_FILES, EXECUTABLE_FILES = load_runtime_allowlist()
 
 
 def parse_args() -> argparse.Namespace:

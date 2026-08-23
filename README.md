@@ -8,7 +8,7 @@
 
 > **Community beta:** This independently developed community plugin is published in the OpenAI Plugins Directory, but it is not developed, supported, or endorsed by OpenAI. Detached job state is durable, while automatic conversational completion uses consent-gated hooks and experimental local Codex transports on a best-effort basis.
 
-Codex Process Jobs is a dependency-free Codex plugin for launching ordinary macOS or Linux commands as durable detached process jobs. It is intended for work such as CMake builds, long test suites, inference A/B runs, data processing, and repair utilities that should not monopolize an active Codex turn.
+Codex Process Jobs is a dependency-free Codex plugin for launching ordinary macOS or Linux commands as durable detached process jobs. It is intended for long downloads, builds, test suites, inference A/B runs, data processing, repair utilities, and other finite local work that should not monopolize an active Codex turn.
 
 The runtime tracks process identity, status, bounded stdout/stderr, exit status, and safe cancellation metadata under `$CODEX_HOME/process-jobs` (normally `~/.codex/process-jobs`). Jobs are machine-scoped and survive Codex App, IDE, or CLI exit.
 
@@ -47,6 +47,8 @@ Choose exactly one provider. The recommended installation is [the direct Codex
 Process Jobs listing in the OpenAI Plugins Directory](https://chatgpt.com/plugins/plugins_6a61beec4ad881919a00a6f0c6158796):
 open it and choose **Install plugin**. This is the simplest Codex-managed path
 and avoids a separate package manager and personal marketplace.
+
+After the client restarts, open `/hooks` and review the four CPJ definitions. The installer and Marketplace never approve hooks on the user's behalf. Once the user consents, `PreToolUse` pauses a non-obviously-short local command long enough for Codex to classify its lifecycle from the conversation. The policy does not depend on recognizing particular build tools. Unfamiliar inference programs, project wrappers, and download clients receive the same check. Clear short commands pass without intervention. Interactive, persistent, and already-detached commands stay outside CPJ's lifecycle.
 
 Homebrew distribution is deprecated as of July 24, 2026. Existing Homebrew and
 personal-marketplace installations should
@@ -89,7 +91,7 @@ The July 21, 2026 publication-hardening run used [HOL Guard `plugin-scanner` 2.0
 
 The subsequent v0.2.8 release validation passed the expanded local suite at
 **214/214 tests**. The v0.3.0 release candidate passed **225/225 tests**. The
-v0.4.0 release candidate passes **231/231 tests**, plus a
+v0.4.1 release candidate passes **266/266 tests**, plus a
 controlled zero-setup wake of an ordinary idle macOS Codex TUI.
 
 The remaining scanner notices are informational schema differences: HOL currently treats six absent optional interface URL/asset fields as invalid, while its own runtime verifier and the Codex validator accept the manifest; Cisco recommends a per-skill license field, while Codex skill authoring permits only `name` and `description` frontmatter. The repository and plugin manifest declare Apache-2.0.
@@ -222,7 +224,7 @@ unless `--apply` is present.
 
 Existing plugin and configuration files are backed up, and an install failure rolls the local source snapshot, configuration, and prior CPJ cache generations back. Preserved generations are exact snapshots, not aliases to newer code, so their hook and skill contents remain consistent with what an open task originally loaded. They are small and are not pruned automatically; users may remove obsolete generations after every task that references them has ended.
 
-The installer never writes hook trust. After restarting the client following every install or update, open `/hooks` and inspect the installed `codex-process-jobs` `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source. If Codex marks a definition new or changed, approve its exact hash; if existing trust persists, verify that status. Review remains mandatory because referenced source can change between plugin versions even when the hook definition and its trust hash do not. Direct completion delivery does not depend on hook trust, but hook-boundary fallback remains unavailable for any definition Codex leaves untrusted.
+The installer never writes hook trust. After restarting the client following every install or update, open `/hooks` and inspect the installed `codex-process-jobs` `PreToolUse`, `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source. If Codex marks a definition new or changed, approve its exact hash; if existing trust persists, verify that status. Review remains mandatory because referenced source can change between plugin versions even when the hook definition and its trust hash do not. Direct completion delivery does not depend on hook trust, but foreground classification and hook-boundary fallback remain unavailable for definitions Codex leaves untrusted.
 
 The installer refuses to replace the plugin while tracked jobs are active. `--allow-active-jobs` is an explicit escape hatch after inspecting those jobs.
 
@@ -441,7 +443,7 @@ Specific-job status checks are deliberately lightweight. They read the job recor
 
 Repeated JSON reads can be incremental. `tail` accepts a generic `--since-byte`/`--since-generation` pair when exactly one stream is selected. `status` and `result`, or a two-stream `tail`, use independent `--stdout-since-*` and `--stderr-since-*` cursors. Reuse each returned `nextOffset` and `generation` on the next read. If bounded-log compaction changes the byte stream, the response sets `compacted: true`; every read remains model-bounded.
 
-When the owning persistent task is available, ordinary start reports notification as `pending`. The launch response must preserve four facts: background job label/id, durable completion with possible live notification, later conversational recap when live delivery cannot be confirmed, and status available on user request. Goal-mode launches use a distinct contract: durable completion, terminal pickup by automatic Goal continuation, idle-thread direct-delivery fallback, and on-request status. After either report the launch turn ends without monitoring. Only an explicit user request to keep that exact turn open and wait overrides the boundary. A later automatic Goal continuation does independent work only; if result-gated, it makes no process probe and follows the host blocked audit until the relay or a hook surfaces terminal state. Codex never creates a Goal merely because a job exists. See [Conversational completion relay](docs/notification-relay.md).
+When the owning persistent task is available, ordinary start reports notification as `pending`. User-facing launch narration stays brief: the job ID, that it is running in the background, that a completion notification should appear, and that status is available on request. Controller mechanics, payload, cwd, and internal state remain out of the conversation unless the user asks. Goal-mode launches use a distinct contract: durable completion, terminal pickup by automatic Goal continuation, idle-thread direct-delivery fallback, and on-request status. After either report the launch turn ends without monitoring. This boundary is absolute. A request to report the final result when it finishes is an eventual-delivery request and does not keep the launch turn open. A later automatic Goal continuation does independent work only; if result-gated, it makes no process probe and follows the host blocked audit until the relay or a hook surfaces terminal state. Codex never creates a Goal merely because a job exists. See [Conversational completion relay](docs/notification-relay.md).
 
 ## Safety model
 

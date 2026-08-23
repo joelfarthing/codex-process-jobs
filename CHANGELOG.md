@@ -2,7 +2,31 @@
 
 Notable changes to Codex Process Jobs are documented here. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) beginning with its first public beta.
 
-## [Unreleased]
+## [0.4.1] - 2026-08-23
+
+### Added
+
+- A consent-gated `PreToolUse` hook now challenges non-obviously-short local Bash commands before foreground execution. Codex classifies the underlying workload from the current conversation. Arbitrary inference programs, long downloads, and project-specific wrappers receive the same treatment as familiar build tools.
+- Clear non-qualifying commands have a one-shot `# cpj:foreground` escape. CPJ controller commands, obvious short inspections, interactive or persistent work, and already-detached commands pass without recursion.
+
+### Changed
+
+- Marketplace installations no longer rely on an optional managed `AGENTS.md` block for first-use adoption. The block remains an opt-in routing preference. The consented hook and bundled start skill provide the executable path.
+- Dev deployment and Marketplace packaging now consume one reviewed runtime file manifest. A normalized parity test permits only the Dev plugin name, cachebuster version, display text, state namespace, and generated identity marker to differ.
+- A successful CPJ start is now an absolute launch-turn release boundary. A request for the eventual result does not permit a same-turn wait, status check, tail read, result read, process probe, or memory lookup.
+- User-facing launch reports now omit controller mechanics and internal procedure. They briefly identify the background job and set the expectation that a completion notification should appear.
+- Completion summaries now keep follow-up focused on the underlying workload. They stop without a manufactured question when no useful next step exists, and they do not offer generic CPJ actions or testing unless the user requested them.
+
+### Fixed
+
+- The user-visible parent now owns every CPJ process launch. A fixed prompt-submit boundary tells the parent not to delegate local process execution or monitoring. A spawned subagent cannot execute a qualifying workload, use a foreground escape, or call CPJ `start` or `rerun`.
+- Hook thread detection now prefers a validated `CODEX_THREAD_ID` over the payload `session_id`. Codex can retain the user-visible parent in a spawned subagent hook payload. The hook now applies the child-only denial to the agent that uses the tool.
+- A delegated process can no longer make the parent wait for a child lifecycle after CPJ detaches the workload. Legacy records launched by older Dev builds still route completion to the highest user-visible ancestor.
+
+### Security
+
+- The foreground classifier fails open on malformed or oversized hook input. It never executes or rewrites the candidate command, and it exposes no process output.
+- The consented hooks read only validated job ownership, launch-boundary, rollout relationship metadata, and bounded prompt text used for delegation classification. They inject fixed policy and never interpolate the matched prompt. They reject process execution and CPJ launch ownership inside a spawned subagent. They also reject same-turn monitoring after a successful start. The `# cpj:foreground` escape cannot override either boundary.
 
 ## [0.4.0] - 2026-08-22
 
@@ -332,7 +356,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.9...v0.3.0
 [0.2.9]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.8...v0.2.9

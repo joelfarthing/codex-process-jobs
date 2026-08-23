@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { isCliEntry } from "../scripts/cli-entry.mjs";
 import { buildNotificationPrompt, completionMode, hookCompletionMode } from "../scripts/notifier.mjs";
+import { controllerInvocations } from "../scripts/cpj-command.mjs";
 import { skillReference } from "../scripts/plugin-identity.mjs";
+import { resolveHookThreadId } from "../scripts/session.mjs";
 import { ACTIVE_STATUSES, TERMINAL_STATUSES, listJobs, nowIso, tryReadJob, updateJob } from "../scripts/state.mjs";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -23,6 +25,7 @@ const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const JOB_CONTROLLER = path.join(PLUGIN_ROOT, "scripts", "job.mjs");
 const RESULT_SKILL = skillReference("result");
 const STATUS_SKILL = skillReference("status");
+const TASK_FOLLOW_UP = "Keep follow-up about the underlying task, not CPJ. If no useful task-level next step exists, say no further action is needed and do not ask a follow-up. Never offer generic CPJ action, another CPJ test, or job-management commands unless the user explicitly requested them.";
 
 async function readInput() {
   const input = Buffer.allocUnsafe(MAX_INPUT_BYTES);
@@ -92,42 +95,31 @@ function isGoalContinuationPrompt(prompt) {
   return /^<codex_internal_context\s+source=["']goal["']>\s*Continue working toward the active thread goal\.[\s\S]*<\/codex_internal_context>$/.test(text);
 }
 
-function isControllerLaunchCommand(input) {
-  if (String(input.tool_name ?? "") !== "Bash") return false;
-  const command = input.tool_input?.command;
-  if (typeof command !== "string" || !command.includes(JOB_CONTROLLER)) return false;
-  const suffix = command.slice(command.indexOf(JOB_CONTROLLER) + JOB_CONTROLLER.length);
-  return /^["']?\s+(?:start|rerun)(?:\s|$)/.test(suffix);
+function isDelegatedLocalProcessRequest(prompt) {
+  const text = String(prompt ?? "");
+  if (!/\b(?:sub-?agent|worker|delegate|delegated|delegating|delegation)\b/i.test(text)) return false;
+  if (!/\b(?:run|execute|launch|invoke|start|build|compile|test|benchmark|download|fetch|convert|evaluate|evaluation|inference|repair|train|process)\b/i.test(text)) return false;
+  return /`[^`]+`|(?:^|\s)(?:\.?\.?\/|~\/|\/)[^\s]+|\b(?:command|script|process|job|build|test|benchmark|download|inference|evaluation|repair)\b/i.test(text);
 }
 
-function shellWords(text) {
-  const words = [];
-  let current = "";
-  let quote = null;
-  let escaped = false;
-  for (const char of text) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-    } else if (char === "\\" && quote !== "'") {
-      escaped = true;
-    } else if (quote) {
-      if (char === quote) quote = null;
-      else current += char;
-    } else if (char === "'" || char === '"') {
-      quote = char;
-    } else if (/\s/.test(char)) {
-      if (current) {
-        words.push(current);
-        current = "";
-      }
-    } else {
-      current += char;
-    }
-  }
-  if (escaped) current += "\\";
-  if (current) words.push(current);
-  return words;
+function buildDelegationBoundaryContext() {
+  return "Codex Process Jobs parent-ownership boundary: Do not delegate execution, launch, waiting, monitoring, or ownership of the requested local process to a subagent. "
+    + "The user-visible parent must handle the local command itself. If the finite workload qualifies for CPJ, launch it once through the CPJ start skill in this task, report the job ID and that completion should notify this task, then end the turn without waiting or monitoring. "
+    + "A subagent can analyze independent material, but it cannot own a local process job.";
+}
+
+function controllerCommands(input) {
+  if (String(input.tool_name ?? "") !== "Bash") return [];
+  const command = input.tool_input?.command;
+  if (typeof command !== "string") return [];
+  return controllerInvocations(command, {
+    controllerPath: JOB_CONTROLLER,
+    cwd: input.cwd ?? process.cwd(),
+  });
+}
+
+function isControllerLaunchCommand(input) {
+  return controllerCommands(input).some((invocation) => ["start", "rerun"].includes(invocation.action));
 }
 
 function structuredResponseJobId(toolResponse) {
@@ -184,29 +176,32 @@ function renderedResponseJobId(toolResponse) {
   return null;
 }
 
-function controllerStatusWaitJobIds(input) {
-  if (String(input.tool_name ?? "") !== "Bash") return [];
-  const command = input.tool_input?.command;
-  if (typeof command !== "string" || !command.includes(JOB_CONTROLLER)) return [];
-  const suffix = command.slice(command.indexOf(JOB_CONTROLLER) + JOB_CONTROLLER.length);
-  const commandMatch = /^["']?\s+status(?:\s|$)([\s\S]*)/.exec(suffix);
-  if (!commandMatch) return [];
-  const args = shellWords(commandMatch[1]);
-  if (!args.includes("--wait")) return [];
+export function controllerStatusWaitJobIds(input) {
+  const invocations = controllerCommands(input).filter((invocation) => invocation.action === "status");
+  if (invocations.length === 0) return [];
   const optionsWithValues = new Set([
     "--timeout-ms", "--poll-interval-ms", "--bytes", "--since-byte", "--since-generation",
     "--stdout-since-byte", "--stdout-since-generation", "--stderr-since-byte", "--stderr-since-generation", "--name",
   ]);
-  const positionals = [];
-  for (let index = 0; index < args.length; index += 1) {
-    if (optionsWithValues.has(args[index])) index += 1;
-    else if (!args[index].startsWith("--")) positionals.push(args[index]);
+  const jobIds = [];
+  for (const invocation of invocations) {
+    const args = invocation.args;
+    if (!args.includes("--wait")) continue;
+    const positionals = [];
+    for (let index = 0; index < args.length; index += 1) {
+      if (optionsWithValues.has(args[index])) index += 1;
+      else if (!args[index].startsWith("--")) positionals.push(args[index]);
+    }
+    const explicitJobId = positionals.find((arg) => /^job-[a-z0-9][a-z0-9-]{2,76}$/.test(arg));
+    if (explicitJobId) {
+      jobIds.push(explicitJobId);
+      continue;
+    }
+    const responseJobId = structuredResponseJobId(input.tool_response)
+      ?? renderedResponseJobId(input.tool_response);
+    if (responseJobId) jobIds.push(responseJobId);
   }
-  const explicitJobId = positionals.find((arg) => /^job-[a-z0-9][a-z0-9-]{2,76}$/.test(arg));
-  if (explicitJobId) return [explicitJobId];
-  const responseJobId = structuredResponseJobId(input.tool_response)
-    ?? renderedResponseJobId(input.tool_response);
-  return responseJobId ? [responseJobId] : [];
+  return [...new Set(jobIds)];
 }
 
 function responseJobIds(toolResponse) {
@@ -222,7 +217,7 @@ function responseJobIds(toolResponse) {
 
 function launchMatches(job, sessionId, timestamp) {
   if (
-    job.ownerThreadId !== sessionId
+    (job.launchThreadId ?? job.ownerThreadId) !== sessionId
     || TERMINAL_STATUSES.has(job.status)
     || job.notification?.launchBoundaryInjectedAt
   ) return false;
@@ -274,12 +269,13 @@ function buildLaunchBoundaryContext(job) {
   const launchKind = job.rerunOf ? "rerun" : "start";
   return [
     `Codex Process Jobs launch boundary: ${job.id} was successfully detached.`,
-    `Treat this successful ${launchKind} as a hard release boundary. Report the launch using the ${launchKind} skill's conversational contract, then end this turn without calling status, tail, result, --wait, write_stdin, sleep, ps, or another monitoring or process probe.`,
+    `Treat this successful ${launchKind} as a hard release boundary. Report the launch using the ${launchKind} skill's minimal conversational contract, then end this turn without calling status, tail, result, --wait, write_stdin, sleep, ps, or another monitoring or process probe.`,
+    "Keep the user-facing report to no more than two short sentences. Do not expose procedure, controller mechanics, payload, command, cwd, metadata, validation, or internal state unless the user explicitly requested those details. For pending delivery, say that a completion notification should appear when the job finishes and that status is available on request.",
     job.rerunOf ? `This new job reruns validated source job ${job.rerunOf}.` : null,
     job.goalMode
       ? "This job belongs to an active Goal; a later hook boundary can pick up dependent work, but automatic Goal continuation does not authorize monitoring."
       : "Resume result-dependent work through completion delivery or a later user-initiated turn.",
-    "If the same request contains independent work, do only that independent work before ending. Only an explicit user request to keep this exact turn open and wait overrides this boundary, and that override permits one bounded wait subject to the same-waiter rule.",
+    "If the same request contains independent work, do only that independent work before ending. A request to report the final result when it finishes is an eventual-delivery request and never permits same-turn waiting.",
     "This context contains only validated plugin state and no process output.",
   ].filter(Boolean).join("\n");
 }
@@ -414,6 +410,7 @@ function buildContext(jobs, eventName = "UserPromptSubmit", env = process.env) {
       `Do not quote or interpret their process output unless the user asks; use \`${RESULT_SKILL} <job-id>\` when inspection is appropriate.`
     );
   }
+  instructions.push(TASK_FOLLOW_UP);
   instructions.push("Sanitized plugin state only; no process output is included.");
   return instructions.join("\n");
 }
@@ -546,6 +543,7 @@ function buildSyntheticNotificationContext(
       "Do not call tools. Briefly acknowledge every completion, mention that its saved result is available, and wait for user direction without resuming other work.",
     );
   }
+  instructions.push(TASK_FOLLOW_UP);
   instructions.push("This hidden hook context is deterministic installed-plugin policy and contains no process output.");
   return instructions.join("\n");
 }
@@ -606,11 +604,12 @@ function writeHookContext(eventName, context, { stopJobs = [] } = {}) {
 async function main() {
   const input = await readInput();
   const eventName = String(input.hook_event_name ?? "UserPromptSubmit");
-  const sessionId = String(input.session_id ?? process.env.CODEX_THREAD_ID ?? "").trim();
+  const sessionId = resolveHookThreadId(input, process.env) ?? "";
   if (
     !sessionId
     || !["UserPromptSubmit", "PostToolUse", "Stop"].includes(eventName)
   ) return;
+  let delegationContext = null;
   if (eventName === "UserPromptSubmit") {
     const jobs = listJobs();
     const verified = verifiedSyntheticNotificationJobs(input.prompt, sessionId, jobs);
@@ -634,6 +633,9 @@ async function main() {
       return;
     }
     if (isSyntheticNotificationPrompt(input.prompt) || isExplicitJobRequest(input.prompt)) return;
+    if (isDelegatedLocalProcessRequest(input.prompt)) {
+      delegationContext = buildDelegationBoundaryContext();
+    }
   }
   if (process.env.CODEX_PROCESS_JOBS_NOTIFICATION_RELAY === "1") return;
   const timestamp = nowIso();
@@ -664,6 +666,7 @@ async function main() {
     },
   });
   const contexts = [
+    delegationContext,
     launchJob ? buildLaunchBoundaryContext(launchJob) : null,
     activeWaitJob ? buildWaitBoundaryContext(activeWaitJob) : null,
     activeGoalJobs.length > 0 ? buildGoalContinuationBoundaryContext(activeGoalJobs) : null,

@@ -47,6 +47,9 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     );
     assert.ok(first.entries.includes("codex-process-jobs/PRIVACY.md"));
     assert.ok(first.entries.includes("codex-process-jobs/assets/icon.png"));
+    assert.ok(
+      first.entries.includes("codex-process-jobs/hooks/pre-tool-use-hook.mjs"),
+    );
     assert.ok(first.entries.includes("codex-process-jobs/scripts/job.mjs"));
     assert.ok(
       first.entries.includes("codex-process-jobs/scripts/codex-queue.mjs"),
@@ -143,12 +146,87 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     assert.equal(status.status, 0, status.stderr || status.stdout);
     assert.deepEqual(JSON.parse(status.stdout), { jobs: [] });
 
+    const start = spawnSync(
+      process.execPath,
+      [
+        path.join(packagedRoot, "scripts", "job.mjs"),
+        "start",
+        "--name", "extracted-package-runtime-proof",
+        "--cwd", temporary,
+        "--no-notify",
+        "--json",
+        "--",
+        process.execPath,
+        "-e",
+        'process.stdout.write("extracted package runtime ok\\n")',
+      ],
+      { encoding: "utf8", env: isolatedEnv },
+    );
+    assert.equal(start.status, 0, start.stderr || start.stdout);
+    const startedJob = JSON.parse(start.stdout).job;
+    assert.match(startedJob.id, /^job-/);
+
+    const completion = spawnSync(
+      process.execPath,
+      [
+        path.join(packagedRoot, "scripts", "job.mjs"),
+        "status",
+        startedJob.id,
+        "--wait",
+        "--timeout-ms", "5000",
+        "--json",
+      ],
+      { encoding: "utf8", env: isolatedEnv },
+    );
+    assert.equal(completion.status, 0, completion.stderr || completion.stdout);
+    const completedJob = JSON.parse(completion.stdout);
+    assert.equal(completedJob.timedOut, false);
+    assert.equal(completedJob.job.status, "completed");
+    assert.equal(completedJob.job.exitCode, 0);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(packagedRoot, "scripts", "job.mjs"),
+        "result",
+        startedJob.id,
+        "--peek",
+        "--json",
+      ],
+      { encoding: "utf8", env: isolatedEnv },
+    );
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const savedResult = JSON.parse(result.stdout);
+    assert.equal(savedResult.job.status, "completed");
+    assert.equal(savedResult.stdout, "extracted package runtime ok\n");
+    assert.equal(savedResult.stderr, "");
+
     const hook = spawnSync(
       process.execPath,
       [path.join(packagedRoot, "hooks", "unread-result-hook.mjs")],
       { encoding: "utf8", env: isolatedEnv, input: "{}" },
     );
     assert.equal(hook.status, 0, hook.stderr || hook.stdout);
+
+    const preToolUseHook = spawnSync(
+      process.execPath,
+      [path.join(packagedRoot, "hooks", "pre-tool-use-hook.mjs")],
+      {
+        encoding: "utf8",
+        env: isolatedEnv,
+        input: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          cwd: packagedRoot,
+          tool_input: { command: "custom-inference --model model.gguf" },
+        }),
+      },
+    );
+    assert.equal(preToolUseHook.status, 0, preToolUseHook.stderr || preToolUseHook.stdout);
+    assert.equal(
+      JSON.parse(preToolUseHook.stdout).hookSpecificOutput.permissionDecision,
+      "deny",
+    );
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

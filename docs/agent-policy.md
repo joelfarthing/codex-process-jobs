@@ -1,6 +1,6 @@
 # Agent adoption policy
 
-Codex can select the plugin automatically from the installed skill descriptions, and users can always invoke `$codex-process-jobs:start` explicitly. The approved `PostToolUse` hook reinforces the hard release boundary immediately after a successful start. The plugin therefore remains useful without any `AGENTS.md` policy.
+Codex can select the plugin automatically from the installed skill descriptions, and users can always invoke `$codex-process-jobs:start` explicitly. The approved `PreToolUse` hook challenges non-obviously-short local commands before foreground execution, and `PostToolUse` reinforces the absolute release boundary after a successful start. The plugin therefore remains useful without any `AGENTS.md` policy.
 
 The optional managed policy adds a compact high-priority routing default. Detailed critical-job, Goal, progress, cancellation, completion, and untrusted-output rules stay in the selected skills and load only when relevant. This keeps always-loaded context small without weakening the operational contract.
 
@@ -8,11 +8,11 @@ Policy scope is a separate opt-in decision. After showing the read-only preview,
 
 - `global`: manage the CPJ block in `~/.codex/AGENTS.md` for every task on that execution host;
 - `project`: manage it in `<project-root>/AGENTS.md` for one repository or directory tree; or
-- `none`: leave every `AGENTS.md` unchanged and rely on skill routing plus hook reinforcement.
+- `none`: leave every `AGENTS.md` unchanged and rely on skill routing plus hook classification and reinforcement.
 
 Permission to install the plugin never implies one of these choices.
 
-Hook consent is also separate and always manual. The installer never writes hook trust. After every install or update and client restart, the user must review the installed `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source through `/hooks`. Any definition Codex marks new or changed requires approval; if trust persists, the user still verifies that status. Hook-boundary fallback can run only for definitions Codex currently trusts.
+Hook consent is also separate and always manual. The installer never writes hook trust. After every install or update and client restart, the user must review the installed `PreToolUse`, `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source through `/hooks`. Any definition Codex marks new or changed requires approval; if trust persists, the user still verifies that status. Foreground classification and hook-boundary fallback can run only for definitions Codex currently trusts.
 
 Preview any choice without changing anything:
 

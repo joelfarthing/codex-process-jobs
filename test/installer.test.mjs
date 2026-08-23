@@ -78,6 +78,18 @@ function cacheRoot(home, pluginName = "codex-process-jobs") {
   return path.join(home, ".codex", "plugins", "cache", "personal", pluginName);
 }
 
+function relativeRegularFiles(root, relative = "") {
+  const current = path.join(root, relative);
+  const files = [];
+  for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+    const child = path.join(relative, entry.name);
+    if (entry.isDirectory()) files.push(...relativeRegularFiles(root, child));
+    else if (entry.isFile()) files.push(child.split(path.sep).join("/"));
+    else assert.fail(`unexpected non-regular runtime entry: ${child}`);
+  }
+  return files.sort();
+}
+
 function seedProviderCache(home, provider, version, pluginName = "codex-process-jobs") {
   const generation = path.join(
     home,
@@ -217,7 +229,7 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(preview.stdout, /No changes made/);
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
   assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
-  assert.match(preview.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
+  assert.match(preview.stdout, /PreToolUse, PostToolUse, Stop, and UserPromptSubmit/);
   assert.match(preview.stdout, /review definitions and referenced source in \/hooks after every install or update/i);
   assert.match(preview.stdout, /approve any definition Codex marks new or changed/i);
   assert.equal(fs.existsSync(marketplaceFile), false);
@@ -234,15 +246,15 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(agentPolicy, /servers\/watchers/i);
   assert.match(agentPolicy, /Classify workload, not wrapper latency/i);
   assert.match(agentPolicy, /Task skills own preflight\/correctness; CPJ owns lifecycle/i);
-  assert.match(agentPolicy, /successful start is a hard turn boundary/i);
+  assert.match(agentPolicy, /successful start is an absolute turn boundary/i);
   assert.match(agentPolicy, /without status, tail, result, wait, sleep, `ps`, or other monitoring/i);
-  assert.match(agentPolicy, /only an explicit request to keep that exact turn open permits one bounded wait/i);
+  assert.match(agentPolicy, /request for an eventual final report does not permit same-turn waiting/i);
   assert.match(agentPolicy, /follow selected CPJ skills/i);
   assert.match(agentPolicy, /Never search memory for CPJ work/i);
   assert.match(agentPolicy, /current request and validated CPJ state/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140, "managed policy should stay compact");
   assert.match(applied.stdout, /installer never writes hook trust/i);
-  assert.match(applied.stdout, /PostToolUse, Stop, and UserPromptSubmit/);
+  assert.match(applied.stdout, /PreToolUse, PostToolUse, Stop, and UserPromptSubmit/);
   assert.match(applied.stdout, /If Codex marks a definition new or changed, approve its exact hash/i);
   assert.match(applied.stdout, /if trust persists, verify that status/i);
   assert.match(applied.stdout, /review them in \/hooks after every install or update/i);
@@ -310,6 +322,37 @@ test("dev apply creates a distinct plugin, namespace, cache, and durable state r
       installedPlugin: DEV_PLUGIN_NAME,
       stateDirectory: "process-jobs-dev",
     }
+  );
+
+  const runtimeAllowlist = JSON.parse(
+    fs.readFileSync(path.join(ROOT, "scripts", "runtime-files.json"), "utf8"),
+  );
+  assert.deepEqual(
+    relativeRegularFiles(destination),
+    [...runtimeAllowlist.files, ".codex-plugin/dev-install.json"].sort(),
+    "the Dev snapshot must contain exactly the Marketplace runtime plus its identity marker",
+  );
+  for (const relative of runtimeAllowlist.files) {
+    if (relative === ".codex-plugin/plugin.json") continue;
+    assert.deepEqual(
+      fs.readFileSync(path.join(destination, relative)),
+      fs.readFileSync(path.join(ROOT, relative)),
+      `Dev runtime drifted from Marketplace source: ${relative}`,
+    );
+  }
+  const sourceManifest = JSON.parse(
+    fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"),
+  );
+  const normalizedDevManifest = structuredClone(manifest);
+  normalizedDevManifest.name = sourceManifest.name;
+  normalizedDevManifest.version = sourceManifest.version;
+  normalizedDevManifest.description = sourceManifest.description;
+  normalizedDevManifest.interface.displayName = sourceManifest.interface.displayName;
+  normalizedDevManifest.interface.shortDescription = sourceManifest.interface.shortDescription;
+  assert.deepEqual(
+    normalizedDevManifest,
+    sourceManifest,
+    "only reviewed Dev identity fields may differ from the Marketplace manifest",
   );
 
   const marketplace = JSON.parse(fs.readFileSync(marketplaceFile, "utf8"));
@@ -380,21 +423,10 @@ test("dev apply creates a distinct plugin, namespace, cache, and durable state r
   );
   assert.equal(fs.existsSync(path.join(productionState, "config.json")), false);
 
-  const devSnapshotInstall = spawnSync(
-    process.execPath,
-    [
-      path.join(destination, "scripts", "install.mjs"),
-      "--dev",
-      "--agent-policy",
-      "none",
-    ],
-    { cwd: destination, encoding: "utf8", env }
-  );
-  assert.equal(devSnapshotInstall.status, 1);
-  assert.match(
-    devSnapshotInstall.stderr,
-    /Expected plugin name codex-process-jobs/,
-    "a generated dev snapshot must never become an installer or release source"
+  assert.equal(
+    fs.existsSync(path.join(destination, "scripts", "install.mjs")),
+    false,
+    "a generated Dev runtime must never contain its source deployer",
   );
 });
 

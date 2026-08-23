@@ -52,7 +52,7 @@ function runFrom(cli, args, env = process.env) {
 function copyMinimalCommandSource(destination, { includeManifest = true } = {}) {
   const scripts = path.join(destination, "scripts");
   fs.mkdirSync(scripts, { recursive: true });
-  for (const file of ["npm-cli.mjs", "install.mjs", "cli-entry.mjs"]) {
+  for (const file of ["npm-cli.mjs", "install.mjs", "cli-entry.mjs", "runtime-files.json"]) {
     fs.copyFileSync(path.join(ROOT, "scripts", file), path.join(scripts, file));
   }
   fs.copyFileSync(path.join(ROOT, "package.json"), path.join(destination, "package.json"));

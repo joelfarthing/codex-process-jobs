@@ -89,6 +89,29 @@ test("schema v2 validates fixed execution descriptors and schema v1 remains read
   }, { expectedId: base.id, env }));
 });
 
+test("validates independent notification-owner and launch thread ids", (t) => {
+  const env = withTemporaryHome(t);
+  const base = {
+    schemaVersion: 2,
+    id: "job-thread-routing-v2",
+    status: "completed",
+    phase: "done",
+    execution: { kind: "argv" },
+    argv: [process.execPath, "--version"],
+    cwd: process.cwd(),
+    logs: resolveJobLogs("job-thread-routing-v2", env),
+    createdAt: "2026-08-23T00:00:00.000Z",
+    updatedAt: "2026-08-23T00:00:00.000Z",
+    ownerThreadId: "thread-user-visible-parent-001",
+    launchThreadId: "thread-spawned-launch-001",
+  };
+  assert.doesNotThrow(() => validateJobRecord(base, { expectedId: base.id, env }));
+  assert.throws(() => validateJobRecord({
+    ...base,
+    launchThreadId: "bad\nlaunch",
+  }, { expectedId: base.id, env }), /launch thread id/i);
+});
+
 test("validates rerun lineage as a distinct job id", (t) => {
   const env = withTemporaryHome(t);
   const base = {

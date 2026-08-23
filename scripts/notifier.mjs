@@ -18,7 +18,7 @@ import {
 } from "./plugin-identity.mjs";
 import { COMPLETION_MODES, readPreferences } from "./preferences.mjs";
 import { resolveOwnerRolloutFile, sanitizeThreadId } from "./session.mjs";
-import { listJobs, nowIso, readJob, updateJob } from "./state.mjs";
+import { listJobs, nowIso, readJob, TERMINAL_STATUSES, updateJob } from "./state.mjs";
 
 export { resolveOwnerRolloutFile } from "./session.mjs";
 
@@ -33,7 +33,6 @@ const MAX_APP_SERVER_PROTOCOL_LINE_BYTES = 1024 * 1024;
 const MAX_APP_SERVER_STDERR_BYTES = 64 * 1024;
 const MAX_NOTIFICATION_BATCH = 20;
 const MAX_PRIVATE_IPC_FALLBACK_REASON_BYTES = 4096;
-const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "cancel_failed"]);
 const INSPECT_SURFACES = new Set(["app", "remote", "vscode"]);
 // Codex 0.149+ can render a queued completion turn in an already-open TUI.
 // The queue prompt itself stays concise, while its trusted hook boundary carries

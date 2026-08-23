@@ -164,11 +164,16 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
   if (!JOB_STATUSES.has(job.status)) {
     throw new Error(`Invalid persisted status for ${id}: ${String(job.status ?? "(missing)")}.`);
   }
-  if (
-    job.ownerThreadId != null
-    && (typeof job.ownerThreadId !== "string" || !/^[A-Za-z0-9_-]{8,160}$/.test(job.ownerThreadId))
-  ) {
-    throw new Error(`Invalid persisted owner thread id for ${id}.`);
+  for (const [field, label] of [
+    ["ownerThreadId", "owner"],
+    ["launchThreadId", "launch"],
+  ]) {
+    if (
+      job[field] != null
+      && (typeof job[field] !== "string" || !/^[A-Za-z0-9_-]{8,160}$/.test(job[field]))
+    ) {
+      throw new Error(`Invalid persisted ${label} thread id for ${id}.`);
+    }
   }
   if (job.ownerSurface != null && !OWNER_SURFACES.has(job.ownerSurface)) {
     throw new Error(`Invalid persisted owner surface for ${id}.`);

@@ -223,6 +223,40 @@ test("launches a detached command, returns immediately, and stores its result", 
   assert.match(result.stderr, /warning/);
 });
 
+test("a spawned-subagent launch routes completion ownership to its user-visible parent", (t) => {
+  const childThreadId = "thread-integration-child-001";
+  const parentThreadId = "thread-integration-parent-001";
+  const context = makeEnv(t, {
+    CODEX_THREAD_ID: childThreadId,
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",
+  });
+  const directory = path.join(context.env.CODEX_HOME, "sessions", "2026", "08", "23");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, `rollout-test-${parentThreadId}.jsonl`), `${JSON.stringify({
+    type: "session_meta",
+    payload: { id: parentThreadId, source: "vscode", originator: "Codex Desktop" },
+  })}\n`);
+  fs.writeFileSync(path.join(directory, `rollout-test-${childThreadId}.jsonl`), `${JSON.stringify({
+    type: "session_meta",
+    payload: {
+      id: childThreadId,
+      source: { subagent: { thread_spawn: { parent_thread_id: parentThreadId, depth: 1 } } },
+      parent_thread_id: parentThreadId,
+      originator: "Codex Desktop",
+    },
+  })}\n`);
+
+  const job = startJson(["--", process.execPath, "-e", "process.exit(0)"], context);
+  const stored = JSON.parse(fs.readFileSync(
+    path.join(context.env.CODEX_HOME, "process-jobs", "jobs", `${job.id}.json`),
+    "utf8",
+  ));
+  assert.equal(stored.launchThreadId, childThreadId);
+  assert.equal(stored.ownerThreadId, parentThreadId);
+  assert.equal(stored.ownerSurface, "app");
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
+});
+
 test("documented shell option order launches successfully on the first invocation", (t) => {
   const context = makeEnv(t);
   const started = runCli([
@@ -536,9 +570,8 @@ test("marks VS Code jobs for live delivery with a durable recap fallback", (t) =
   assert.match(started.stdout, /notifier will attempt to deliver it live/i);
   assert.match(started.stdout, /if this client cannot render that turn/i);
   assert.match(started.stdout, /do not monitor this job from its launch turn/i);
-  assert.match(started.stdout, /status\/result belong to a later user-initiated turn/i);
-  assert.match(started.stdout, /only an explicit request to keep this exact turn open and wait overrides this boundary/i);
-  assert.match(started.stdout, /permits one bounded wait and, if terminal, bounded result inspection/i);
+  assert.match(started.stdout, /status\/result belong to completion delivery or a later user-initiated turn/i);
+  assert.match(started.stdout, /request for the final result when it finishes does not permit same-turn waiting/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);

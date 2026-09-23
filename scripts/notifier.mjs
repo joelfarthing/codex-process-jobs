@@ -404,16 +404,24 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
   );
 
   let codexQueueFallbackReason = null;
-  try {
-    const queued = await enqueueCodexNotification(input, threadId, timeoutMs, env, {
-      onUnavailable: (reason) => {
-        codexQueueFallbackReason = boundedIpcFallbackReason(reason);
-      },
-    });
+  async function tryCodexQueue(forceQueueMode = false) {
+    try {
+      const queued = await enqueueCodexNotification(input, threadId, timeoutMs, env, {
+        forceQueueMode,
+        onUnavailable: (reason) => {
+          codexQueueFallbackReason = boundedIpcFallbackReason(reason);
+        },
+      });
+      return queued;
+    } catch (error) {
+      if (error?.turnAccepted) throw error;
+      codexQueueFallbackReason = boundedIpcFallbackReason(error);
+      return null;
+    }
+  }
+  if (job.ownerSurface === "cli") {
+    const queued = await tryCodexQueue();
     if (queued) return queued;
-  } catch (error) {
-    if (error?.turnAccepted) throw error;
-    codexQueueFallbackReason = boundedIpcFallbackReason(error);
   }
 
   const idle = await waitForOwnerIdle(job, env);
@@ -422,6 +430,11 @@ export async function deliverNotificationTurn(jobOrJobs, env = process.env) {
       relayError(`Owning Codex thread is not safely idle: ${idle.reason}.`, { retryWhenIdle: true }),
       { codexQueueFallbackReason },
     );
+  }
+
+  if (PRIVATE_IPC_SURFACES.has(job.ownerSurface)) {
+    const queued = await tryCodexQueue(true);
+    if (queued) return queued;
   }
 
   let cliLiveInjectionFallbackReason = null;

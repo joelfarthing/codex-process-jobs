@@ -236,7 +236,7 @@ test("accepts only known persisted notification transports", (t) => {
     status: "completed",
     notification: { status: "pending", transport: "desktop-ipc" },
     logs: resolveJobLogs("job-premature-transport", env),
-  }, env), /requires accepted, delivered, or fallback-notified status/i);
+  }, env), /requires accepted, delivered, fallback-notified, or suppressed status/i);
 
   const queued = createJob({
     id: "job-codex-queue-transport",
@@ -249,6 +249,19 @@ test("accepts only known persisted notification transports", (t) => {
     logs: resolveJobLogs("job-codex-queue-transport", env),
   }, env);
   assert.equal(queued.notification.transport, "codex-queue");
+
+  const suppressed = createJob({
+    id: "job-suppressed-queue-transport",
+    status: "completed",
+    notification: {
+      status: "suppressed",
+      transport: "codex-queue",
+      acceptedAt: "2026-08-22T05:40:04.000Z",
+      suppressedAt: "2026-08-22T05:41:04.000Z",
+    },
+    logs: resolveJobLogs("job-suppressed-queue-transport", env),
+  }, env);
+  assert.equal(suppressed.notification.transport, "codex-queue");
 
   const created = createJob({
     id: "job-desktop-transport",

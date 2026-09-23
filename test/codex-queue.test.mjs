@@ -43,6 +43,32 @@ test("Codex queue receives the thread and sanitized completion as argv", async (
   ]);
 });
 
+test("desktop queue forces Queue mode for the relay invocation", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cpj-codex-queue-desktop-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const argsFile = path.join(root, "args.json");
+  const executable = writeExecutable(root, [
+    "const fs = require('node:fs');",
+    "fs.writeFileSync(process.env.MOCK_QUEUE_ARGS, JSON.stringify(process.argv.slice(2)));",
+  ]);
+  await enqueueCodexNotification(
+    [{ type: "text", text: "CPJ background job `job-safe-002` finished successfully with exit code 0." }],
+    "thread-safe-002",
+    3_000,
+    { ...process.env, CODEX_PROCESS_JOBS_CODEX_BIN: executable, MOCK_QUEUE_ARGS: argsFile },
+    { forceQueueMode: true },
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(argsFile, "utf8")), [
+    "queue",
+    "-c",
+    'desktop.followUpQueueMode="queue"',
+    "--thread",
+    "thread-safe-002",
+    "--message",
+    "CPJ background job `job-safe-002` finished successfully with exit code 0.",
+  ]);
+});
+
 test("unsupported Codex queue returns a bounded fallback reason", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cpj-codex-queue-unsupported-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

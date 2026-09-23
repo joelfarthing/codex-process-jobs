@@ -268,9 +268,9 @@ export function validateJobRecord(job, { expectedId = null, env = process.env } 
     }
     if (
       job.notification.transport != null
-      && !["accepted", "delivered", "fallback_notified"].includes(job.notification.status)
+      && !["accepted", "delivered", "fallback_notified", "suppressed"].includes(job.notification.status)
     ) {
-      throw new Error(`Persisted notification transport for ${id} requires accepted, delivered, or fallback-notified status.`);
+      throw new Error(`Persisted notification transport for ${id} requires accepted, delivered, fallback-notified, or suppressed status.`);
     }
     if (
       job.notification.errorMessage != null

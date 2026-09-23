@@ -34,7 +34,7 @@ export async function enqueueCodexNotification(
   threadId,
   timeoutMs,
   env = process.env,
-  { onUnavailable = () => {} } = {},
+  { onUnavailable = () => {}, forceQueueMode = false } = {},
 ) {
   if (env.CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE === "1") {
     return null;
@@ -47,6 +47,7 @@ export async function enqueueCodexNotification(
   return await new Promise((resolve, reject) => {
     const child = spawn(codex, [
       "queue",
+      ...(forceQueueMode ? ["-c", 'desktop.followUpQueueMode="queue"'] : []),
       "--thread",
       threadId,
       "--message",

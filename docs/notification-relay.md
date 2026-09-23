@@ -2,34 +2,35 @@
 
 Codex Process Jobs can wake the persistent Codex task that launched a detached command without turning the command into a subagent.
 
+## September 2026 Mac canary
+
+The dev build `0.4.1+codex.dev-20260923-040637` ran one local job from each Codex client. The CLI job completed and woke its idle TUI through `codex queue`. The VS Code job `job-mudll7kc-93027bda` completed with exit code 0 and printed `VSCODE_CPJ_DONE`. The App job `job-mudlpub1-26ad452a` completed with exit code 0 and printed `APP_CPJ_DONE`.
+
+Neither App nor VS Code started a completion turn on its own. Their private IPC attempts returned `no-client-found`. The portable App Server path then returned `already has an active writer` on repeated attempts. A user follow-up retrieved the VS Code result. The App completion surfaced through the `UserPromptSubmit` hook on the next user turn. These observations establish durable execution and later-turn recovery on those two clients, but they do not establish live completion on the current build. The July 2026 App and VS Code live-delivery examples below are historical results from earlier client versions.
+
+The dev and curated plugins were disabled again after the canary. No CPJ job remained active. Do not treat a successful job exit or a persisted result as proof that a client received an automatic completion turn.
+
+The next dev build, `0.4.1+codex.dev-20260923-050040`, queues App and VS Code completion only after the owning task is idle. It sets Queue mode for that invocation. The App job `job-mudmy6zt-c1ed2c89` completed with exit code 0 and printed `APP_LIVE_QUEUE_DONE`. The queue started an automatic completion turn in the open App task on the first delivery attempt. The verified hook claimed the notice once.
+
+The VS Code job `job-mudn0nka-d04c2fb9` completed with exit code 0 and printed `VSCODE_LIVE_QUEUE_DONE`. The open Mac-local VS Code task started a completion turn without a user prompt. That turn read the saved result and reported the marker. Joel confirmed that it appeared as a normal completed turn, with no pending Steer chip. A later controlled prompt produced only its requested reply, with no repeated completion in the task transcript. The VS Code job record remained `accepted` with `transport: codex-queue`; this status confirms queue acceptance, while the task transcript confirms the completed response.
+
 ## Delivery flow
 
 1. `$codex-process-jobs:start` records the user-visible task that performs the launch and owns completion. CPJ does not delegate local process execution or monitoring to a spawned subagent. Legacy records from earlier Dev builds can still identify a child launch thread and route completion to the highest user-visible ancestor. CPJ then launches the ordinary OS command in a detached process group.
 2. The worker records the terminal state before attempting notification, so status and result remain available even if notification fails.
-3. The notifier first invokes official `codex queue` with the validated owning
-   task ID and sanitized completion sentence. Codex CLI 0.149.0 introduced this
-   queue for messages that should run after an active writer releases the
-   task, and an idle ordinary TUI wakes without a daemon or special invocation.
-   Exit zero means Codex durably accepted the message; CPJ records
-   `notification.transport: codex-queue` and does not try another transport. A
-   timeout, signal, or output overflow is acceptance-uncertain and likewise
-   never falls through. A missing binary or unsupported command is safe to
-   fall back.
+3. For CLI-owned jobs, the notifier first invokes official `codex queue` with the validated owning task ID and sanitized completion sentence. Codex CLI 0.149.0 introduced this queue for messages that should run after an active writer releases the task, and an idle ordinary TUI wakes without a daemon or special invocation. Exit zero means Codex durably accepted the message; CPJ records `notification.transport: codex-queue` and does not try another transport. A timeout, signal, or output overflow is acceptance-uncertain and likewise never falls through. A missing binary or unsupported command is safe to fall back.
 4. For an explicitly opted-in older CLI task, the notifier can next check
    Codex's official shared local App Server Unix socket. The user must have
    started `codex app-server daemon` before the ordinary TUI session began;
    CPJ never starts or installs it automatically. This v0.3.0 experiment
    remains a compatibility fallback, not a requirement on Codex 0.149.0.
-5. For a local macOS Codex App task or a macOS or Linux VS Code task, a
-   separate lightweight notifier can attempt Codex's private same-user IPC
-   router. It verifies private socket ownership and permissions, targets the
-   validated owning task ID, waits for a settled idle boundary, and confirms
-   the returned turn ID reaches durable `task_complete`.
-6. If every guarded live path is unavailable before possible acceptance, the
+5. For App and VS Code jobs, the notifier first waits for a settled idle boundary. It then invokes `codex queue` with Queue mode for that invocation. This guard avoids steering an active task. The notifier retains the same acceptance and fallback rules as the CLI route.
+6. If queue is unavailable, a separate lightweight notifier can attempt Codex's private same-user IPC router for a local macOS Codex App task or a macOS or Linux VS Code task. It verifies private socket ownership and permissions, targets the validated owning task ID, and confirms the returned turn ID reaches durable `task_complete`.
+7. If every guarded live path is unavailable before possible acceptance, the
    notifier falls back to a separate local `codex app-server` connection. A
    failure after possible acceptance never starts a competing second turn.
-7. A notifier may atomically claim up to 20 compatible terminal siblings owned by the same task and deliver them in one turn. The concise user-facing notice begins with `CPJ background job` and contains only one sanitized job id, terminal status, and exit code per record. It never interpolates the command, working directory, job label, environment, stdout, stderr, or agent instructions. The hook still accepts the earlier unbranded prefix for in-flight jobs and upgrades.
-8. In the default `auto` mode, App, VS Code, remote, queue-woken CLI, and confirmed legacy live CLI surfaces ask Codex to
+8. A notifier may atomically claim up to 20 compatible terminal siblings owned by the same task and deliver them in one turn. The concise user-facing notice begins with `CPJ background job` and contains only one sanitized job id, terminal status, and exit code per record. It never interpolates the command, working directory, job label, environment, stdout, stderr, or agent instructions. The hook still accepts the earlier unbranded prefix for in-flight jobs and upgrades.
+9. In the default `auto` mode, App, VS Code, remote, queue-woken CLI, and confirmed legacy live CLI surfaces ask Codex to
    inspect bounded saved output with `result --peek`, summarize the evidence,
    and continue only a clear next step already authorized and still in scope
    from the prior conversation. Otherwise Codex recommends one next step and
@@ -53,8 +54,8 @@ Codex Process Jobs can wake the persistent Codex task that launched a detached c
    hook is disabled or untrusted, the direct turn safely degrades to reporting
    the visible terminal status while the durable result remains available.
    For jobs explicitly launched with `--goal-mode`, the fixed Goal instruction takes precedence over this surface preference: inspect `result --peek`, then continue already-authorized in-scope work if the Goal remains active; otherwise recommend one next step and ask.
-9. Consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks share the same terminal-result claim logic. A terminal job can therefore surface after a supported local tool call during an active turn, as a one-time stop continuation, or on the first eligible ordinary non-status prompt. A queue-accepted concise completion is verified against same-task terminal state and atomically claims hook presentation, so a later unrelated prompt does not repeat it. A completed owner-routed private-IPC or shared-CLI-App-Server turn likewise suppresses the later recap. Portable app-server delivery, uncertain acceptance, and failed delivery retain the one-shot recap. Explicit status/result user prompts bypass the prompt-submit recap because they retrieve durable state directly.
-10. `$codex-process-jobs:status` and `$codex-process-jobs:result` remain the durable fallback.
+10. Consent-gated `PostToolUse`, `Stop`, and `UserPromptSubmit` hooks share the same terminal-result claim logic. A terminal job can therefore surface after a supported local tool call during an active turn, as a one-time stop continuation, or on the first eligible ordinary non-status prompt. A queue-accepted concise completion is verified against same-task terminal state and atomically claims hook presentation, so a later unrelated prompt does not repeat it. A completed owner-routed private-IPC or shared-CLI-App-Server turn likewise suppresses the later recap. Portable app-server delivery, uncertain acceptance, and failed delivery retain the one-shot recap. Explicit status/result user prompts bypass the prompt-submit recap because they retrieve durable state directly.
+11. `$codex-process-jobs:status` and `$codex-process-jobs:result` remain the durable fallback.
 
 Successful start is an absolute boundary for the assigning launch turn. Codex reports the launch in no more than two short user-facing sentences and ends that turn after any already-requested independent work. The report identifies the background job and says that a completion notification should appear. It does not expose controller mechanics, payload, cwd, or internal state unless the user asks. Codex does not load status, wait, poll, or probe the process. This idle boundary is also what allows the notifier to resume the owning task after completion. Work that depends on the result is deferred to completion delivery, a later user-initiated turn, or a later automatic continuation of an explicitly active Goal. A request to report the final result when it finishes is an eventual-delivery request and does not keep the launch turn open. A user who requires foreground execution must choose foreground execution instead of CPJ for that command.
 
@@ -112,10 +113,12 @@ available instead of attempting a second direct turn. If the owner becomes
 active after initialization but before dispatch, the retry-when-idle signal is
 preserved and no competing app-server turn starts.
 
-Codex 0.149.0's official queue is now the preferred CLI path and requires no
-setup beyond the ordinary `codex` TUI. A controlled macOS test queued a
-sanitized synthetic completion from a separate process; the already-open idle
-TUI rendered the prompt, woke the agent, and began the CPJ result workflow.
+Codex 0.149.0's official queue requires no setup beyond the ordinary `codex`
+TUI. A controlled macOS test queued a sanitized synthetic completion from a
+separate process; the already-open idle TUI rendered the prompt, woke the
+agent, and began the CPJ result workflow. The September 2026 Mac dev canaries
+above also verified queue delivery in open App and VS Code tasks after the
+owning task reached an idle boundary.
 
 The older CLI path is a separate experimental use of Codex's official shared local
 App Server rather than the App/VS Code private router. Enable it with
@@ -197,7 +200,7 @@ The worker invokes `osascript` on macOS or `notify-send` on Linux with `shell: f
 - `accepted`: Codex accepted the completion but CPJ cannot independently confirm the assistant turn. For `codex-queue`, the exact verified prompt claims hook presentation and suppresses a later duplicate; otherwise hook fallback remains available.
 - `failed`: direct delivery failed; hook fallback and status/result are available.
 - `fallback_notified`: one hook boundary injected completion context; direct notification is suppressed.
-- `suppressed`: the result was already opened or the job was explicitly cancelled.
+- `suppressed`: the result was already opened or the job was explicitly canceled.
 - `disabled`: the launch used `--no-notify` or notification was disabled for tests.
 - `unavailable`: no valid persistent owning thread id was available.
 

@@ -29,10 +29,11 @@ Pass criteria:
 	   wake the idle TUI and render the notice and proactive response exactly
 	   once without another prompt. Older versions may use the durable next-turn
 	   fallback; the shared-App-Server path is legacy compatibility coverage only.
-   App should record `notification.transport: desktop-ipc`, VS Code should
-   record `notification.transport: vscode-ipc`, and CLI should record
-   `notification.transport: codex-queue` on Codex 0.149.0+, or
-   `notification.transport: app-server`/`cli-app-server` on a legacy fallback. The non-consuming inspection leaves
+   App, VS Code, and CLI should record `notification.transport: codex-queue`
+   when queue is available. App and VS Code must wait for the owning task to
+   become idle before queueing. If queue is unavailable, App may record
+   `desktop-ipc`, VS Code may record `vscode-ipc`, and a legacy fallback may
+   record `app-server` or `cli-app-server`. The non-consuming inspection leaves
    `resultViewedAt` unset. Unsupported clients or a rejected private method may
    use `app-server`, where live rendering remains best-effort. CLI and unknown
    surfaces retain the lightweight acknowledgment in the direct completion turn
@@ -69,10 +70,10 @@ Run the same acceptance contract in every row. Record the host OS, Codex client/
 
 | Execution host | Client path | Required refresh before test | Acceptance focus |
 |---|---|---|---|
-| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through Desktop IPC; no later duplicate recap |
-| macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through VS Code private IPC; no later duplicate recap |
+| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | Idle-gated queue wake, one completed response, and no later duplicate recap |
+| macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | Idle-gated queue wake, one completed response, no pending Steer chip, and no later duplicate recap |
 | macOS | Codex CLI | Exit/restart CLI; review `/hooks`; fresh ordinary TUI | Codex 0.149+ queue wake, proactive result handling, and no duplicate recap; durable fallback on older builds |
-| Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local private IPC live render when the remote extension host exposes the router; safe app-server fallback otherwise |
+| Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local idle-gated queue wake; private IPC or app-server fallback when queue is unavailable |
 | Linux | Codex CLI | Reinstall on Linux host; exit/restart CLI; review `/hooks`; fresh ordinary TUI | Codex 0.149+ queue wake, proactive result handling, and no duplicate recap; durable fallback on older builds |
 | macOS or Linux | ChatGPT mobile/iOS driving the host | Reinstall on execution host; review `/hooks` and approve if required through Codex CLI or VS Code attached to that host; reconnect/start fresh mobile task | `ownerSurface: remote`, durable delivery, eligible-turn final retention |
 

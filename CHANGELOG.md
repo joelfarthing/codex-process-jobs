@@ -4,6 +4,8 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-23
+
 ### Changed
 
 - App and VS Code completion delivery now waits for the owning task to become idle before it uses `codex queue` in Queue mode. Mac canaries received normal completion turns on both surfaces.
@@ -367,7 +369,8 @@ Initial public beta.
 - The runtime supports macOS and Linux with Node.js 18 or newer. Windows is not currently supported.
 - Completion turns consume ordinary Codex usage. The included benchmark is a measurement harness, not a blanket claim that every workload saves tokens.
 
-[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/joelfarthing/codex-process-jobs/compare/v0.2.9...v0.3.0

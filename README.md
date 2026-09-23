@@ -90,8 +90,7 @@ The July 21, 2026 publication-hardening run used [HOL Guard `plugin-scanner` 2.0
 
 The subsequent v0.2.8 release validation passed the expanded local suite at
 **214/214 tests**. The v0.3.0 release candidate passed **225/225 tests**. The
-v0.4.1 release candidate passes **266/266 tests**, plus a
-controlled zero-setup wake of an ordinary idle macOS Codex TUI.
+v0.4.1 release validation passed **266/266 tests**, plus a controlled zero-setup wake of an ordinary idle macOS Codex TUI. The v0.5.0 release candidate passes **251/251 tests**. Controlled Mac canaries received normal completion turns in Codex App and VS Code after idle-task queue delivery.
 
 The remaining scanner notices are informational schema differences: HOL currently treats six absent optional interface URL/asset fields as invalid, while its own runtime verifier and the Codex validator accept the manifest; Cisco recommends a per-skill license field, while Codex skill authoring permits only `name` and `description` frontmatter. The repository and plugin manifest declare Apache-2.0.
 

@@ -1,6 +1,6 @@
 {
   "name": "codex-process-jobs",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Portable detached process job runtime for Codex",
   "type": "module",
   "license": "Apache-2.0",

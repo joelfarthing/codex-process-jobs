@@ -186,11 +186,11 @@ After every Marketplace update:
    provider, and run a harmless detached smoke test.
 
 In the maintainer-only side-by-side development setup, the local provider is the
-sole active implementation: all six directory skills and all three directory
-hooks are disabled. After every directory update, explicitly re-confirm those
-nine toggles before opening the fresh test task. Do not assume a Marketplace
-update preserved disabled state, even though current clients do not ordinarily
-enable a hook without consent.
+sole active implementation. Disable all six directory skills and every
+installed directory hook. After every directory update, verify each skill and
+hook setting before opening the fresh test task. The number of installed hooks
+depends on the directory version. Do not assume a Marketplace update preserved
+disabled state.
 
 An existing task may continue using a preserved older cache generation. That
 compatibility behavior does not mean the host update failed.

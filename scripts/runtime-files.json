@@ -4,7 +4,6 @@
     ".codexignore",
     "assets/icon.png",
     "hooks/hooks.json",
-    "hooks/pre-tool-use-hook.mjs",
     "hooks/unread-result-hook.mjs",
     "LICENSE",
     "PRIVACY.md",
@@ -41,7 +40,6 @@
     "skills/tail/agents/openai.yaml"
   ],
   "executables": [
-    "hooks/pre-tool-use-hook.mjs",
     "hooks/unread-result-hook.mjs",
     "scripts/job.mjs",
     "scripts/notifier.mjs",

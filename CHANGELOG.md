@@ -2,6 +2,17 @@
 
 Notable changes to Codex Process Jobs are documented here. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) beginning with its first public beta.
 
+## [Unreleased]
+
+### Changed
+
+- App and VS Code completion delivery now waits for the owning task to become idle before it uses `codex queue` in Queue mode. Mac canaries received normal completion turns on both surfaces.
+- The package now registers only the `UserPromptSubmit` hook. The `PreToolUse`, `PostToolUse`, and `Stop` registrations are removed. The start skill retains the launch-turn release instruction.
+
+### Fixed
+
+- A queue-accepted completion now claims hook presentation once. A later ordinary prompt does not repeat that completion.
+
 ## [0.4.1] - 2026-08-23
 
 ### Added

@@ -30,6 +30,7 @@ function createMockCodex(t, root) {
     "#!/usr/bin/env node",
     "const fs = require('node:fs');",
     "const readline = require('node:readline');",
+    "if (process.argv[2] === 'queue') { fs.writeFileSync(process.env.MOCK_QUEUE_MARKER, 'queued'); process.exit(0); }",
     "const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });",
     "const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
     "lines.on('line', (line) => {",
@@ -386,7 +387,7 @@ test("relay refuses to start a completion turn while the owner is active", async
   );
 });
 
-test("Codex queue bypasses a stale active writer and is accepted exactly once", async (t) => {
+test("CLI Codex queue bypasses a stale active writer and is accepted exactly once", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-queue-writer-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const executable = path.join(root, "mock-codex-queue");
@@ -414,7 +415,7 @@ test("Codex queue bypasses a stale active writer and is accepted exactly once", 
   const id = "job-queue-active-writer";
   createJob(terminalJob({
     id,
-    ownerSurface: "app",
+    ownerSurface: "cli",
     logs: resolveJobLogs(id, env),
   }), env);
 
@@ -440,7 +441,7 @@ test("Codex queue bypasses a stale active writer and is accepted exactly once", 
   ]);
 });
 
-test("failed queue and private IPC diagnostics survive an active-writer fallback failure", async (t) => {
+test("failed CLI queue diagnostics survive an active-writer fallback failure", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-queue-diagnostics-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const executable = path.join(root, "mock-codex-active-writer");
@@ -473,7 +474,7 @@ test("failed queue and private IPC diagnostics survive an active-writer fallback
   const id = "job-queue-diagnostics";
   createJob(terminalJob({
     id,
-    ownerSurface: "app",
+    ownerSurface: "cli",
     logs: resolveJobLogs(id, env),
   }), env);
 
@@ -485,11 +486,74 @@ test("failed queue and private IPC diagnostics survive an active-writer fallback
     stored.notification.codexQueueFallbackReason,
     "Codex queue is unavailable (exit 2): error: unrecognized subcommand 'queue'",
   );
-  assert.equal(
-    stored.notification.privateIpcFallbackReason,
-    "Private Codex IPC endpoint is unavailable (ENOENT).",
-  );
+  assert.equal(stored.notification.privateIpcFallbackReason, null);
   assert.match(stored.notification.errorMessage, /already has an active writer/);
+});
+
+for (const ownerSurface of ["app", "vscode"]) {
+  test(`${ownerSurface} completion queues after owner idle`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), `codex-process-jobs-${ownerSurface}-queue-`));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const codex = createMockCodex(t, root);
+    const queueMarker = path.join(root, "queue-started");
+    const result = await deliverNotificationTurn(terminalJob({ ownerSurface }), {
+      ...process.env,
+      CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+      CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE: "0",
+      CODEX_PROCESS_JOBS_DISABLE_PRIVATE_IPC: "1",
+      CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+      CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+      MOCK_QUEUE_MARKER: queueMarker,
+      MOCK_NOTIFY_PROMPT: path.join(root, "prompt.txt"),
+    });
+    assert.equal(result.transport, "codex-queue");
+    assert.equal(result.status, "accepted");
+    assert.equal(fs.readFileSync(queueMarker, "utf8"), "queued");
+  });
+}
+
+test("desktop completion does not queue before owner idle", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-desktop-busy-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codex = createMockCodex(t, root);
+  const queueMarker = path.join(root, "queue-started");
+  const codexHome = path.join(root, "codex-home");
+  const sessionDir = path.join(codexHome, "sessions", "2026", "07", "10");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionDir, "rollout-busy-thread-notify-001.jsonl"),
+    `${JSON.stringify({ type: "event_msg", payload: { type: "task_started", turn_id: "turn-busy" } })}\n`,
+  );
+  await assert.rejects(
+    deliverNotificationTurn(terminalJob({ ownerSurface: "app" }), {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+      CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE: "0",
+      MOCK_QUEUE_MARKER: queueMarker,
+    }),
+    /latest owning-thread lifecycle is task_started/,
+  );
+  assert.equal(fs.existsSync(queueMarker), false);
+});
+
+test("remote completion bypasses Codex queue even when it is available", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-process-jobs-remote-no-queue-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const codex = createMockCodex(t, root);
+  const queueMarker = path.join(root, "queue-started");
+  const result = await deliverNotificationTurn(terminalJob({ ownerSurface: "remote" }), {
+    ...process.env,
+    CODEX_PROCESS_JOBS_CODEX_BIN: codex,
+    CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE: "0",
+    CODEX_PROCESS_JOBS_DISABLE_PRIVATE_IPC: "1",
+    CODEX_PROCESS_JOBS_NOTIFY_TURN_TIMEOUT_MS: "3000",
+    CODEX_PROCESS_JOBS_SKIP_SESSION_IDLE_CHECK: "1",
+    MOCK_QUEUE_MARKER: queueMarker,
+    MOCK_NOTIFY_PROMPT: path.join(root, "prompt.txt"),
+  });
+  assert.equal(result.transport, "app-server");
+  assert.equal(fs.existsSync(queueMarker), false);
 });
 
 test("app-server relay resumes the owner and completes a synthetic turn", async (t) => {

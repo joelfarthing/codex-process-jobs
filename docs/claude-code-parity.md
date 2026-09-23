@@ -4,6 +4,7 @@
 - Baseline: review branch `review/publication-hardening` (post publication-hardening pass)
 - Implemented against: `codex-cli 0.144.5`, 2026-07-20
 - Audience: maintainers reviewing the Claude Code parity rationale and regression contract
+- Current status: historical implementation record. The shipping plugin now registers only `UserPromptSubmit`; the other hook events were removed from the package after the September 2026 Mac canaries.
 
 ## Reference model
 

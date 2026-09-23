@@ -443,6 +443,32 @@ test("result --peek reads bounded evidence without consuming completion fallback
   assert.deepEqual(stored.notification, completed.notification);
 });
 
+test("result suppresses an accepted completion while preserving its transport", (t) => {
+  const context = makeEnv(t);
+  const id = "job-accepted-result";
+  writeTerminalRecord(context, id, {
+    notification: {
+      requested: true,
+      status: "accepted",
+      transport: "codex-queue",
+      acceptedAt: "2026-08-22T05:40:04.000Z",
+    },
+  });
+
+  const result = JSON.parse(runCli(["result", id, "--json"], context.env).stdout);
+  assert.equal(result.job.notification.status, "suppressed");
+  assert.equal(result.job.notification.transport, "codex-queue");
+  assert.ok(result.job.resultViewedAt);
+
+  const stored = JSON.parse(fs.readFileSync(
+    path.join(context.env.CODEX_HOME, "process-jobs", "jobs", `${id}.json`),
+    "utf8"
+  ));
+  assert.equal(stored.notification.status, "suppressed");
+  assert.equal(stored.notification.transport, "codex-queue");
+  assert.equal(stored.resultViewedAt, result.job.resultViewedAt);
+});
+
 test("config command reads and writes durable completion and user-notification preferences", (t) => {
   const context = makeEnv(t);
   const initial = JSON.parse(runCli(["config", "--json"], context.env).stdout);

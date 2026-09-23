@@ -1,8 +1,8 @@
 # Codex surface smoke test
 
-Run `npm run smoke` first to verify the process runtime in isolated temporary state. After every install or update, restart the Codex client before testing. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After restart, open `/hooks` and inspect the installed `codex-process-jobs` `PreToolUse`, `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source. Approve any definition Codex marks new or changed; if trust persists, verify that status. A new task inside a client that was already running during installation can retain stale plugin or hook state.
+Run `npm run smoke` first to verify the process runtime in isolated temporary state. After every install or update, restart the Codex client before testing. In VS Code, run **Developer: Reload Window**. Quit and restart Codex App or Codex CLI. After restart, open `/hooks` and inspect the installed `codex-process-jobs` `UserPromptSubmit` definition and its referenced source. Approve it if Codex marks it new or changed; if trust persists, verify that status. A new task inside a client that was already running during installation can retain stale plugin or hook state.
 
-Before the explicit skill smoke test below, start a fresh task and request an ordinary finite local workload with uncertain duration without mentioning CPJ. Use an unfamiliar synthetic executable or a harmless download so the test does not depend on recognizing a build tool. The approved `PreToolUse` hook should pause the first foreground attempt. It should route qualifying work through the start skill and release the turn. A clearly quick command should pass directly. An excluded or user-requested foreground command should proceed after Codex uses the visible one-shot `# cpj:foreground` escape.
+Before the explicit skill smoke test below, start a fresh task and request a finite local workload with uncertain duration without naming CPJ. Verify that skill discovery routes the workload through CPJ and releases the launch turn. A quick command or a user-requested foreground command should run normally. This test measures model routing; no hook intercepts the command.
 
 Run a separate parent-ownership test with this prompt: `Use an isolated subagent to run /tmp/cpj-pretool-long-proof.mjs exactly once without opening or reading it first. Tell me its final summary when it finishes.` The script must be a harmless finite workload that runs for more than 60 seconds. The visible parent must not spawn a subagent for process execution. It must launch the script once through CPJ, report the job ID, and end the turn. The completion turn must later inspect and summarize the result. A spawned child, a `wait_agent` call, or a foreground execution is a failure.
 
@@ -29,10 +29,11 @@ Pass criteria:
 	   wake the idle TUI and render the notice and proactive response exactly
 	   once without another prompt. Older versions may use the durable next-turn
 	   fallback; the shared-App-Server path is legacy compatibility coverage only.
-   App should record `notification.transport: desktop-ipc`, VS Code should
-   record `notification.transport: vscode-ipc`, and CLI should record
-   `notification.transport: codex-queue` on Codex 0.149.0+, or
-   `notification.transport: app-server`/`cli-app-server` on a legacy fallback. The non-consuming inspection leaves
+   App, VS Code, and CLI should record `notification.transport: codex-queue`
+   when queue is available. App and VS Code must wait for the owning task to
+   become idle before queueing. If queue is unavailable, App may record
+   `desktop-ipc`, VS Code may record `vscode-ipc`, and a legacy fallback may
+   record `app-server` or `cli-app-server`. The non-consuming inspection leaves
    `resultViewedAt` unset. Unsupported clients or a rejected private method may
    use `app-server`, where live rendering remains best-effort. CLI and unknown
    surfaces retain the lightweight acknowledgment in the direct completion turn
@@ -43,7 +44,7 @@ Pass criteria:
    `0`, and `notification.presentation: durable-refresh-required`. After direct
    completion, it also reports `notification.transport: desktop-ipc`,
    `vscode-ipc`, `codex-queue`, `cli-app-server`, or `app-server`.
-7. In a separate run, keep the assigning turn active with harmless independent local tool work until the detached job finishes. The approved `PostToolUse` hook should surface it after a supported tool boundary; if completion occurs at finalization instead, the approved `Stop` hook should continue once to include the recap. Neither path may create a duplicate direct turn or expose process output in hook context.
+7. In a separate run, keep the assigning turn active with harmless independent local tool work until the detached job finishes. The notifier should wait for the owning task to become idle before queueing completion. The completion should appear once as a normal turn. The visible notice must not contain process output.
 8. A later `$codex-process-jobs:result <job-id>` reports exit code zero and all three expected lines.
 
 For every client, verify the owning task with a fresh transcript load as well as
@@ -69,10 +70,10 @@ Run the same acceptance contract in every row. Record the host OS, Codex client/
 
 | Execution host | Client path | Required refresh before test | Acceptance focus |
 |---|---|---|---|
-| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through Desktop IPC; no later duplicate recap |
-| macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | One-sentence notice and proactive response render live exactly once through VS Code private IPC; no later duplicate recap |
+| macOS | Codex App | Quit/relaunch App; review `/hooks`; fresh task | Idle-gated queue wake, one completed response, and no later duplicate recap |
+| macOS | VS Code extension | **Developer: Reload Window**; review `/hooks`; fresh task | Idle-gated queue wake, one completed response, no pending Steer chip, and no later duplicate recap |
 | macOS | Codex CLI | Exit/restart CLI; review `/hooks`; fresh ordinary TUI | Codex 0.149+ queue wake, proactive result handling, and no duplicate recap; durable fallback on older builds |
-| Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local private IPC live render when the remote extension host exposes the router; safe app-server fallback otherwise |
+| Linux | VS Code extension | Reinstall on Linux host; reload window; review `/hooks`; fresh task | Host-local idle-gated queue wake; private IPC or app-server fallback when queue is unavailable |
 | Linux | Codex CLI | Reinstall on Linux host; exit/restart CLI; review `/hooks`; fresh ordinary TUI | Codex 0.149+ queue wake, proactive result handling, and no duplicate recap; durable fallback on older builds |
 | macOS or Linux | ChatGPT mobile/iOS driving the host | Reinstall on execution host; review `/hooks` and approve if required through Codex CLI or VS Code attached to that host; reconnect/start fresh mobile task | `ownerSurface: remote`, durable delivery, eligible-turn final retention |
 

@@ -229,9 +229,9 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(preview.stdout, /No changes made/);
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
   assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
-  assert.match(preview.stdout, /PreToolUse, PostToolUse, Stop, and UserPromptSubmit/);
-  assert.match(preview.stdout, /review definitions and referenced source in \/hooks after every install or update/i);
-  assert.match(preview.stdout, /approve any definition Codex marks new or changed/i);
+  assert.match(preview.stdout, /one UserPromptSubmit definition/);
+  assert.match(preview.stdout, /review it and its referenced source in \/hooks after every install or update/i);
+  assert.match(preview.stdout, /approve it if Codex marks it new or changed/i);
   assert.equal(fs.existsSync(marketplaceFile), false);
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
@@ -254,10 +254,10 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(agentPolicy, /current request and validated CPJ state/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140, "managed policy should stay compact");
   assert.match(applied.stdout, /installer never writes hook trust/i);
-  assert.match(applied.stdout, /PreToolUse, PostToolUse, Stop, and UserPromptSubmit/);
-  assert.match(applied.stdout, /If Codex marks a definition new or changed, approve its exact hash/i);
+  assert.match(applied.stdout, /one UserPromptSubmit definition/);
+  assert.match(applied.stdout, /If Codex marks it new or changed, approve its exact hash/i);
   assert.match(applied.stdout, /if trust persists, verify that status/i);
-  assert.match(applied.stdout, /review them in \/hooks after every install or update/i);
+  assert.match(applied.stdout, /review it in \/hooks after every install or update/i);
   assert.match(applied.stdout, /Restart every open Codex client/);
   assert.match(applied.stdout, /Developer: Reload Window/);
   assert.match(applied.stdout, /After the restart, start a fresh Codex task/);

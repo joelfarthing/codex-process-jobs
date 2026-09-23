@@ -50,12 +50,10 @@ Use CPJ when the user asks to detach/background work, or when a finite local
 workload may exceed about 60 seconds, has uncertain duration, should survive a
 client exit, or merits later lightweight status checks.
 
-On a consented CPJ `PreToolUse` pause, classify the underlying workload from
-context, not its executable name. A qualifying script, download, inference
-runner, or wrapper uses its original foreground payload through CPJ without the
-escape. Retry with `# cpj:foreground` only when the command is clearly quick,
-excluded, persistent, already detached, or explicitly requested in the
-foreground. Never escape because it is unfamiliar or to avoid turn release.
+Classify the underlying workload from context, not its executable name. A
+qualifying script, download, inference runner, or wrapper uses its original
+foreground payload through CPJ. Honor an explicit user request to keep work in
+the foreground.
 
 Exclude quick commands, interactive stdin, servers/watchers, intentional
 daemons, remote/external services, and fire-and-exit launchers. The tracked

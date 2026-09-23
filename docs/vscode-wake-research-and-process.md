@@ -42,6 +42,8 @@ assigning client rendered it.
 
 ## 2026-07-20 supported hook-boundary upgrade
 
+This section records the July implementation. The shipping plugin now registers only `UserPromptSubmit`. The September 2026 Mac canaries verified idle-task queue delivery in App and VS Code without the other hook events.
+
 The official Codex hook system in `codex-cli 0.144.5` exposes turn-scoped `PostToolUse` and `Stop` events in addition to `UserPromptSubmit`. CPJ now registers the same sanitized, compare-and-set hook for all three. `PostToolUse` approximates Claude Code's mid-turn task notification after supported local tool calls, and `Stop` can continue a stopping turn once so the completion reaches the final response. These events do not repair the VS Code renderer's separate-transport refresh gap, but they often let the assigning agent see completion before another user message. They remain explicit-consent hooks and are not an arbitrary-time interrupt during pure reasoning or hosted-tool work.
 
 ## 2026-07-14 launch-turn hostage incident

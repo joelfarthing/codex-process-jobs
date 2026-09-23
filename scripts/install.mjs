@@ -696,7 +696,7 @@ function planLines(plan, options) {
         : currentProviders.join(", ") || "none"
     }`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
-    "  lifecycle hooks: enable hooks and install PreToolUse, PostToolUse, Stop, and UserPromptSubmit definitions; review definitions and referenced source in /hooks after every install or update, and approve any definition Codex marks new or changed",
+    "  lifecycle hooks: enable hooks and install one UserPromptSubmit definition; review it and its referenced source in /hooks after every install or update, and approve it if Codex marks it new or changed",
     "  open-task compatibility: preserve validated prior CPJ cache generations across plugin refresh",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
@@ -1010,7 +1010,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     `Installed ${result.selector} (${result.version}).`,
     "Restart every open Codex client before testing this install.",
     "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
-    `After restart, open /hooks and review the ${result.selector} PreToolUse, PostToolUse, Stop, and UserPromptSubmit definitions and referenced shared source. If Codex marks a definition new or changed, approve its exact hash; if trust persists, verify that status. The installer never writes hook trust.`,
+    `After restart, open /hooks and review the one UserPromptSubmit definition for ${result.selector} and its referenced source. If Codex marks it new or changed, approve its exact hash; if trust persists, verify that status. The installer never writes hook trust.`,
     "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
@@ -1023,7 +1023,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       ? `Cache generations restored after refresh: ${result.restoredCacheVersions.join(", ")}`
       : null,
     result.agentPolicyMode === "none" ? "AGENTS.md policy: none selected; no AGENTS.md was changed." : null,
-    "Completion hooks: installed; review them in /hooks after every install or update and approve any definition Codex marks new or changed.",
+    "Completion hook: installed; review it in /hooks after every install or update and approve it if Codex marks it new or changed.",
   ].filter(Boolean).join("\n") + "\n");
 }
 

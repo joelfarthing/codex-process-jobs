@@ -47,9 +47,8 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     );
     assert.ok(first.entries.includes("codex-process-jobs/PRIVACY.md"));
     assert.ok(first.entries.includes("codex-process-jobs/assets/icon.png"));
-    assert.ok(
-      first.entries.includes("codex-process-jobs/hooks/pre-tool-use-hook.mjs"),
-    );
+    assert.ok(!first.entries.includes("codex-process-jobs/hooks/pre-tool-use-hook.mjs"));
+    assert.ok(first.entries.includes("codex-process-jobs/hooks/unread-result-hook.mjs"));
     assert.ok(first.entries.includes("codex-process-jobs/scripts/job.mjs"));
     assert.ok(
       first.entries.includes("codex-process-jobs/scripts/codex-queue.mjs"),
@@ -208,25 +207,10 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     );
     assert.equal(hook.status, 0, hook.stderr || hook.stdout);
 
-    const preToolUseHook = spawnSync(
-      process.execPath,
-      [path.join(packagedRoot, "hooks", "pre-tool-use-hook.mjs")],
-      {
-        encoding: "utf8",
-        env: isolatedEnv,
-        input: JSON.stringify({
-          hook_event_name: "PreToolUse",
-          tool_name: "Bash",
-          cwd: packagedRoot,
-          tool_input: { command: "custom-inference --model model.gguf" },
-        }),
-      },
+    const hookRegistry = JSON.parse(
+      fs.readFileSync(path.join(packagedRoot, "hooks", "hooks.json"), "utf8"),
     );
-    assert.equal(preToolUseHook.status, 0, preToolUseHook.stderr || preToolUseHook.stdout);
-    assert.equal(
-      JSON.parse(preToolUseHook.stdout).hookSpecificOutput.permissionDecision,
-      "deny",
-    );
+    assert.deepEqual(Object.keys(hookRegistry.hooks), ["UserPromptSubmit"]);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

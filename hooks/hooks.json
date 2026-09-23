@@ -1,44 +1,8 @@
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "^Bash$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$PLUGIN_ROOT/hooks/pre-tool-use-hook.mjs\"",
-            "timeout": 5,
-            "statusMessage": "Classifying local process lifecycle"
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$PLUGIN_ROOT/hooks/unread-result-hook.mjs\"",
-            "statusMessage": "Checking process job boundaries"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$PLUGIN_ROOT/hooks/unread-result-hook.mjs\"",
-            "statusMessage": "Checking process job boundaries"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
         "hooks": [
           {
             "type": "command",

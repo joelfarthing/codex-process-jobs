@@ -1,6 +1,6 @@
 # Agent adoption policy
 
-Codex can select the plugin automatically from the installed skill descriptions, and users can always invoke `$codex-process-jobs:start` explicitly. The approved `PreToolUse` hook challenges non-obviously-short local commands before foreground execution, and `PostToolUse` reinforces the absolute release boundary after a successful start. The plugin therefore remains useful without any `AGENTS.md` policy.
+Codex can select the plugin from the installed skill descriptions, and users can always invoke `$codex-process-jobs:start` explicitly. The start skill defines the release boundary after a successful launch. The plugin therefore remains useful without any `AGENTS.md` policy.
 
 The optional managed policy adds a compact high-priority routing default. Detailed critical-job, Goal, progress, cancellation, completion, and untrusted-output rules stay in the selected skills and load only when relevant. This keeps always-loaded context small without weakening the operational contract.
 
@@ -12,7 +12,7 @@ Policy scope is a separate opt-in decision. After showing the read-only preview,
 
 Permission to install the plugin never implies one of these choices.
 
-Hook consent is also separate and always manual. The installer never writes hook trust. After every install or update and client restart, the user must review the installed `PreToolUse`, `PostToolUse`, `Stop`, and `UserPromptSubmit` definitions and referenced shared source through `/hooks`. Any definition Codex marks new or changed requires approval; if trust persists, the user still verifies that status. Foreground classification and hook-boundary fallback can run only for definitions Codex currently trusts.
+Hook consent is also separate and always manual. The installer never writes hook trust. After every install or update and client restart, the user must review the installed `UserPromptSubmit` definition and its referenced source through `/hooks`. If Codex marks it new or changed, approve it; if trust persists, verify that status. The later-prompt completion fallback requires a trusted hook.
 
 Preview any choice without changing anything:
 

@@ -72,9 +72,8 @@ All owning surfaces now receive `notification.presentation: durable-refresh-requ
 For every owning surface, successful direct delivery remains `delivered`.
 App and VS Code may record `desktop-ipc` or `vscode-ipc` after a matching
 owner-routed private turn completes; other paths record `app-server`.
-Consent-gated `PostToolUse` and `Stop` hooks may surface a terminal completion
-at supported active-turn boundaries, while `UserPromptSubmit` supplies the
-later ordinary-turn fallback. The first boundary that wins the per-job claim
+The consent-gated `UserPromptSubmit` hook supplies the later ordinary-turn
+fallback. The first eligible prompt that wins the per-job claim
 receives one sanitized mandatory recap instruction unless
 `ordinaryPromptRecapInjectedAt` or a legacy marker is already present. Codex
 gives the recap even if a synthetic assistant completion appears in model

@@ -73,7 +73,7 @@ Inside the release worktree, confirm that `HEAD` is the expected `origin/main` c
 - Confirm the release branch contains only intended changes and is based on the current default branch.
 - Run `npm run check` locally.
 - Run `npm run smoke` from the source tree and from the installed runtime on both macOS and Linux when runtime behavior changed.
-- Run the official plugin validator against the repository root.
+- Validate each `SKILL.md` with the installed OpenAI skill-creator `scripts/quick_validate.py`. If current official documentation provides a separate plugin validator, run that documented tool as well. Record the tool versions and results.
 - Confirm GitHub Actions passes on macOS and Ubuntu with every supported Node.js version.
 - Review any benchmark aggregates before publishing them; never commit raw rollout JSONL or private task context.
 
@@ -146,12 +146,11 @@ Follow [OpenAI Plugins Directory packaging](openai-directory-packaging.md):
 1. Build the deterministic allowlisted ZIP from the exact clean release commit.
 2. Record its source commit, version, SHA-256, byte size, and complete member
    list.
-3. Run the official plugin validator, repository suite, portable smoke test,
-   extracted-runtime test, and HOL scanner.
+3. Run the official skill validation described above, deterministic package validation, repository suite, portable smoke test, extracted-runtime test, and HOL scanner. Run a separate plugin validator if current official documentation provides one.
 4. Obtain explicit approval immediately before uploading the ZIP.
 5. Upload the archive and re-enter portal-only metadata that the version form
    does not retain.
-6. Inspect every scan result and the complete submission preview.
+6. Inspect the portal metadata and skill checks, every scan result, and the complete submission preview. Resolve blocking findings before submitting for review.
 7. Obtain explicit approval immediately before submitting the version.
 8. After approval, obtain explicit approval immediately before publishing it.
 9. Confirm the public directory page presents the intended version and

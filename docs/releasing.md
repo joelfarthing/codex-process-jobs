@@ -12,6 +12,10 @@ not introduce npm registry publication unless the maintainer explicitly reverses
 
 This public runbook documents maintainer verification and sequencing; it grants no repository or tap write authority and contains no authentication material. Outside users should follow the README's installation and update paths, while contributors should use ordinary forks and pull requests.
 
+## Hook-free release 0.5.1
+
+The runtime allowlist, marketplace ZIP, and npm provenance archive exclude hooks. The source tree retains legacy hook code for compatibility tests only. The local installer does not enable hooks. For this release, replace the hook-review steps below with verification that the installed runtime has no hooks and that unrelated hook settings remain unchanged. A live local completion canary must verify direct delivery and result handling without hook assistance. Missing-delivery recovery requires an explicit user request.
+
 ## Canonical release runway
 
 Treat these as separate, ordered states. Do not describe a merge as a release

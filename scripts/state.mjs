@@ -46,7 +46,7 @@ const NOTIFICATION_TRANSPORTS = new Set([
   "desktop-ipc",
   "vscode-ipc",
 ]);
-const OWNER_SURFACES = new Set(["app", "cli", "vscode", "remote", "unknown"]);
+const OWNER_SURFACES = new Set(["app", "cli", "vscode", "remote", "work", "unknown"]);
 
 const LOCK_TIMEOUT_MS = 5_000;
 const STALE_LOCK_MS = 30_000;

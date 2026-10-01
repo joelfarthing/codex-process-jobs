@@ -1,4 +1,24 @@
+# Hook-free completion delivery in 0.5.1
+
+The marketplace and local-installer runtime contain no hooks. The worker and relay perform direct delivery independently. Every notice carries fixed result-handling instructions. Inspect-mode notices request bounded results with --peek. Report-mode notices request only a completion recap. Neither notice type grants new authority.
+
+A failed delivery has no later-prompt hook recovery. Users must request status or result in a later turn. Skill instructions retain launch-turn and delegation rules without hook enforcement. Cloud Work without a local rollout remains unavailable.
+
+The prior transport design below documents legacy hook behavior. Its hook pickup, hook trust, and hidden instruction paths do not apply to 0.5.1. The queue, idle detection, process state, and local transport descriptions still describe the underlying relay unless superseded above.
+
 # Conversational completion relay
+
+## Work local executor limitation
+
+The `codex_work_desktop` originator identifies the Work executor. CPJ records this surface as `work`. If that owner has no local rollout at launch, CPJ records notification status `unavailable` and presentation `status-only`. The process still runs. Status and result remain available. The worker does not start a notification relay, retry delivery, or watch for idle.
+
+A Work owner with a local rollout remains eligible for delivery. After the owner becomes idle, CPJ tries the queue in Queue mode. A clean queue failure falls through to the existing compatibility routes. An accepted or acceptance-uncertain queue request does not fall through. This route has isolated test coverage. A live Local Work canary is still required.
+
+The launch check is limited to the Work surface. It does not disable notifications for other surfaces whose rollout is missing temporarily. Codex normally persists initial user input before model-driven commands, but persistence errors are nonfatal. A local rollout can therefore become available after a job launches. Do not broaden this check to every non-CLI owner based only on file absence.
+
+[Work Cloud with local access does not support hooks from local plugins](https://learn.chatgpt.com/docs/enterprise/cloud-local-access#check-hooks-and-network-compatibility). CPJ's local prompt-submit hook is therefore not a supported fallback for cloud-orchestrated Work tasks. This limitation does not apply to local-only Work or Codex threads that support local hooks.
+
+## Existing delivery routes
 
 Codex Process Jobs can wake the persistent Codex task that launched a detached command without turning the command into a subagent.
 

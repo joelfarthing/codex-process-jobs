@@ -696,7 +696,7 @@ function planLines(plan, options) {
         : currentProviders.join(", ") || "none"
     }`,
     `  Codex CLI: ${plan.codex.available ? plan.codex.version : "not found"}`,
-    "  lifecycle hooks: enable hooks and install one UserPromptSubmit definition; review it and its referenced source in /hooks after every install or update, and approve it if Codex marks it new or changed",
+    "  lifecycle hooks: none; completion delivery uses the detached relay",
     "  open-task compatibility: preserve validated prior CPJ cache generations across plugin refresh",
     plan.sourceDestinationConflict
       ? "  source safety: BLOCKED - source checkout is the runtime destination"
@@ -873,18 +873,6 @@ function runCodexPluginAdd(pluginName, marketplaceName, env) {
   return { selector, output: result.stdout.trim() };
 }
 
-function ensureHooksEnabled(env) {
-  const result = spawnSync("codex", ["features", "enable", "hooks"], {
-    env,
-    encoding: "utf8",
-    shell: false,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    fail(`Unable to enable Codex hooks (${result.status}): ${result.stderr.trim() || result.stdout.trim()}`);
-  }
-}
-
 export async function applyInstall(plan, options, env = process.env) {
   if (plan.sourceDestinationConflict) {
     fail(
@@ -951,7 +939,6 @@ export async function applyInstall(plan, options, env = process.env) {
 
     configMayHaveChanged = true;
     if (configBackup) fs.copyFileSync(configFile, configBackup);
-    ensureHooksEnabled(env);
     pluginAddAttempted = true;
     const installed = runCodexPluginAdd(plan.pluginName, marketplace.name, env);
     const restoredCacheVersions = restorePluginCache(cacheSnapshot);
@@ -1010,8 +997,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     `Installed ${result.selector} (${result.version}).`,
     "Restart every open Codex client before testing this install.",
     "VS Code: run Developer: Reload Window. Codex App and CLI: quit and restart the client.",
-    `After restart, open /hooks and review the one UserPromptSubmit definition for ${result.selector} and its referenced source. If Codex marks it new or changed, approve its exact hash; if trust persists, verify that status. The installer never writes hook trust.`,
-    "After the restart, start a fresh Codex task before testing skill discovery or completion hooks.",
+    "No completion hook is installed. Missed deliveries require a later status or result request.",
+    "After the restart, start a fresh Codex task before testing skill discovery or completion delivery.",
     result.destinationBackup ? `Previous plugin backup: ${result.destinationBackup}` : null,
     result.marketplaceBackup ? `Marketplace backup: ${result.marketplaceBackup}` : null,
     result.agentBackup ? `AGENTS.md backup: ${result.agentBackup}` : null,
@@ -1023,7 +1010,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       ? `Cache generations restored after refresh: ${result.restoredCacheVersions.join(", ")}`
       : null,
     result.agentPolicyMode === "none" ? "AGENTS.md policy: none selected; no AGENTS.md was changed." : null,
-    "Completion hook: installed; review it in /hooks after every install or update and approve it if Codex marks it new or changed.",
+    "Completion hook: not installed; no hook feature or trust changes.",
   ].filter(Boolean).join("\n") + "\n");
 }
 

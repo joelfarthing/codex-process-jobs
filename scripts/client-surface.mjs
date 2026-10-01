@@ -2,7 +2,7 @@ import { readSessionMeta, resolveOwnerRolloutFile } from "./session.mjs";
 
 const SURFACE_OVERRIDE = "CODEX_PROCESS_JOBS_CLIENT_SURFACE";
 const ORIGINATOR_OVERRIDE = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
-const KNOWN_SURFACES = new Set(["app", "cli", "vscode", "remote", "unknown"]);
+const KNOWN_SURFACES = new Set(["app", "cli", "vscode", "remote", "work", "unknown"]);
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -39,6 +39,9 @@ export function detectClientSurface(env = process.env, { threadId = env.CODEX_TH
   }
 
   const originator = normalize(env[ORIGINATOR_OVERRIDE]);
+  if (originator === "codex_work_desktop") {
+    return { surface: "work", detectedBy: "codex-originator" };
+  }
   if (originator === "codex_vscode") {
     return { surface: "vscode", detectedBy: "codex-originator" };
   }

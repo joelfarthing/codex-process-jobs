@@ -48,7 +48,7 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     assert.ok(first.entries.includes("codex-process-jobs/PRIVACY.md"));
     assert.ok(first.entries.includes("codex-process-jobs/assets/icon.png"));
     assert.ok(!first.entries.includes("codex-process-jobs/hooks/pre-tool-use-hook.mjs"));
-    assert.ok(first.entries.includes("codex-process-jobs/hooks/unread-result-hook.mjs"));
+    assert.ok(first.entries.every((entry) => !entry.startsWith("codex-process-jobs/hooks/")));
     assert.ok(first.entries.includes("codex-process-jobs/scripts/job.mjs"));
     assert.ok(
       first.entries.includes("codex-process-jobs/scripts/codex-queue.mjs"),
@@ -200,17 +200,8 @@ test("OpenAI directory package is deterministic and strictly allowlisted", () =>
     assert.equal(savedResult.stdout, "extracted package runtime ok\n");
     assert.equal(savedResult.stderr, "");
 
-    const hook = spawnSync(
-      process.execPath,
-      [path.join(packagedRoot, "hooks", "unread-result-hook.mjs")],
-      { encoding: "utf8", env: isolatedEnv, input: "{}" },
-    );
-    assert.equal(hook.status, 0, hook.stderr || hook.stdout);
+    assert.equal(fs.existsSync(path.join(packagedRoot, "hooks")), false);
 
-    const hookRegistry = JSON.parse(
-      fs.readFileSync(path.join(packagedRoot, "hooks", "hooks.json"), "utf8"),
-    );
-    assert.deepEqual(Object.keys(hookRegistry.hooks), ["UserPromptSubmit"]);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

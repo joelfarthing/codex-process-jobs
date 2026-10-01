@@ -50,10 +50,9 @@ credentials, and machine-specific data. Symlinks and special files fail closed.
 
 ## Release use
 
-Build the upload ZIP only from the exact clean commit used for the matching
-GitHub Release. Run the official plugin validator, the repository test suite,
-the portable smoke test, and the HOL scanner before submission. Record the
-source commit and ZIP SHA-256.
+Build the upload ZIP only from the exact clean commit used for the matching GitHub Release. Validate each `SKILL.md` with the installed OpenAI skill-creator `scripts/quick_validate.py`. Run deterministic package validation, the repository test suite, portable smoke tests, extracted-runtime smoke tests, and the HOL scanner. If current official documentation provides a separate plugin validator, run that documented tool as well. Record the tools, versions, results, source commit, and ZIP SHA-256.
+
+After uploading the verified ZIP as a draft, inspect the portal metadata and skill checks. Resolve blocking findings before submitting for review.
 
 Uploading a ZIP, submitting it for review, and publishing an approved version
 are separate public actions. Follow `docs/releasing.md` and obtain the

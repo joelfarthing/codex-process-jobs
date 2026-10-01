@@ -3,8 +3,6 @@
     ".codex-plugin/plugin.json",
     ".codexignore",
     "assets/icon.png",
-    "hooks/hooks.json",
-    "hooks/unread-result-hook.mjs",
     "LICENSE",
     "PRIVACY.md",
     "README.md",
@@ -40,7 +38,6 @@
     "skills/tail/agents/openai.yaml"
   ],
   "executables": [
-    "hooks/unread-result-hook.mjs",
     "scripts/job.mjs",
     "scripts/notifier.mjs",
     "scripts/worker.mjs"

@@ -10,7 +10,7 @@ import { DEFAULT_READ_BYTES, MAX_MODEL_LOG_BYTES, readLog, readLogSince } from "
 import { detectClientSurface, notificationPresentation } from "./client-surface.mjs";
 import { assertExecutionAvailable, renderExecution } from "./execution.mjs";
 import { COMPLETION_MODES, readPreferences, resolvePreferencesFile, writePreferences } from "./preferences.mjs";
-import { resolveNotificationOwnerThreadId, sanitizeThreadId } from "./session.mjs";
+import { resolveNotificationOwnerThreadId, resolveOwnerRolloutFile, sanitizeThreadId } from "./session.mjs";
 import {
   renderCommand,
   terminateTrackedProcess,
@@ -367,16 +367,30 @@ async function launchJob(parsed, env = process.env, { rerunOf = null } = {}) {
     }
   }
   const notificationRequested = parsed.notify && env.CODEX_PROCESS_JOBS_DISABLE_NOTIFY !== "1";
+  let notificationUnavailableReason = ownerThreadId
+    ? null
+    : "No owning persistent Codex thread id was captured.";
+  // The Work executor is positively identified. Missing rollouts on other
+  // surfaces can be transient, so preserve their existing delivery behavior.
+  if (notificationRequested && ownerThreadId && ownerClient.surface === "work") {
+    try {
+      if (!resolveOwnerRolloutFile(ownerThreadId, env)) {
+        notificationUnavailableReason = "Work owner has no local Codex rollout; automatic completion delivery is unavailable. The job result remains available through status/result.";
+      }
+    } catch {
+      // A lookup error does not prove that this owner lacks a local rollout.
+    }
+  }
   const notificationBase = !notificationRequested
     ? { requested: false, status: "disabled", mode: "app-server-turn" }
-    : ownerThreadId
+    : !notificationUnavailableReason
       ? { requested: true, status: "pending", mode: "app-server-turn", attempts: 0 }
       : {
           requested: true,
           status: "unavailable",
           mode: "app-server-turn",
           attempts: 0,
-          errorMessage: "No owning persistent Codex thread id was captured.",
+          errorMessage: notificationUnavailableReason,
         };
   const notification = {
     ...notificationBase,
@@ -457,7 +471,7 @@ async function launchJob(parsed, env = process.env, { rerunOf = null } = {}) {
     `stderr: ${job.logs.stderr}`,
     "The process is detached and receives no interactive stdin.",
     parsed.goalMode
-      ? "Goal mode is active. Release this launch turn and use later Goal continuations only for independent in-scope work while the process runs. An automatic Goal continuation is not permission to monitor: if the Goal is result-gated, do not call status, wait, sleep, or probe the job; apply the host Goal blocked audit instead. When a hook surfaces terminal state, inspect its bounded saved result and continue the already-authorized Goal."
+      ? "Goal mode is active. Release this launch turn and use later Goal continuations only for independent in-scope work while the process runs. An automatic Goal continuation is not permission to monitor: if the Goal is result-gated, do not call status, wait, sleep, or probe the job; apply the host Goal blocked audit instead. When a completion notice supplies terminal state, inspect its bounded saved result and continue the already-authorized Goal."
       : "Do not monitor this job from its launch turn. After reporting the launch, end the Codex turn (or finish only already-requested independent work); status/result belong to completion delivery or a later user-initiated turn. A request for the final result when it finishes does not permit same-turn waiting.",
     parsed.goalMode && job.notification.status === "pending"
       ? "Completion is recorded durably. Automatic Goal continuation should pick up the terminal result; direct completion delivery remains an idle-thread fallback, and status is available on request."

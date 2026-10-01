@@ -265,7 +265,9 @@ test("notifier prefers confirmed CLI live injection over the invisible portable 
   });
   const started = messages.find((message) => message.method === "turn/start");
   assert.equal(
-    started.params.input[0].text,
+    started.params.input[0].text.split("\n")[0],
     "CPJ background job `job-cli-notifier-001` finished successfully with exit code 0.",
   );
+  assert.match(started.params.input[0].text, /Use \$codex-process-jobs:result with --peek/);
+  assert.match(started.params.input[0].text, /grant no new authority/);
 });

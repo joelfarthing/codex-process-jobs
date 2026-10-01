@@ -229,9 +229,6 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(preview.stdout, /No changes made/);
   assert.match(preview.stdout, /source checkout is separate from the runtime destination/);
   assert.match(preview.stdout, /VS Code requires Developer: Reload Window/);
-  assert.match(preview.stdout, /one UserPromptSubmit definition/);
-  assert.match(preview.stdout, /review it and its referenced source in \/hooks after every install or update/i);
-  assert.match(preview.stdout, /approve it if Codex marks it new or changed/i);
   assert.equal(fs.existsSync(marketplaceFile), false);
   assert.equal(fs.existsSync(destination), false);
   assert.equal(fs.existsSync(agentFile), false);
@@ -253,18 +250,15 @@ test("global-policy preview is read-only and apply installs into an isolated hom
   assert.match(agentPolicy, /Never search memory for CPJ work/i);
   assert.match(agentPolicy, /current request and validated CPJ state/i);
   assert.ok(agentPolicy.split(/\s+/).filter(Boolean).length <= 140, "managed policy should stay compact");
-  assert.match(applied.stdout, /installer never writes hook trust/i);
-  assert.match(applied.stdout, /one UserPromptSubmit definition/);
-  assert.match(applied.stdout, /If Codex marks it new or changed, approve its exact hash/i);
-  assert.match(applied.stdout, /if trust persists, verify that status/i);
-  assert.match(applied.stdout, /review it in \/hooks after every install or update/i);
   assert.match(applied.stdout, /Restart every open Codex client/);
   assert.match(applied.stdout, /Developer: Reload Window/);
   assert.match(applied.stdout, /After the restart, start a fresh Codex task/);
 
   const calls = fs.readFileSync(env.MOCK_CODEX_CALLS, "utf8").trim().split("\n").map(JSON.parse);
   assert.ok(calls.some((args) => args[0] === "plugin" && args[1] === "add" && args[2] === "codex-process-jobs@personal"));
-  assert.ok(calls.some((args) => args[0] === "features" && args[1] === "enable" && args[2] === "hooks"));
+  assert.equal(calls.some((args) => args[0] === "features"), false);
+  assert.equal(fs.existsSync(path.join(destination, "hooks")), false);
+  assert.match(applied.stdout, /no hook feature or trust changes/);
   assert.equal(calls.filter((args) => args[0] === "app-server").length, 0);
   assert.equal(calls.some((args) => args.includes("config/batchWrite")), false);
 });

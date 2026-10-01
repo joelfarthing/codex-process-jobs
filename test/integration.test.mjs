@@ -6,6 +6,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { readJob } from "../scripts/state.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "scripts", "job.mjs");
 
@@ -29,6 +31,7 @@ function makeEnv(t, overrides = {}) {
   const env = {
     CODEX_HOME: codexHome,
     CODEX_THREAD_ID: "test-thread-id",
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "",
     CODEX_PROCESS_JOBS_MAX_LOG_BYTES: "4096",
     CODEX_PROCESS_JOBS_DISABLE_NOTIFY: "1",
     ...overrides,
@@ -188,7 +191,7 @@ test("Goal-mode start persists the marker and emits Goal-specific release guidan
   assert.match(started.stdout, /automatic Goal continuation is not permission to monitor/i);
   assert.match(started.stdout, /do not call status, wait, sleep, or probe the job/i);
   assert.match(started.stdout, /apply the host Goal blocked audit/i);
-  assert.match(started.stdout, /When a hook surfaces terminal state, inspect its bounded saved result and continue the already-authorized Goal/i);
+  assert.match(started.stdout, /When a completion notice supplies terminal state, inspect its bounded saved result and continue the already-authorized Goal/i);
   const id = /Started (job-[a-z0-9-]+)/.exec(started.stdout)?.[1];
   assert.ok(id);
   context.startedIds.push(id);
@@ -561,6 +564,100 @@ test("CLI-owned jobs default to one desktop completion notice unless overridden"
   assert.equal(appJob.notifyUser, false);
   assert.equal(waitJson(appJob.id, appContext.env).job.status, "completed");
 });
+
+test("Work executor launch preserves owner identity and readable terminal output", (t) => {
+  const context = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "codex_work_desktop",
+  });
+  const job = startJson([
+    "--", process.execPath, "-e", "console.log('WORK_PROCESS_DONE')",
+  ], context);
+  assert.equal(job.ownerSurface, "work");
+  const stored = readJob(job.id, context.env);
+  assert.equal(stored.ownerThreadId, context.env.CODEX_THREAD_ID);
+  assert.equal(stored.launchThreadId, context.env.CODEX_THREAD_ID);
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
+  const result = JSON.parse(runCli(["result", job.id, "--peek", "--json"], context.env).stdout);
+  assert.equal(result.job.exitCode, 0);
+  assert.equal(result.job.ownerSurface, "work");
+  assert.match(result.stdout, /WORK_PROCESS_DONE/);
+});
+
+test("Cloud Work launch without a rollout is status-only and starts no notifier", (t) => {
+  const context = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "codex_work_desktop",
+    CODEX_PROCESS_JOBS_DISABLE_NOTIFY: "0",
+  });
+  const job = startJson(["--no-notify-user", "--", process.execPath, "-e", "process.exit(0)"], context);
+  assert.equal(job.notification.status, "unavailable");
+  assert.equal(job.notification.presentation, "status-only");
+  assert.equal(job.notification.attempts, 0);
+  assert.match(job.notification.errorMessage, /automatic completion delivery is unavailable/);
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
+  const stored = readJob(job.id, context.env);
+  assert.equal(stored.notification.status, "unavailable");
+  assert.equal(stored.notification.attempts, 0);
+  assert.equal(stored.notification.relayPid, undefined);
+  assert.equal(stored.notification.idleWatchStartedAt, undefined);
+});
+
+test("local App rollout created after launch can still receive queued completion", (t) => {
+  const context = makeEnv(t, {
+    CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",
+    CODEX_PROCESS_JOBS_DISABLE_NOTIFY: "0",
+    CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE: "0",
+    CODEX_PROCESS_JOBS_NOTIFY_IDLE_SETTLE_MS: "1",
+  });
+  const marker = path.join(context.env.CODEX_HOME, "queue-marker");
+  const mock = path.join(context.env.CODEX_HOME, "mock-codex");
+  fs.writeFileSync(mock, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.argv.slice(2)));\n`, { mode: 0o700 });
+  context.env.CODEX_PROCESS_JOBS_CODEX_BIN = mock;
+  const job = startJson([
+    "--no-notify-user", "--", process.execPath, "-e", "setTimeout(() => process.exit(0), 400)",
+  ], context);
+  assert.equal(job.notification.status, "pending");
+  const sessions = path.join(context.env.CODEX_HOME, "sessions");
+  fs.mkdirSync(sessions);
+  fs.writeFileSync(path.join(sessions, `rollout-late-${context.env.CODEX_THREAD_ID}.jsonl`), JSON.stringify({
+    type: "event_msg", payload: { type: "task_complete", turn_id: "first-turn" },
+  }) + "\n");
+  assert.equal(waitJson(job.id, context.env).job.status, "completed");
+  assert.equal(waitUntil(() => readJob(job.id, context.env).notification.status === "accepted", 3000), true);
+  assert.equal(readJob(job.id, context.env).notification.transport, "codex-queue");
+  assert.equal(JSON.parse(fs.readFileSync(marker, "utf8"))[0], "queue");
+});
+
+for (const [originator, surface, hasRollout] of [
+  ["codex_work_desktop", "work", true],
+  ["Codex Desktop", "app", true],
+  ["Codex Desktop", "app", false],
+  ["codex_cli", "cli", false],
+]) {
+  test(`${surface} first-turn launch with rollout=${hasRollout} remains eligible`, (t) => {
+    const context = makeEnv(t, {
+      CODEX_INTERNAL_ORIGINATOR_OVERRIDE: originator,
+      CODEX_PROCESS_JOBS_DISABLE_NOTIFY: "0",
+      CODEX_PROCESS_JOBS_DISABLE_CODEX_QUEUE: "1",
+      CODEX_PROCESS_JOBS_NOTIFY_MAX_ATTEMPTS: "1",
+      CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_MS: "1",
+      CODEX_PROCESS_JOBS_NOTIFY_IDLE_WATCH_POLL_MS: "1",
+    });
+    if (hasRollout) {
+      const sessions = path.join(context.env.CODEX_HOME, "sessions");
+      fs.mkdirSync(sessions);
+      fs.writeFileSync(path.join(sessions, `rollout-first-${context.env.CODEX_THREAD_ID}.jsonl`), JSON.stringify({
+        type: "event_msg", payload: { type: "task_started", turn_id: "first-turn" },
+      }) + "\n");
+    }
+    const job = startJson([
+      "--no-notify-user", "--", process.execPath, "-e", "setTimeout(() => process.exit(0), 200)",
+    ], context);
+    assert.equal(job.ownerSurface, surface);
+    assert.equal(job.notification.status, "pending");
+    assert.equal(waitJson(job.id, context.env).job.status, "completed");
+    assert.equal(waitUntil(() => readJob(job.id, context.env).notification.status === "failed", 3000), true);
+  });
+}
 
 test("invalid owner thread ids fail closed to status-only notification", (t) => {
   const context = makeEnv(t, {

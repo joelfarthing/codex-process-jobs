@@ -4,6 +4,19 @@ Notable changes to Codex Process Jobs are documented here. The project follows [
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-30
+
+### Changed
+
+- Marketplace packages no longer include hooks. Completion notices carry fixed result-handling instructions. Missed deliveries require an explicit later status or result request. Skill instructions retain launch-turn rules without hook enforcement.
+- The local installer no longer enables the hooks feature.
+
+### Fixed
+
+- Recognize the Work executor originator. A Work owner without a local rollout now reports that automatic completion delivery is unavailable at launch. The process result remains available through status and result, without repeated delivery attempts or an idle watch.
+- Work owners with a local rollout can use `codex queue` after the owning turn becomes idle. Clean queue failures retain the existing fallback routes.
+- Preserve App and CLI notification behavior when a local rollout is temporarily absent. This release does not add completion delivery to cloud Work tasks.
+
 ## [0.5.0] - 2026-09-23
 
 ### Changed
